@@ -1,271 +1,133 @@
 import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-type RatingRowProps = {
-  label: string;
-  color: string;
-  value: number;
-  setValue: (n: number) => void;
-};
 
-function RatingRow({ label, color, value, setValue, disabled }: RatingRowProps & { disabled?: boolean }) {
-  return (
-    <View style={styles.ratingBlock}>
-      <Text style={[styles.ratingLabel, { color }]}>{label}</Text>
-      <View style={styles.ratingButtons}>
-        {[1, 2, 3, 4, 5].map(n => (
-          <TouchableOpacity
-            key={n}
-            style={[
-              styles.ratingBtn,
-              value === n && { backgroundColor: color, borderColor: color },
-              disabled && { opacity: 0.5 }
-            ]}
-            onPress={() => !disabled && setValue(n)}
-          >
-            <Text style={[styles.ratingBtnText, value === n && { color: '#07040F' }]}>
-              {n}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </View>
-  );
-}
+const LEVELS = [
+  { value: 1, emoji: '😴', label: 'Sehr niedrig' },
+  { value: 2, emoji: '😕', label: 'Niedrig' },
+  { value: 3, emoji: '😐', label: 'Mittel' },
+  { value: 4, emoji: '🙂', label: 'Gut' },
+  { value: 5, emoji: '🔥', label: 'Top' },
+];
 
-function isToday(dateString: string) {
-  const date = new Date(dateString);
-  const today = new Date();
-  return date.getDate() === today.getDate() &&
-    date.getMonth() === today.getMonth() &&
-    date.getFullYear() === today.getFullYear();
-}
+const STRESS_LEVELS = [
+  { value: 1, emoji: '😌', label: 'Kein Stress' },
+  { value: 2, emoji: '🙂', label: 'Wenig' },
+  { value: 3, emoji: '😐', label: 'Moderat' },
+  { value: 4, emoji: '😰', label: 'Hoch' },
+  { value: 5, emoji: '🤯', label: 'Sehr hoch' },
+];
 
 export default function CheckinScreen() {
   const [energie, setEnergie] = useState(3);
-  const [stress, setStress] = useState(3);
+  const [stress, setStress] = useState(2);
   const [motivation, setMotivation] = useState(3);
-  const [alreadyDone, setAlreadyDone] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [lastScore, setLastScore] = useState<number | null>(null);
 
-  useFocusEffect(
-    useCallback(() => {
-      async function load() {
-        const raw = await AsyncStorage.getItem('lastCheckin');
-        if (raw) {
-          const data = JSON.parse(raw);
-          setEnergie(data.energie ?? 3);
-          setStress(data.stress ?? 3);
-          setMotivation(data.motivation ?? 3);
-          if (isToday(data.date)) {
-            setAlreadyDone(true);
-            setEditing(false);
-          } else {
-            setAlreadyDone(false);
-          }
+  useEffect(() => {
+    async function load() {
+      const raw = await AsyncStorage.getItem('lastCheckin');
+      if (raw) {
+        const c = JSON.parse(raw);
+        const today = new Date();
+        const date = new Date(c.date ?? '');
+        if (date.getDate() === today.getDate() && date.getMonth() === today.getMonth()) {
+          setLastScore(c.score);
+          setSaved(true);
         }
       }
-      load();
-    }, [])
-  );
-
-  const score = Math.round((energie + (6 - stress) + motivation) / 3 * 20);
-  const scoreColor = score >= 70 ? '#A78BFA' : score >= 50 ? '#F472B6' : '#FB7185';
-  const scoreText = score >= 70 ? 'Gut – normales Training möglich' : score >= 50 ? 'Moderat – Intensität reduzieren' : 'Erholung empfohlen';
-
-  const isReadOnly = alreadyDone && !editing;
-
-  async function handleSave() {
-    const data = {
-      energie,
-      stress,
-      motivation,
-      score,
-      date: new Date().toISOString(),
-    };
-    await AsyncStorage.setItem('lastCheckin', JSON.stringify(data));
-
-    if (!alreadyDone) {
-      const rawHistory = await AsyncStorage.getItem('checkinHistory');
-      const history = rawHistory ? JSON.parse(rawHistory) : [];
-      history.push(data);
-      await AsyncStorage.setItem('checkinHistory', JSON.stringify(history));
-    } else {
-      const rawHistory = await AsyncStorage.getItem('checkinHistory');
-      if (rawHistory) {
-        const history = JSON.parse(rawHistory);
-        history[history.length - 1] = data;
-        await AsyncStorage.setItem('checkinHistory', JSON.stringify(history));
-      }
     }
+    load();
+  }, []);
 
-    setAlreadyDone(true);
-    setEditing(false);
-    router.push('/score-reveal');
+  async function save() {
+    const score = Math.round(((energie * 20) + ((6 - stress) * 20) + (motivation * 20)) / 3);
+    const data = { energie, stress, motivation, score, date: new Date().toISOString() };
+    await AsyncStorage.setItem('lastCheckin', JSON.stringify(data));
+    const rawHistory = await AsyncStorage.getItem('checkinHistory');
+    const history = rawHistory ? JSON.parse(rawHistory) : [];
+    const today = new Date().toDateString();
+    const filtered = history.filter((h: any) => new Date(h.date ?? '').toDateString() !== today);
+    filtered.push(data);
+    await AsyncStorage.setItem('checkinHistory', JSON.stringify(filtered));
+    setLastScore(score);
+    setSaved(true);
+    router.push('/score-reveal' as any);
   }
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-
       <BackButton />
-      <View style={styles.headerRow}>
-        <Text style={styles.headerLabel}>Check-in</Text>
-        {alreadyDone && !editing && (
-          <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
-            <Text style={styles.editBtnText}>Bearbeiten</Text>
+      <Text style={styles.headerLabel}>Daily Check-in</Text>
+      <Text style={styles.title}>Wie geht es{'\n'}dir heute?</Text>
+
+      {saved && lastScore !== null && (
+        <View style={styles.savedCard}>
+          <Text style={styles.savedTitle}>Heute bereits eingecheckt ✓</Text>
+          <Text style={styles.savedScore}>{lastScore}</Text>
+          <TouchableOpacity onPress={() => setSaved(false)}>
+            <Text style={styles.editLink}>Bearbeiten</Text>
           </TouchableOpacity>
-        )}
-      </View>
-
-      <Text style={styles.title}>
-        {isReadOnly ? 'Heute erledigt ✓' : 'Wie läuft\ndein Tag?'}
-      </Text>
-      <Text style={styles.subtitle}>
-        {isReadOnly ? 'Tippe Bearbeiten um Werte anzupassen' : 'Dauert unter 1 Minute'}
-      </Text>
-
-      <View style={styles.card}>
-        <RatingRow label="Energie" color="#67E8F9" value={energie} setValue={setEnergie} disabled={isReadOnly} />
-        <RatingRow label="Stress" color="#F472B6" value={stress} setValue={setStress} disabled={isReadOnly} />
-        <RatingRow label="Motivation" color="#FB923C" value={motivation} setValue={setMotivation} disabled={isReadOnly} />
-      </View>
-
-      <View style={styles.scorePreview}>
-        <Text style={styles.scorePreviewLabel}>Heutiger Score</Text>
-        <Text style={[styles.scorePreviewNumber, { color: scoreColor }]}>{score}</Text>
-        <Text style={[styles.scorePreviewText, { color: scoreColor }]}>{scoreText}</Text>
-      </View>
-
-      {!isReadOnly && (
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-          <Text style={styles.saveBtnText}>
-            {editing ? 'Änderungen speichern' : 'Check-in speichern'}
-          </Text>
-        </TouchableOpacity>
+        </View>
       )}
 
+      {!saved && (
+        <>
+          {[
+            { label: 'Energie', value: energie, setValue: setEnergie, levels: LEVELS, color: '#FB923C' },
+            { label: 'Stress', value: stress, setValue: setStress, levels: STRESS_LEVELS, color: '#F472B6' },
+            { label: 'Motivation', value: motivation, setValue: setMotivation, levels: LEVELS, color: '#A78BFA' },
+          ].map(item => (
+            <View key={item.label} style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Text style={[styles.cardTitle, { color: item.color }]}>{item.label}</Text>
+                <Text style={styles.cardEmoji}>{item.levels[item.value - 1].emoji}</Text>
+                <Text style={styles.cardLevel}>{item.levels[item.value - 1].label}</Text>
+              </View>
+              <View style={styles.btnRow}>
+                {item.levels.map(level => (
+                  <TouchableOpacity
+                    key={level.value}
+                    style={[styles.levelBtn, item.value === level.value && { backgroundColor: item.color + '30', borderColor: item.color }]}
+                    onPress={() => item.setValue(level.value)}
+                  >
+                    <Text style={styles.levelEmoji}>{level.emoji}</Text>
+                    <Text style={[styles.levelNum, item.value === level.value && { color: item.color }]}>{level.value}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          ))}
+
+          <TouchableOpacity style={styles.saveBtn} onPress={save}>
+            <Text style={styles.saveBtnText}>Check-in speichern</Text>
+          </TouchableOpacity>
+        </>
+      )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#07040F',
-    paddingHorizontal: 20,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 60,
-    marginBottom: 12,
-  },
-  headerLabel: {
-    color: '#5B4A8A',
-    fontSize: 11,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-  },
-  editBtn: {
-    backgroundColor: 'rgba(124,58,237,0.2)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(124,58,237,0.4)',
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-  },
-  editBtnText: {
-    color: '#A78BFA',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  title: {
-    color: '#E2D9F3',
-    fontSize: 28,
-    fontWeight: '500',
-    lineHeight: 36,
-    marginBottom: 6,
-  },
-  subtitle: {
-    color: '#5B4A8A',
-    fontSize: 13,
-    marginBottom: 24,
-  },
-  card: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 20,
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.07)',
-    padding: 20,
-    gap: 20,
-    marginBottom: 16,
-  },
-  ratingBlock: {
-    gap: 10,
-  },
-  ratingLabel: {
-    fontSize: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    fontWeight: '500',
-  },
-  ratingButtons: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  ratingBtn: {
-    flex: 1,
-    height: 42,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  ratingBtnText: {
-    color: '#3D2E5C',
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  scorePreview: {
-    backgroundColor: 'rgba(124,58,237,0.1)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(124,58,237,0.25)',
-    borderRadius: 20,
-    padding: 24,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  scorePreviewLabel: {
-    color: '#5B4A8A',
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 8,
-  },
-  scorePreviewNumber: {
-    fontSize: 56,
-    fontWeight: '500',
-    lineHeight: 60,
-  },
-  scorePreviewText: {
-    fontSize: 12,
-    marginTop: 6,
-  },
-  saveBtn: {
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 40,
-    backgroundColor: '#7C3AED',
-  },
-  saveBtnText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '500',
-  },
+  container: { flex: 1, backgroundColor: '#07040F', paddingHorizontal: 20 },
+  headerLabel: { color: '#5B4A8A', fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+  title: { color: '#E2D9F3', fontSize: 28, fontWeight: '500', lineHeight: 36, marginBottom: 24 },
+  savedCard: { backgroundColor: 'rgba(124,58,237,0.1)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.3)', padding: 24, marginBottom: 20, alignItems: 'center', gap: 6 },
+  savedTitle: { color: '#A78BFA', fontSize: 14, fontWeight: '500' },
+  savedScore: { color: '#E2D9F3', fontSize: 48, fontWeight: '500' },
+  editLink: { color: '#5B4A8A', fontSize: 13, marginTop: 8 },
+  card: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.07)', padding: 16, marginBottom: 12, gap: 14 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardTitle: { fontSize: 15, fontWeight: '500', flex: 1 },
+  cardEmoji: { fontSize: 20 },
+  cardLevel: { color: '#5B4A8A', fontSize: 12 },
+  btnRow: { flexDirection: 'row', gap: 8 },
+  levelBtn: { flex: 1, borderRadius: 12, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.08)', backgroundColor: 'rgba(255,255,255,0.03)', padding: 10, alignItems: 'center', gap: 4 },
+  levelEmoji: { fontSize: 18 },
+  levelNum: { color: '#5B4A8A', fontSize: 11, fontWeight: '500' },
+  saveBtn: { backgroundColor: '#7C3AED', borderRadius: 16, padding: 16, alignItems: 'center', marginBottom: 40 },
+  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '500' },
 });

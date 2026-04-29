@@ -94,7 +94,7 @@ const TRAINING_TABS = [
 function MainTabBar({ pathname }: { pathname: string }) {
   function getIndex() {
     if (pathname === '/') return 0;
-    if (pathname.includes('/health') || pathname.includes('/sleep') || pathname.includes('/checkin') || pathname.includes('/battery') || pathname.includes('/habits')) return 1;
+    if (pathname.includes('/health') || pathname.includes('/sleep') || pathname.includes('/checkin') || pathname.includes('/battery') || pathname.includes('/habits') || pathname.includes('/weight')) return 1;
     if (pathname.includes('/training') || pathname.includes('/body') || pathname.includes('/ranking') || pathname.includes('/workout-timer') || pathname.includes('/prs')) return 2;
     if (pathname.includes('/history')) return 3;
     return 0;
@@ -134,24 +134,18 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
     <View style={styles.wrapper}>
       <View style={[styles.container, styles.trainingContainer]}>
         {TRAINING_TABS.map(({ route, label, Icon, isStop }: any) => {
-          const active = pathname.includes(route) && !isStop;
+          const active = !isStop && pathname.includes(route);
           return (
             <TouchableOpacity
               key={label}
               style={styles.tab}
-              onPress={() => {
-                if (isStop) {
-                  onStop();
-                } else {
-                  router.push(route as any);
-                }
-              }}
+              onPress={() => { if (isStop) onStop(); else router.push(route as any); }}
               activeOpacity={0.6}
             >
               <View style={styles.dotWrap}>
-                {active && <View style={[styles.dotActive, { backgroundColor: '#FB7185' }]} />}
+                {active && <View style={[styles.dotActive, { backgroundColor: '#FB923C' }]} />}
               </View>
-              <Icon color={isStop ? '#FB7185' : active ? '#FB923C' : '#1A3A4A'} />
+              <Icon color={isStop ? '#FB7185' : active ? '#FB923C' : '#3A2010'} />
               <Text style={[styles.label, active && { color: '#FB923C' }, isStop && { color: '#FB7185' }]}>
                 {label}
               </Text>
@@ -198,10 +192,10 @@ export default function TabLayout() {
         const w = JSON.parse(raw);
         const today = new Date();
         const date = new Date(w.date);
-        const isToday = date.getDate() === today.getDate() &&
+        const todayMatch = date.getDate() === today.getDate() &&
           date.getMonth() === today.getMonth() &&
           date.getFullYear() === today.getFullYear();
-        setIsTraining(isToday);
+        setIsTraining(todayMatch);
       } else {
         setIsTraining(false);
       }
@@ -229,62 +223,12 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 14,
-    paddingBottom: 22,
-    backgroundColor: 'transparent',
-  },
-  container: {
-    flexDirection: 'row',
-    backgroundColor: '#080E12',
-    borderRadius: 26,
-    borderWidth: 0.5,
-    borderColor: 'rgba(34,211,238,0.15)',
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    shadowColor: '#22D3EE',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-  },
-  trainingContainer: {
-    borderColor: 'rgba(251,146,60,0.3)',
-    backgroundColor: '#120A05',
-    shadowColor: '#FB923C',
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 3,
-  },
-  dotWrap: {
-    height: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 2,
-  },
-  dotActive: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#22D3EE',
-    shadowColor: '#22D3EE',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 1,
-    shadowRadius: 6,
-  },
-  label: {
-    color: '#1A3A4A',
-    fontSize: 8,
-    letterSpacing: 0.5,
-  },
-  labelActive: {
-    color: '#A5F3FC',
-  },
+  wrapper: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 14, paddingBottom: 22, backgroundColor: 'transparent' },
+  container: { flexDirection: 'row', backgroundColor: '#080E12', borderRadius: 26, borderWidth: 0.5, borderColor: 'rgba(34,211,238,0.15)', paddingVertical: 10, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'space-around', shadowColor: '#22D3EE', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16 },
+  trainingContainer: { borderColor: 'rgba(251,146,60,0.3)', backgroundColor: '#120A05', shadowColor: '#FB923C' },
+  tab: { flex: 1, alignItems: 'center', gap: 3 },
+  dotWrap: { height: 6, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  dotActive: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#22D3EE', shadowColor: '#22D3EE', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 6 },
+  label: { color: '#1A3A4A', fontSize: 8, letterSpacing: 0.5 },
+  labelActive: { color: '#A5F3FC' },
 });

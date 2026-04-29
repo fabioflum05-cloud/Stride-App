@@ -1,15 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
 function isToday(dateString: string) {
   const date = new Date(dateString);
   const today = new Date();
-  return date.getDate() === today.getDate() &&
-    date.getMonth() === today.getMonth() &&
-    date.getFullYear() === today.getFullYear();
+  return date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
 }
 
 export default function HealthScreen() {
@@ -20,46 +18,40 @@ export default function HealthScreen() {
   const [batteryLevel, setBatteryLevel] = useState(0);
   const [habitsCompleted, setHabitsCompleted] = useState(0);
   const [habitsTotal, setHabitsTotal] = useState(0);
+  const [currentWeight, setCurrentWeight] = useState<string | null>(null);
 
-  useFocusEffect(
-    useCallback(() => {
-      async function load() {
-        const rawSleep = await AsyncStorage.getItem('lastSleep');
-        const rawCheckin = await AsyncStorage.getItem('lastCheckin');
-        const rawBattery = await AsyncStorage.getItem('batteryData');
-        const rawHabits = await AsyncStorage.getItem('habits');
+  useEffect(() => {
+    async function load() {
+      const rawSleep = await AsyncStorage.getItem('lastSleep');
+      const rawCheckin = await AsyncStorage.getItem('lastCheckin');
+      const rawBattery = await AsyncStorage.getItem('batteryData');
+      const rawHabits = await AsyncStorage.getItem('habits');
+      const rawProfile = await AsyncStorage.getItem('profile');
+      const rawWeight = await AsyncStorage.getItem('weightHistory');
 
-        if (rawSleep) {
-          const s = JSON.parse(rawSleep);
-          if (isToday(s.date)) { setSleepDone(true); setSleepScore(s.sleepScore); }
-        }
-        if (rawCheckin) {
-          const c = JSON.parse(rawCheckin);
-          if (isToday(c.date ?? '')) { setCheckinDone(true); setCheckinScore(c.score); }
-        }
-        if (rawBattery) {
-          const b = JSON.parse(rawBattery);
-          if (isToday(b.date)) setBatteryLevel(b.level);
-        }
-        if (rawHabits) {
-          const h = JSON.parse(rawHabits);
-          setHabitsTotal(h.length);
-          setHabitsCompleted(h.filter((habit: any) =>
-            habit.completedDates?.some(isToday)
-          ).length);
-        }
+      if (rawSleep) { const s = JSON.parse(rawSleep); if (isToday(s.date)) { setSleepDone(true); setSleepScore(s.sleepScore); } }
+      if (rawCheckin) { const c = JSON.parse(rawCheckin); if (isToday(c.date ?? '')) { setCheckinDone(true); setCheckinScore(c.score); } }
+      if (rawBattery) { const b = JSON.parse(rawBattery); if (isToday(b.date)) setBatteryLevel(b.level); }
+      if (rawHabits) {
+        const h = JSON.parse(rawHabits);
+        setHabitsTotal(h.length);
+        setHabitsCompleted(h.filter((habit: any) => habit.completedDates?.some(isToday)).length);
       }
-      load();
-    }, [])
-  );
+      if (rawWeight) {
+        const w = JSON.parse(rawWeight);
+        if (w.length > 0) setCurrentWeight(w[w.length - 1].weight + ' kg');
+      } else if (rawProfile) {
+        const p = JSON.parse(rawProfile);
+        if (p.weight) setCurrentWeight(p.weight + ' kg');
+      }
+    }
+    load();
+  }, []);
 
   const sections = [
     {
-      title: 'Schlaf',
-      subtitle: sleepDone ? `Score ${sleepScore}` : 'Noch nicht geloggt',
-      done: sleepDone,
-      color: '#EC4899',
-      route: '/(tabs)/sleep',
+      title: 'Schlaf', subtitle: sleepDone ? `Score ${sleepScore}` : 'Noch nicht geloggt',
+      done: sleepDone, color: '#EC4899', route: '/(tabs)/sleep',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.5} />
@@ -68,11 +60,8 @@ export default function HealthScreen() {
       ),
     },
     {
-      title: 'Daily Check-in',
-      subtitle: checkinDone ? `Score ${checkinScore}` : 'Noch nicht ausgefüllt',
-      done: checkinDone,
-      color: '#A78BFA',
-      route: '/(tabs)/checkin',
+      title: 'Daily Check-in', subtitle: checkinDone ? `Score ${checkinScore}` : 'Noch nicht ausgefüllt',
+      done: checkinDone, color: '#A78BFA', route: '/(tabs)/checkin',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.5} />
@@ -81,11 +70,8 @@ export default function HealthScreen() {
       ),
     },
     {
-      title: 'Body Battery',
-      subtitle: batteryLevel > 0 ? `${batteryLevel}% geladen` : 'Noch nicht gestartet',
-      done: batteryLevel > 0,
-      color: '#67E8F9',
-      route: '/(tabs)/battery',
+      title: 'Body Battery', subtitle: batteryLevel > 0 ? `${batteryLevel}% geladen` : 'Noch nicht gestartet',
+      done: batteryLevel > 0, color: '#67E8F9', route: '/(tabs)/battery',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Rect x={3} y={7} width={16} height={10} rx={2} stroke={color} strokeWidth={1.5} />
@@ -95,11 +81,8 @@ export default function HealthScreen() {
       ),
     },
     {
-      title: 'Habits',
-      subtitle: habitsTotal > 0 ? `${habitsCompleted}/${habitsTotal} erledigt` : 'Keine Habits definiert',
-      done: habitsCompleted === habitsTotal && habitsTotal > 0,
-      color: '#FB923C',
-      route: '/(tabs)/habits',
+      title: 'Habits', subtitle: habitsTotal > 0 ? `${habitsCompleted}/${habitsTotal} erledigt` : 'Keine Habits definiert',
+      done: habitsCompleted === habitsTotal && habitsTotal > 0, color: '#FB923C', route: '/(tabs)/habits',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Rect x={3} y={5} width={18} height={2} rx={1} fill={color} opacity={0.4} />
@@ -107,12 +90,10 @@ export default function HealthScreen() {
           <Rect x={3} y={17} width={18} height={2} rx={1} fill={color} />
         </Svg>
       ),
-    },{
-      title: 'Gewicht',
-      subtitle: '-- kg',
-      done: false,
-      color: '#A78BFA',
-      route: '/(tabs)/weight',
+    },
+    {
+      title: 'Gewicht', subtitle: currentWeight ?? 'Noch nicht geloggt',
+      done: currentWeight !== null, color: '#A78BFA', route: '/(tabs)/weight',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Path d="M12 3C9 3 6.5 5 6.5 8C6.5 9.5 7 10.8 8 11.8L5 21H19L16 11.8C17 10.8 17.5 9.5 17.5 8C17.5 5 15 3 12 3Z"
@@ -126,17 +107,16 @@ export default function HealthScreen() {
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-
       <Text style={styles.headerLabel}>Health</Text>
       <Text style={styles.title}>Deine{'\n'}Gesundheit</Text>
 
       <View style={styles.progressCard}>
         <View style={styles.progressTop}>
-          <Text style={styles.progressBig}>{completedCount}/4</Text>
+          <Text style={styles.progressBig}>{completedCount}/{sections.length}</Text>
           <Text style={styles.progressSub}>Heute erledigt</Text>
         </View>
         <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${(completedCount / 4) * 100}%` as any }]} />
+          <View style={[styles.progressFill, { width: `${(completedCount / sections.length) * 100}%` as any }]} />
         </View>
       </View>
 
@@ -159,117 +139,30 @@ export default function HealthScreen() {
               )}
             </View>
             <Text style={styles.cardTitle}>{section.title}</Text>
-            <Text style={[styles.cardSub, { color: section.done ? section.color : '#3D2E5C' }]}>
-              {section.subtitle}
-            </Text>
+            <Text style={[styles.cardSub, { color: section.done ? section.color : '#3D2E5C' }]}>{section.subtitle}</Text>
           </TouchableOpacity>
         ))}
       </View>
-
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#07040F',
-    paddingHorizontal: 20,
-  },
-  headerLabel: {
-    color: '#5B4A8A',
-    fontSize: 11,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    marginTop: 60,
-    marginBottom: 12,
-  },
-  title: {
-    color: '#E2D9F3',
-    fontSize: 28,
-    fontWeight: '500',
-    lineHeight: 36,
-    marginBottom: 24,
-  },
-  progressCard: {
-    backgroundColor: 'rgba(124,58,237,0.08)',
-    borderRadius: 16,
-    borderWidth: 0.5,
-    borderColor: 'rgba(124,58,237,0.2)',
-    padding: 20,
-    marginBottom: 20,
-  },
-  progressTop: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
-    marginBottom: 12,
-  },
-  progressBig: {
-    color: '#E2D9F3',
-    fontSize: 36,
-    fontWeight: '500',
-  },
-  progressSub: {
-    color: '#5B4A8A',
-    fontSize: 13,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: '#7C3AED',
-    borderRadius: 2,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    paddingBottom: 120,
-  },
-  card: {
-    width: '48%',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 18,
-    borderWidth: 0.5,
-    padding: 16,
-    gap: 8,
-  },
-  cardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 4,
-  },
-  iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  doneBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 0.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  doneBadgeText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  cardTitle: {
-    color: '#E2D9F3',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  cardSub: {
-    fontSize: 12,
-  },
+  container: { flex: 1, backgroundColor: '#07040F', paddingHorizontal: 20 },
+  headerLabel: { color: '#5B4A8A', fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
+  title: { color: '#E2D9F3', fontSize: 28, fontWeight: '500', lineHeight: 36, marginBottom: 24 },
+  progressCard: { backgroundColor: 'rgba(124,58,237,0.08)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.2)', padding: 20, marginBottom: 20 },
+  progressTop: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 12 },
+  progressBig: { color: '#E2D9F3', fontSize: 36, fontWeight: '500' },
+  progressSub: { color: '#5B4A8A', fontSize: 13 },
+  progressBar: { height: 4, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: '#7C3AED', borderRadius: 2 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingBottom: 120 },
+  card: { width: '48%', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 18, borderWidth: 0.5, padding: 16, gap: 8 },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 },
+  iconWrap: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  doneBadge: { width: 24, height: 24, borderRadius: 12, borderWidth: 0.5, alignItems: 'center', justifyContent: 'center' },
+  doneBadgeText: { fontSize: 12, fontWeight: '500' },
+  cardTitle: { color: '#E2D9F3', fontSize: 14, fontWeight: '500' },
+  cardSub: { fontSize: 12 },
 });

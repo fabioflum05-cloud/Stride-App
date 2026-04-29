@@ -1,520 +1,186 @@
 import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-type Habit = {
-  id: string;
-  name: string;
-  identity: string;
-  category: 'morgen' | 'training' | 'ernaehrung' | 'abend' | 'custom';
-  streak: number;
-  completedToday: boolean;
-  completedDates: string[];
-};
 
-const DEFAULT_HABITS: Habit[] = [
-  { id: '1', name: 'Kreatin nehmen', identity: 'Ich bin jemand der konstant supplementiert', category: 'morgen', streak: 0, completedToday: false, completedDates: [] },
-  { id: '2', name: '2L Wasser trinken', identity: 'Ich bin jemand der gut hydriert bleibt', category: 'morgen', streak: 0, completedToday: false, completedDates: [] },
-  { id: '3', name: 'Training absolviert', identity: 'Ich bin ein Athlet', category: 'training', streak: 0, completedToday: false, completedDates: [] },
-  { id: '4', name: 'Protein-Ziel erreicht', identity: 'Ich bin jemand der seinen Körper gut ernährt', category: 'ernaehrung', streak: 0, completedToday: false, completedDates: [] },
-  { id: '5', name: 'Vor 23:00 ins Bett', identity: 'Ich bin jemand der Schlaf priorisiert', category: 'abend', streak: 0, completedToday: false, completedDates: [] },
+type Habit = { id: string; name: string; identity: string; category: string; streak: number; completedDates: string[]; };
+
+const CATEGORIES = [
+  { key: 'health', label: '💪 Health', color: '#10B981' },
+  { key: 'mind', label: '🧠 Mental', color: '#A78BFA' },
+  { key: 'sleep', label: '🌙 Schlaf', color: '#EC4899' },
+  { key: 'nutrition', label: '🥗 Ernährung', color: '#FB923C' },
+  { key: 'training', label: '🏋️ Training', color: '#67E8F9' },
+  { key: 'other', label: '⭐ Anderes', color: '#F472B6' },
 ];
 
 const CATEGORY_COLORS: Record<string, string> = {
-  morgen: '#F472B6',
-  training: '#67E8F9',
-  ernaehrung: '#FB923C',
-  abend: '#A78BFA',
-  custom: '#7C3AED',
-};
-
-const CATEGORY_LABELS: Record<string, string> = {
-  morgen: 'Morgen',
-  training: 'Training',
-  ernaehrung: 'Ernährung',
-  abend: 'Abend',
-  custom: 'Custom',
+  health: '#10B981', mind: '#A78BFA', sleep: '#EC4899',
+  nutrition: '#FB923C', training: '#67E8F9', other: '#F472B6',
 };
 
 function isToday(dateString: string) {
   const date = new Date(dateString);
   const today = new Date();
-  return date.getDate() === today.getDate() &&
-    date.getMonth() === today.getMonth() &&
-    date.getFullYear() === today.getFullYear();
+  return date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
+}
+
+function calculateStreak(completedDates: string[]): number {
+  if (completedDates.length === 0) return 0;
+  const sorted = [...completedDates].sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  let streak = 0;
+  let checkDate = new Date();
+  checkDate.setHours(0, 0, 0, 0);
+  for (const dateStr of sorted) {
+    const date = new Date(dateStr);
+    date.setHours(0, 0, 0, 0);
+    const diff = (checkDate.getTime() - date.getTime()) / (1000 * 60 * 60 * 24);
+    if (diff <= 1) { streak++; checkDate = date; } else break;
+  }
+  return streak;
 }
 
 export default function HabitsScreen() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [showModal, setShowModal] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newIdentity, setNewIdentity] = useState('');
-  const [newCategory, setNewCategory] = useState<Habit['category']>('custom');
-  const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
+  const [habitName, setHabitName] = useState('');
+  const [habitIdentity, setHabitIdentity] = useState('');
+  const [habitCategory, setHabitCategory] = useState('health');
 
-  useFocusEffect(
-    useCallback(() => {
-      async function load() {
-        const raw = await AsyncStorage.getItem('habits');
-        if (raw) {
-          const saved: Habit[] = JSON.parse(raw);
-          const updated = saved.map(h => ({
-            ...h,
-            completedToday: h.completedDates.some(isToday),
-          }));
-          setHabits(updated);
-        } else {
-          setHabits(DEFAULT_HABITS);
-          await AsyncStorage.setItem('habits', JSON.stringify(DEFAULT_HABITS));
-        }
-      }
-      load();
-    }, [])
-  );
+  useEffect(() => {
+    async function load() {
+      const raw = await AsyncStorage.getItem('habits');
+      if (raw) setHabits(JSON.parse(raw));
+    }
+    load();
+  }, []);
 
   async function toggleHabit(id: string) {
-    const today = new Date().toISOString();
     const updated = habits.map(h => {
       if (h.id !== id) return h;
-      const alreadyDone = h.completedDates.some(isToday);
-      if (alreadyDone) {
-        const newDates = h.completedDates.filter(d => !isToday(d));
-        return { ...h, completedToday: false, completedDates: newDates, streak: Math.max(0, h.streak - 1) };
-      } else {
-        return { ...h, completedToday: true, completedDates: [...h.completedDates, today], streak: h.streak + 1 };
-      }
+      const completedToday = h.completedDates.some(isToday);
+      const newDates = completedToday ? h.completedDates.filter(d => !isToday(d)) : [...h.completedDates, new Date().toISOString()];
+      return { ...h, completedDates: newDates, streak: calculateStreak(newDates) };
     });
     setHabits(updated);
     await AsyncStorage.setItem('habits', JSON.stringify(updated));
   }
 
   async function addHabit() {
-    if (!newName.trim()) return;
-    const habit: Habit = {
-      id: Date.now().toString(),
-      name: newName.trim(),
-      identity: newIdentity.trim() || `Ich bin jemand der ${newName.toLowerCase()} macht`,
-      category: newCategory,
-      streak: 0,
-      completedToday: false,
-      completedDates: [],
-    };
+    if (!habitName.trim()) { Alert.alert('Name fehlt'); return; }
+    const habit: Habit = { id: Date.now().toString(), name: habitName.trim(), identity: habitIdentity.trim(), category: habitCategory, streak: 0, completedDates: [] };
     const updated = [...habits, habit];
     setHabits(updated);
     await AsyncStorage.setItem('habits', JSON.stringify(updated));
-    setNewName('');
-    setNewIdentity('');
+    setHabitName(''); setHabitIdentity(''); setHabitCategory('health');
     setShowModal(false);
   }
 
   async function deleteHabit(id: string) {
-    Alert.alert('Habit löschen?', 'Der gesamte Streak geht verloren.', [
+    Alert.alert('Habit löschen?', '', [
       { text: 'Abbrechen', style: 'cancel' },
-      {
-        text: 'Löschen', style: 'destructive', onPress: async () => {
-          const updated = habits.filter(h => h.id !== id);
-          setHabits(updated);
-          await AsyncStorage.setItem('habits', JSON.stringify(updated));
-        }
-      }
+      { text: 'Löschen', style: 'destructive', onPress: async () => {
+        const updated = habits.filter(h => h.id !== id);
+        setHabits(updated);
+        await AsyncStorage.setItem('habits', JSON.stringify(updated));
+      }}
     ]);
   }
 
-  const completedCount = habits.filter(h => h.completedToday).length;
-  const totalCount = habits.length;
-  const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
-
-  const categories = ['morgen', 'training', 'ernaehrung', 'abend', 'custom'] as const;
-
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-
       <BackButton />
       <Text style={styles.headerLabel}>Habits</Text>
       <Text style={styles.title}>Deine{'\n'}Gewohnheiten</Text>
 
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryTop}>
-          <View>
-            <Text style={styles.summaryBig}>{completedCount}/{totalCount}</Text>
-            <Text style={styles.summaryLbl}>Heute erledigt</Text>
-          </View>
-          <View style={styles.summaryRight}>
-            <Text style={[styles.summaryRate, { color: completionRate >= 80 ? '#A78BFA' : completionRate >= 50 ? '#F472B6' : '#FB7185' }]}>
-              {completionRate}%
-            </Text>
-            <Text style={styles.summaryLbl}>Konsistenz</Text>
-          </View>
-        </View>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, {
-            width: `${completionRate}%` as any,
-            backgroundColor: completionRate >= 80 ? '#7C3AED' : completionRate >= 50 ? '#EC4899' : '#FB7185'
-          }]} />
-        </View>
-        <Text style={styles.atomicQuote}>
-          {completionRate === 100 ? '🔥 Perfekter Tag – 1% besser als gestern!' :
-            completionRate >= 80 ? '💪 Fast da – bleib dran!' :
-              completionRate >= 50 ? '⚡ Halbzeit – du schaffst das!' :
-                '🌱 Jeder Start zählt – fang klein an'}
-        </Text>
-      </View>
-
-      {categories.map(cat => {
-        const catHabits = habits.filter(h => h.category === cat);
+      {CATEGORIES.map(cat => {
+        const catHabits = habits.filter(h => h.category === cat.key);
         if (catHabits.length === 0) return null;
-        const color = CATEGORY_COLORS[cat];
         return (
-          <View key={cat} style={styles.categorySection}>
-            <Text style={[styles.categoryLabel, { color }]}>{CATEGORY_LABELS[cat]}</Text>
-            {catHabits.map(habit => (
-              <View key={habit.id}>
-                <TouchableOpacity
-                  style={[styles.habitRow, habit.completedToday && styles.habitRowDone]}
+          <View key={cat.key} style={styles.categorySection}>
+            <Text style={[styles.categoryLabel, { color: cat.color }]}>{cat.label}</Text>
+            {catHabits.map(habit => {
+              const done = habit.completedDates.some(isToday);
+              const color = CATEGORY_COLORS[habit.category];
+              return (
+                <TouchableOpacity key={habit.id}
+                  style={[styles.habitRow, done && { borderColor: color + '40', backgroundColor: color + '08' }]}
                   onPress={() => toggleHabit(habit.id)}
-                  onLongPress={() => setExpandedHabit(expandedHabit === habit.id ? null : habit.id)}
+                  onLongPress={() => deleteHabit(habit.id)}
+                  activeOpacity={0.7}
                 >
-                  <View style={[styles.habitCheck, habit.completedToday && { backgroundColor: color + '33', borderColor: color }]}>
-                    {habit.completedToday && <Text style={[styles.habitCheckMark, { color }]}>✓</Text>}
+                  <View style={[styles.check, done && { backgroundColor: color + '30', borderColor: color }]}>
+                    {done && <Text style={[styles.checkMark, { color }]}>✓</Text>}
                   </View>
-                  <View style={styles.habitContent}>
-                    <Text style={[styles.habitName, habit.completedToday && { color: '#5B4A8A' }]}>{habit.name}</Text>
-                    {habit.streak > 0 && (
-                      <Text style={styles.habitStreak}>🔥 {habit.streak} Tage</Text>
-                    )}
+                  <View style={styles.habitInfo}>
+                    <Text style={[styles.habitName, done && { color: '#5B4A8A' }]}>{habit.name}</Text>
                   </View>
-                  <TouchableOpacity onPress={() => deleteHabit(habit.id)} style={styles.deleteBtn}>
-                    <Text style={styles.deleteBtnText}>×</Text>
-                  </TouchableOpacity>
+                  {habit.streak > 0 && (
+                    <View style={styles.streakBadge}>
+                      <Text style={styles.streakText}>🔥 {habit.streak}</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
-                {expandedHabit === habit.id && (
-                  <View style={styles.identityBox}>
-                    <Text style={styles.identityText}>"{habit.identity}"</Text>
-                  </View>
-                )}
-              </View>
-            ))}
+              );
+            })}
           </View>
         );
       })}
 
       <TouchableOpacity style={styles.addBtn} onPress={() => setShowModal(true)}>
-        <Text style={styles.addBtnText}>+ Neue Habit hinzufügen</Text>
+        <Text style={styles.addBtnText}>+ Habit hinzufügen</Text>
       </TouchableOpacity>
-
-      <View style={styles.atomicTip}>
-        <Text style={styles.atomicTipTitle}>Atomic Habits Tipp</Text>
-        <Text style={styles.atomicTipText}>
-          Mach es einfach. Eine neue Habit sollte in under 2 Minuten machbar sein. Starte klein – "Training absolviert" kann auch ein 10-Minuten Spaziergang sein.
-        </Text>
-      </View>
 
       <Modal visible={showModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Neue Habit</Text>
-
-            <Text style={styles.inputLabel}>Name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="z.B. Meditation"
-              placeholderTextColor="#3D2E5C"
-              value={newName}
-              onChangeText={setNewName}
-            />
-
-            <Text style={styles.inputLabel}>Identity (optional)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Ich bin jemand der..."
-              placeholderTextColor="#3D2E5C"
-              value={newIdentity}
-              onChangeText={setNewIdentity}
-            />
-
-            <Text style={styles.inputLabel}>Kategorie</Text>
-            <View style={styles.categoryPicker}>
-              {categories.map(cat => (
-                <TouchableOpacity
-                  key={cat}
-                  style={[styles.catBtn, newCategory === cat && { backgroundColor: CATEGORY_COLORS[cat] + '33', borderColor: CATEGORY_COLORS[cat] }]}
-                  onPress={() => setNewCategory(cat)}
-                >
-                  <Text style={[styles.catBtnText, newCategory === cat && { color: CATEGORY_COLORS[cat] }]}>
-                    {CATEGORY_LABELS[cat]}
-                  </Text>
+            <Text style={styles.modalTitle}>Neuer Habit</Text>
+            <TextInput style={styles.input} placeholder="Name" placeholderTextColor="#3D2E5C" value={habitName} onChangeText={setHabitName} />
+            <View style={styles.catGrid}>
+              {CATEGORIES.map(cat => (
+                <TouchableOpacity key={cat.key}
+                  style={[styles.catBtn, habitCategory === cat.key && { backgroundColor: CATEGORY_COLORS[cat.key] + '25', borderColor: CATEGORY_COLORS[cat.key] + '60' }]}
+                  onPress={() => setHabitCategory(cat.key)}>
+                  <Text style={[styles.catBtnText, habitCategory === cat.key && { color: CATEGORY_COLORS[cat.key] }]}>{cat.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>
-
             <TouchableOpacity style={styles.saveBtn} onPress={addHabit}>
-              <Text style={styles.saveBtnText}>Hinzufügen</Text>
+              <Text style={styles.saveBtnText}>Erstellen</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowModal(false)}>
+            <TouchableOpacity onPress={() => setShowModal(false)}>
               <Text style={styles.cancelBtnText}>Abbrechen</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#07040F',
-    paddingHorizontal: 20,
-  },
-  headerLabel: {
-    color: '#5B4A8A',
-    fontSize: 11,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    marginTop: 60,
-    marginBottom: 12,
-  },
-  title: {
-    color: '#E2D9F3',
-    fontSize: 28,
-    fontWeight: '500',
-    lineHeight: 36,
-    marginBottom: 24,
-  },
-  summaryCard: {
-    backgroundColor: 'rgba(124,58,237,0.08)',
-    borderRadius: 20,
-    borderWidth: 0.5,
-    borderColor: 'rgba(124,58,237,0.2)',
-    padding: 20,
-    marginBottom: 24,
-  },
-  summaryTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  summaryBig: {
-    color: '#E2D9F3',
-    fontSize: 36,
-    fontWeight: '500',
-  },
-  summaryRight: {
-    alignItems: 'flex-end',
-  },
-  summaryRate: {
-    fontSize: 36,
-    fontWeight: '500',
-  },
-  summaryLbl: {
-    color: '#5B4A8A',
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginTop: 2,
-  },
-  progressBar: {
-    height: 4,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 2,
-  },
-  atomicQuote: {
-    color: '#5B4A8A',
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  categorySection: {
-    marginBottom: 20,
-  },
-  categoryLabel: {
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 10,
-    fontWeight: '500',
-  },
-  habitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 14,
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.07)',
-    padding: 14,
-    marginBottom: 6,
-    gap: 12,
-  },
-  habitRowDone: {
-    backgroundColor: 'rgba(124,58,237,0.05)',
-    borderColor: 'rgba(124,58,237,0.15)',
-  },
-  habitCheck: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  habitCheckMark: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  habitContent: {
-    flex: 1,
-  },
-  habitName: {
-    color: '#C4B5D9',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  habitStreak: {
-    color: '#5B4A8A',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  deleteBtn: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deleteBtnText: {
-    color: '#3D2E5C',
-    fontSize: 18,
-  },
-  identityBox: {
-    backgroundColor: 'rgba(124,58,237,0.08)',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 6,
-    marginLeft: 36,
-  },
-  identityText: {
-    color: '#A78BFA',
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  addBtn: {
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 20,
-    backgroundColor: 'rgba(124,58,237,0.15)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(124,58,237,0.3)',
-  },
-  addBtnText: {
-    color: '#A78BFA',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  atomicTip: {
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    borderRadius: 16,
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.06)',
-    padding: 16,
-    marginBottom: 40,
-  },
-  atomicTipTitle: {
-    color: '#5B4A8A',
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 8,
-  },
-  atomicTipText: {
-    color: '#3D2E5C',
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'flex-end',
-  },
-  modalCard: {
-    backgroundColor: '#0D0A1A',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    borderTopWidth: 0.5,
-    borderColor: 'rgba(124,58,237,0.2)',
-  },
-  modalTitle: {
-    color: '#E2D9F3',
-    fontSize: 20,
-    fontWeight: '500',
-    marginBottom: 20,
-  },
-  inputLabel: {
-    color: '#5B4A8A',
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 12,
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.08)',
-    padding: 14,
-    color: '#E2D9F3',
-    fontSize: 15,
-    marginBottom: 16,
-  },
-  categoryPicker: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 20,
-  },
-  catBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255,255,255,0.08)',
-  },
-  catBtnText: {
-    color: '#3D2E5C',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  saveBtn: {
-    backgroundColor: '#7C3AED',
-    borderRadius: 14,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  saveBtnText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  cancelBtn: {
-    padding: 14,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  cancelBtnText: {
-    color: '#5B4A8A',
-    fontSize: 14,
-  },
+  container: { flex: 1, backgroundColor: '#07040F', paddingHorizontal: 20 },
+  headerLabel: { color: '#5B4A8A', fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+  title: { color: '#E2D9F3', fontSize: 28, fontWeight: '500', lineHeight: 36, marginBottom: 20 },
+  categorySection: { marginBottom: 20 },
+  categoryLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: '500', marginBottom: 10 },
+  habitRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.07)', padding: 14, marginBottom: 8 },
+  check: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
+  checkMark: { fontSize: 12, fontWeight: '600' },
+  habitInfo: { flex: 1 },
+  habitName: { color: '#E2D9F3', fontSize: 14, fontWeight: '500' },
+  streakBadge: { backgroundColor: 'rgba(251,146,60,0.15)', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  streakText: { color: '#FB923C', fontSize: 11, fontWeight: '500' },
+  addBtn: { backgroundColor: '#7C3AED', borderRadius: 16, padding: 16, alignItems: 'center', marginBottom: 40 },
+  addBtnText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: '#0D0A1A', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
+  modalTitle: { color: '#E2D9F3', fontSize: 20, fontWeight: '500' },
+  input: { backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 14, color: '#E2D9F3', fontSize: 15 },
+  catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  catBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.08)' },
+  catBtnText: { color: '#3D2E5C', fontSize: 12, fontWeight: '500' },
+  saveBtn: { backgroundColor: '#7C3AED', borderRadius: 14, padding: 16, alignItems: 'center' },
+  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  cancelBtnText: { color: '#5B4A8A', fontSize: 14, textAlign: 'center', padding: 14 },
 });
