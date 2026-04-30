@@ -112,7 +112,7 @@ export default function HomeScreen() {
   const sleepScore = sleep?.sleepScore ?? 0;
   const energieScore = checkin ? checkin.energie * 20 : 0;
   const batteryLevel = battery?.level ?? 0;
-  const firstName = profile?.name?.split(' ')[0] ?? 'Fabio';
+  const firstName = profile?.name?.split(' ')[0] ?? 'Athlet'
   const initial = firstName.charAt(0).toUpperCase();
   const completedHabits = habits.filter((h: any) => h.completedToday).length;
   const totalHabits = habits.length;
