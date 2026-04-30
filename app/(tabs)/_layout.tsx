@@ -1,9 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Slot, router, usePathname } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-
 function HomeIcon({ color }: { color: string }) {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -103,7 +103,6 @@ function MainTabBar({ pathname }: { pathname: string }) {
   const currentIndex = getIndex();
 
   return (
-    
     <View style={styles.wrapper} pointerEvents="box-none">
       <View style={styles.container}>
         {MAIN_TABS.map(({ route, label, Icon }, index) => {
@@ -132,8 +131,7 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
   const pathname = usePathname();
 
   return (
-    <View style={styles.wrapper} pointerEvents="box-none"> 
-  
+    <View style={styles.wrapper} pointerEvents="box-none">
       <View style={[styles.container, styles.trainingContainer]}>
         {TRAINING_TABS.map(({ route, label, Icon, isStop }: any) => {
           const active = !isStop && pathname.includes(route);
@@ -159,17 +157,37 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
   );
 }
 
+const MAIN_ROUTES = ['/', '/health', '/training', '/history'];
+
 function AnimatedScreen() {
+  const pathname = usePathname();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    fadeAnim.setValue(0);
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [pathname]);
+
   return (
-    <View style={{ flex: 1 }}>
+    <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
       <Slot />
-    </View>
+    </Animated.View>
   );
 }
 
 export default function TabLayout() {
   const pathname = usePathname();
   const [isTraining, setIsTraining] = useState(false);
+  const translateX = useRef(new Animated.Value(0)).current;
+  const screenWidth = 390;
+
+  const currentIdx = MAIN_ROUTES.findIndex(r =>
+    r === '/' ? pathname === '/' : pathname.startsWith(r)
+  );
 
   useEffect(() => {
     async function checkTraining() {
@@ -195,16 +213,68 @@ export default function TabLayout() {
     router.push('/');
   }
 
-  return (
-    <View style={{ flex: 1, backgroundColor: '#07040F' }}>
-      <View style={{ flex: 1, paddingBottom: 100 }}>
-        <AnimatedScreen />
-      </View>
-      {isTraining
-        ? <TrainingTabBar onStop={stopTraining} />
-        : <MainTabBar pathname={pathname} />
+  const swipe = Gesture.Pan()
+    .runOnJS(true)
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-15, 15])
+    .onUpdate((e) => {
+      translateX.setValue(e.translationX);
+    })
+    .onEnd((e) => {
+      if (e.velocityX < -300 || e.translationX < -80) {
+        const next = MAIN_ROUTES[Math.min(currentIdx + 1, MAIN_ROUTES.length - 1)];
+        if (next !== MAIN_ROUTES[currentIdx]) {
+          router.push(next as any);
+Animated.timing(translateX, {
+  toValue: -screenWidth,
+  duration: 180,
+  useNativeDriver: true,
+}).start(() => {
+  translateX.setValue(0);
+});
+        } else {
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+        }
+      } else if (e.velocityX > 300 || e.translationX > 80) {
+        const prev = MAIN_ROUTES[Math.max(currentIdx - 1, 0)];
+        if (prev !== MAIN_ROUTES[currentIdx]) {
+          router.push(prev as any);
+Animated.timing(translateX, {
+  toValue: screenWidth,
+  duration: 180,
+  useNativeDriver: true,
+}).start(() => {
+  translateX.setValue(0);
+});
+        } else {
+          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+        }
+      } else {
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 10,
+        }).start();
       }
-    </View>
+    });
+
+  return (
+    <GestureDetector gesture={swipe}>
+      <View style={{ flex: 1, backgroundColor: '#07040F', overflow: 'hidden' }}>
+        <Animated.View style={{
+          flex: 1,
+          paddingBottom: 100,
+          transform: [{ translateX }],
+        }}>
+          <AnimatedScreen />
+        </Animated.View>
+        {isTraining
+          ? <TrainingTabBar onStop={stopTraining} />
+          : <MainTabBar pathname={pathname} />
+        }
+      </View>
+    </GestureDetector>
   );
 }
 
