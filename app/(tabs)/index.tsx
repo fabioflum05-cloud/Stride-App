@@ -134,7 +134,7 @@ export default function HomeScreen() {
           <Text style={styles.greeting}>{getGreeting()}</Text>
           <Text style={styles.name}>{firstName}</Text>
         </View>
-        <TouchableOpacity style={styles.avatar} onPress={() => router.push('/(tabs)/profile' as any)}>
+        <TouchableOpacity style={styles.avatar} onPress={() => router.push('/profile' as any)}>
           <Text style={styles.avatarText}>{initial}</Text>
         </TouchableOpacity>
       </View>

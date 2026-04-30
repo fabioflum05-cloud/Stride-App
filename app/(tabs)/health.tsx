@@ -51,7 +51,7 @@ export default function HealthScreen() {
   const sections = [
     {
       title: 'Schlaf', subtitle: sleepDone ? `Score ${sleepScore}` : 'Noch nicht geloggt',
-      done: sleepDone, color: '#EC4899', route: '/(tabs)/sleep',
+      done: sleepDone, color: '#EC4899', route: '/sleep',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.5} />
@@ -61,7 +61,7 @@ export default function HealthScreen() {
     },
     {
       title: 'Daily Check-in', subtitle: checkinDone ? `Score ${checkinScore}` : 'Noch nicht ausgefüllt',
-      done: checkinDone, color: '#A78BFA', route: '/(tabs)/checkin',
+      done: checkinDone, color: '#A78BFA', route: '/checkin',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.5} />
@@ -71,7 +71,7 @@ export default function HealthScreen() {
     },
     {
       title: 'Body Battery', subtitle: batteryLevel > 0 ? `${batteryLevel}% geladen` : 'Noch nicht gestartet',
-      done: batteryLevel > 0, color: '#67E8F9', route: '/(tabs)/battery',
+      done: batteryLevel > 0, color: '#67E8F9', route: '/battery',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Rect x={3} y={7} width={16} height={10} rx={2} stroke={color} strokeWidth={1.5} />
@@ -82,7 +82,7 @@ export default function HealthScreen() {
     },
     {
       title: 'Habits', subtitle: habitsTotal > 0 ? `${habitsCompleted}/${habitsTotal} erledigt` : 'Keine Habits definiert',
-      done: habitsCompleted === habitsTotal && habitsTotal > 0, color: '#FB923C', route: '/(tabs)/habits',
+      done: habitsCompleted === habitsTotal && habitsTotal > 0, color: '#FB923C', route: '/habits',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Rect x={3} y={5} width={18} height={2} rx={1} fill={color} opacity={0.4} />
@@ -93,7 +93,7 @@ export default function HealthScreen() {
     },
     {
       title: 'Gewicht', subtitle: currentWeight ?? 'Noch nicht geloggt',
-      done: currentWeight !== null, color: '#A78BFA', route: '/(tabs)/weight',
+      done: currentWeight !== null, color: '#A78BFA', route: '/weight',
       icon: (color: string) => (
         <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
           <Path d="M12 3C9 3 6.5 5 6.5 8C6.5 9.5 7 10.8 8 11.8L5 21H19L16 11.8C17 10.8 17.5 9.5 17.5 8C17.5 5 15 3 12 3Z"

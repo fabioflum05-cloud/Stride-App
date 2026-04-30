@@ -178,10 +178,10 @@ export default function TrainingScreen() {
 
       {!activeWorkout && (
         <>
-          <TouchableOpacity style={styles.bodyBtn} onPress={() => router.push('/(tabs)/body' as any)}>
+          <TouchableOpacity style={styles.bodyBtn} onPress={() => router.push('/body' as any)}>
             <Text style={styles.bodyBtnText}>Körper Visualisierung →</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.bodyBtn} onPress={() => router.push('/(tabs)/ranking' as any)}>
+          <TouchableOpacity style={styles.bodyBtn} onPress={() => router.push('/ranking' as any)}>
             <Text style={styles.bodyBtnText}>🏆 Ranking & Level →</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.startBtn} onPress={() => setShowNewWorkout(true)}>

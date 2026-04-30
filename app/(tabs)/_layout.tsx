@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Slot, router, usePathname } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 
 function HomeIcon({ color }: { color: string }) {
@@ -103,7 +103,8 @@ function MainTabBar({ pathname }: { pathname: string }) {
   const currentIndex = getIndex();
 
   return (
-    <View style={styles.wrapper}>
+    
+    <View style={styles.wrapper} pointerEvents="box-none">
       <View style={styles.container}>
         {MAIN_TABS.map(({ route, label, Icon }, index) => {
           const active = index === currentIndex;
@@ -131,7 +132,8 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
   const pathname = usePathname();
 
   return (
-    <View style={styles.wrapper}>
+    <View style={styles.wrapper} pointerEvents="box-none"> 
+  
       <View style={[styles.container, styles.trainingContainer]}>
         {TRAINING_TABS.map(({ route, label, Icon, isStop }: any) => {
           const active = !isStop && pathname.includes(route);
@@ -158,26 +160,10 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
 }
 
 function AnimatedScreen() {
-  const pathname = usePathname();
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const prevPathname = useRef(pathname);
-
-  useEffect(() => {
-    if (prevPathname.current !== pathname) {
-      prevPathname.current = pathname;
-      fadeAnim.setValue(0);
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [pathname]);
-
   return (
-    <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+    <View style={{ flex: 1 }}>
       <Slot />
-    </Animated.View>
+    </View>
   );
 }
 
