@@ -1,15 +1,8 @@
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Svg, { Circle, Rect, Text as SvgText } from 'react-native-svg';
-
-type CheckinData = { energie: number; stress: number; motivation: number; score: number; date?: string; };
-type SleepData = { sleepScore: number; hrv: number; schlafStunden: number; date?: string; };
-type BatteryData = { level: number; date?: string; calorieEntries?: { kcal: number }[]; };
-type Profile = { name: string; goal: string; };
-type Habit = { id: string; name: string; completedDates: string[]; streak: number; };
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
+import { Animated, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Svg, { Circle, Path, Rect, Text as SvgText } from 'react-native-svg';
 
 function isToday(dateString: string) {
   const date = new Date(dateString);
@@ -24,7 +17,7 @@ function getGreeting() {
   return 'Guten Abend';
 }
 
-function calculatePerformanceScore(checkin: CheckinData | null, sleep: SleepData | null, battery: BatteryData | null): number {
+function calculatePerformanceScore(checkin: any, sleep: any, battery: any): number {
   if (!checkin && !sleep) return 0;
   const sleepScore = sleep?.sleepScore ?? 50;
   const energieScore = checkin ? checkin.energie * 20 : 50;
@@ -81,38 +74,161 @@ function MiniBattery({ level }: { level: number }) {
   );
 }
 
-export default function HomeScreen() {
-  const [checkin, setCheckin] = useState<CheckinData | null>(null);
-  const [sleep, setSleep] = useState<SleepData | null>(null);
-  const [battery, setBattery] = useState<BatteryData | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [habits, setHabits] = useState<Habit[]>([]);
+// ─── Menu Component ───────────────────────────────────────────
+function SideMenu({ visible, onClose, profile }: { visible: boolean; onClose: () => void; profile: any }) {
+  const slideAnim = useRef(new Animated.Value(300)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    async function load() {
-      const rawCheckin = await AsyncStorage.getItem('lastCheckin');
-      const rawSleep = await AsyncStorage.getItem('lastSleep');
-      const rawBattery = await AsyncStorage.getItem('batteryData');
-      const rawProfile = await AsyncStorage.getItem('profile');
-      const rawHabits = await AsyncStorage.getItem('habits');
-
-      if (rawCheckin) { const c = JSON.parse(rawCheckin); if (isToday(c.date ?? '')) setCheckin(c); }
-      if (rawSleep) { const s = JSON.parse(rawSleep); if (isToday(s.date ?? '')) setSleep(s); }
-      if (rawBattery) { const b = JSON.parse(rawBattery); if (isToday(b.date ?? '')) setBattery(b); }
-      if (rawProfile) setProfile(JSON.parse(rawProfile));
-      if (rawHabits) {
-        const h: Habit[] = JSON.parse(rawHabits);
-        setHabits(h.map((habit: any) => ({ ...habit, completedToday: habit.completedDates?.some(isToday) ?? false })));
-      }
+  useCallback(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 80, friction: 12 }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(slideAnim, { toValue: 300, duration: 200, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+      ]).start();
     }
-    load();
-  }, []);
+  }, [visible]);
+
+  if (!visible) return null;
+
+  const firstName = profile?.name?.split(' ')[0] ?? 'Athlet';
+  const initial = firstName.charAt(0).toUpperCase();
+
+  const menuItems = [
+    {
+      icon: '👤', label: 'Profil', sub: 'Dein Profil bearbeiten',
+      color: '#A78BFA', bg: 'rgba(124,58,237,0.12)', border: 'rgba(124,58,237,0.25)',
+      onPress: () => { onClose(); setTimeout(() => router.push('/profile' as any), 200); }
+    },
+    {
+      icon: '⚙️', label: 'Einstellungen', sub: 'Bald verfügbar',
+      color: '#67E8F9', bg: 'rgba(6,182,212,0.08)', border: 'rgba(6,182,212,0.2)',
+      onPress: () => {}
+    },
+    {
+      icon: '📊', label: 'Statistiken', sub: 'Bald verfügbar',
+      color: '#FB923C', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.2)',
+      onPress: () => {}
+    },
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[styles.menuOverlay, { opacity: fadeAnim }]}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
+        <Animated.View style={[styles.menuPanel, { transform: [{ translateX: slideAnim }] }]}>
+
+          {/* Menu Header */}
+          <View style={styles.menuHeader}>
+            <View style={styles.menuAvatar}>
+              <Text style={styles.menuAvatarText}>{initial}</Text>
+            </View>
+            <View style={styles.menuHeaderInfo}>
+              <Text style={styles.menuName}>{firstName}</Text>
+              <Text style={styles.menuSub}>{profile?.goal ?? 'Performance'}</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} style={styles.menuCloseBtn} activeOpacity={0.7}>
+              <Text style={styles.menuCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.menuDivider} />
+
+          {/* Menu Items */}
+          {menuItems.map((item, i) => (
+            <TouchableOpacity
+              key={i}
+              style={[styles.menuItem, { backgroundColor: item.bg, borderColor: item.border }]}
+              onPress={item.onPress}
+              activeOpacity={0.75}
+            >
+              <View style={[styles.menuItemIcon, { backgroundColor: item.bg }]}>
+                <Text style={styles.menuItemEmoji}>{item.icon}</Text>
+              </View>
+              <View style={styles.menuItemInfo}>
+                <Text style={[styles.menuItemLabel, { color: item.color }]}>{item.label}</Text>
+                <Text style={styles.menuItemSub}>{item.sub}</Text>
+              </View>
+              <Text style={[styles.menuItemArrow, { color: item.color }]}>›</Text>
+            </TouchableOpacity>
+          ))}
+
+          <View style={styles.menuFooter}>
+            <Text style={styles.menuFooterText}>Stride App · v1.0</Text>
+          </View>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
+  );
+}
+
+// ─── Home Screen ──────────────────────────────────────────────
+export default function HomeScreen() {
+  const [checkin, setCheckin] = useState<any>(null);
+  const [sleep, setSleep] = useState<any>(null);
+  const [battery, setBattery] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [habits, setHabits] = useState<any[]>([]);
+  const [menuVisible, setMenuVisible] = useState(false);
+
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+  const menuSlide = useRef(new Animated.Value(280)).current;
+  const menuFade = useRef(new Animated.Value(0)).current;
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+      fadeAnim.setValue(0);
+      slideAnim.setValue(20);
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
+      ]).start();
+    }, [])
+  );
+
+  async function load() {
+    const rawCheckin = await AsyncStorage.getItem('lastCheckin');
+    const rawSleep = await AsyncStorage.getItem('lastSleep');
+    const rawBattery = await AsyncStorage.getItem('batteryData');
+    const rawProfile = await AsyncStorage.getItem('profile');
+    const rawHabits = await AsyncStorage.getItem('habits');
+
+    if (rawCheckin) { const c = JSON.parse(rawCheckin); if (isToday(c.date ?? '')) setCheckin(c); }
+    if (rawSleep) { const s = JSON.parse(rawSleep); if (isToday(s.date ?? '')) setSleep(s); }
+    if (rawBattery) { const b = JSON.parse(rawBattery); if (isToday(b.date ?? '')) setBattery(b); }
+    if (rawProfile) setProfile(JSON.parse(rawProfile));
+    if (rawHabits) {
+      const h = JSON.parse(rawHabits);
+      setHabits(h.map((habit: any) => ({ ...habit, completedToday: habit.completedDates?.some(isToday) ?? false })));
+    }
+  }
+
+  function openMenu() {
+    setMenuVisible(true);
+    Animated.parallel([
+      Animated.spring(menuSlide, { toValue: 0, useNativeDriver: true, tension: 80, friction: 12 }),
+      Animated.timing(menuFade, { toValue: 1, duration: 250, useNativeDriver: true }),
+    ]).start();
+  }
+
+  function closeMenu() {
+    Animated.parallel([
+      Animated.timing(menuSlide, { toValue: 280, duration: 220, useNativeDriver: true }),
+      Animated.timing(menuFade, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => setMenuVisible(false));
+  }
 
   const score = calculatePerformanceScore(checkin, sleep, battery);
   const sleepScore = sleep?.sleepScore ?? 0;
   const energieScore = checkin ? checkin.energie * 20 : 0;
   const batteryLevel = battery?.level ?? 0;
-  const firstName = profile?.name?.split(' ')[0] ?? 'Athlet'
+  const firstName = profile?.name?.split(' ')[0] ?? 'Athlet';
   const initial = firstName.charAt(0).toUpperCase();
   const completedHabits = habits.filter((h: any) => h.completedToday).length;
   const totalHabits = habits.length;
@@ -120,107 +236,193 @@ export default function HomeScreen() {
   const focusText = score >= 70
     ? { title: 'Vollgas möglich 💪', sub: 'Alles grün – perfekter Tag für intensives Training.' }
     : score >= 50
-      ? { title: 'Moderat halten ⚡', sub: 'Solide Basis heute. Nicht übertreiben.' }
-      : score > 0
-        ? { title: 'Erholung heute 🌙', sub: 'Dein Körper braucht Pause. Leicht halten.' }
-        : { title: `${getGreeting()}! 🌱`, sub: 'Füll Sleep Log und Check-in aus um deinen Score zu sehen.' };
+    ? { title: 'Moderat halten ⚡', sub: 'Solide Basis heute. Nicht übertreiben.' }
+    : score > 0
+    ? { title: 'Erholung heute 🌙', sub: 'Dein Körper braucht Pause. Leicht halten.' }
+    : { title: `${getGreeting()}! 🌱`, sub: 'Füll Sleep Log und Check-in aus um deinen Score zu sehen.' };
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      
+    <View style={{ flex: 1, backgroundColor: '#07040F' }}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
 
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>{getGreeting()}</Text>
-          <Text style={styles.name}>{firstName}</Text>
-        </View>
-        <TouchableOpacity style={styles.avatar} onPress={() => router.push('/profile' as any)}>
-          <Text style={styles.avatarText}>{initial}</Text>
-        </TouchableOpacity>
-      </View>
+          {/* Header */}
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.greeting}>{getGreeting()}</Text>
+              <Text style={styles.name}>{firstName}</Text>
+            </View>
 
-      <View style={styles.topRow}>
-        <View style={styles.mainCard}>
-          <ScoreRings performance={score} sleep={sleepScore} energy={energieScore} />
-          <View style={styles.legend}>
-            {[{ color: '#7C3AED', label: 'Perf.' }, { color: '#EC4899', label: 'Schlaf' }, { color: '#06B6D4', label: 'Energy' }].map(item => (
-              <View key={item.label} style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                <Text style={styles.legendLabel}>{item.label}</Text>
+            {/* Menu Button */}
+            <TouchableOpacity
+              style={styles.menuBtn}
+              onPress={openMenu}
+              activeOpacity={0.7}
+            >
+              <View style={styles.menuBtnLine} />
+              <View style={[styles.menuBtnLine, { width: 14 }]} />
+              <View style={[styles.menuBtnLine, { width: 18 }]} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Score + Battery */}
+          <View style={styles.topRow}>
+            <View style={styles.mainCard}>
+              <ScoreRings performance={score} sleep={sleepScore} energy={energieScore} />
+              <View style={styles.legend}>
+                {[{ color: '#7C3AED', label: 'Perf.' }, { color: '#EC4899', label: 'Schlaf' }, { color: '#06B6D4', label: 'Energy' }].map(item => (
+                  <View key={item.label} style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+                    <Text style={styles.legendLabel}>{item.label}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+            <View style={styles.batteryCard}>
+              <Text style={styles.batteryCardLabel}>Body{'\n'}Battery</Text>
+              <MiniBattery level={batteryLevel} />
+            </View>
+          </View>
+
+          {/* Focus Card */}
+          <View style={styles.focusCard}>
+            <View style={styles.focusTop}>
+              <View style={styles.focusDot} />
+              <Text style={styles.focusLabel}>Today's Focus</Text>
+            </View>
+            <Text style={styles.focusTitle}>{focusText.title}</Text>
+            <Text style={styles.focusSub}>{focusText.sub}</Text>
+          </View>
+
+          {/* Mini Stats */}
+          <View style={styles.miniRow}>
+            <View style={[styles.miniCard, styles.miniPink]}>
+              <Text style={[styles.miniVal, { color: '#F472B6' }]}>{sleepScore || '--'}</Text>
+              <Text style={[styles.miniLbl, { color: '#9D174D' }]}>Sleep Score</Text>
+              <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${sleepScore}%` as any, backgroundColor: '#EC4899' }]} /></View>
+            </View>
+            <View style={[styles.miniCard, styles.miniOrange]}>
+              <Text style={[styles.miniVal, { color: '#FB923C' }]}>
+                {battery?.calorieEntries ? battery.calorieEntries.reduce((s: number, e: any) => s + e.kcal, 0) : '--'}
+              </Text>
+              <Text style={[styles.miniLbl, { color: '#92400E' }]}>kcal</Text>
+              <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${Math.min(((battery?.calorieEntries?.reduce((s: number, e: any) => s + e.kcal, 0) ?? 0) / 3000) * 100, 100)}%` as any, backgroundColor: '#FB923C' }]} /></View>
+            </View>
+            <View style={[styles.miniCard, styles.miniPurple]}>
+              <Text style={[styles.miniVal, { color: '#A78BFA' }]}>{batteryLevel || '--'}</Text>
+              <Text style={[styles.miniLbl, { color: '#5B21B6' }]}>Battery</Text>
+              <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${batteryLevel}%` as any, backgroundColor: '#7C3AED' }]} /></View>
+            </View>
+          </View>
+
+          {/* Today Section */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Heute</Text>
+              {totalHabits > 0 && (
+                <Text style={styles.sectionBadge}>{completedHabits}/{totalHabits} Habits</Text>
+              )}
+            </View>
+            {[
+              { label: 'Schlaf geloggt', done: sleep !== null, score: sleep?.sleepScore ?? null },
+              { label: 'Check-in', done: checkin !== null, score: checkin?.score ?? null },
+              ...habits.slice(0, 4).map((h: any) => ({ label: h.name, done: h.completedToday, score: null, streak: h.streak })),
+            ].map((item, i) => (
+              <View key={i} style={styles.todayRow}>
+                <View style={[styles.todayCheck, item.done && styles.todayCheckDone]}>
+                  {item.done && <Text style={styles.todayCheckMark}>✓</Text>}
+                </View>
+                <Text style={[styles.todayLabel, !item.done && { color: '#3D2E5C' }]}>{item.label}</Text>
+                {item.score !== null && item.done && (
+                  <View style={styles.scorePill}><Text style={styles.scorePillText}>Score {item.score}</Text></View>
+                )}
+                {(item as any).streak > 0 && <Text style={styles.streakText}>🔥 {(item as any).streak}</Text>}
               </View>
             ))}
           </View>
-        </View>
-        <View style={styles.batteryCard}>
-          <Text style={styles.batteryCardLabel}>Body{'\n'}Battery</Text>
-          <MiniBattery level={batteryLevel} />
-        </View>
-      </View>
 
-      <View style={styles.focusCard}>
-        <View style={styles.focusTop}>
-          <View style={styles.focusDot} />
-          <Text style={styles.focusLabel}>Today's Focus</Text>
-        </View>
-        <Text style={styles.focusTitle}>{focusText.title}</Text>
-        <Text style={styles.focusSub}>{focusText.sub}</Text>
-      </View>
+          <View style={{ height: 120 }} />
+        </Animated.View>
+      </ScrollView>
 
-      <View style={styles.miniRow}>
-        <View style={[styles.miniCard, styles.miniPink]}>
-          <Text style={[styles.miniVal, { color: '#F472B6' }]}>{sleepScore || '--'}</Text>
-          <Text style={[styles.miniLbl, { color: '#9D174D' }]}>Sleep Score</Text>
-          <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${sleepScore}%` as any, backgroundColor: '#EC4899' }]} /></View>
-        </View>
-        <View style={[styles.miniCard, styles.miniOrange]}>
-          <Text style={[styles.miniVal, { color: '#FB923C' }]}>
-            {battery?.calorieEntries ? battery.calorieEntries.reduce((s, e) => s + e.kcal, 0) : '--'}
-          </Text>
-          <Text style={[styles.miniLbl, { color: '#92400E' }]}>kcal</Text>
-          <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${Math.min(((battery?.calorieEntries?.reduce((s, e) => s + e.kcal, 0) ?? 0) / 3000) * 100, 100)}%` as any, backgroundColor: '#FB923C' }]} /></View>
-        </View>
-        <View style={[styles.miniCard, styles.miniPurple]}>
-          <Text style={[styles.miniVal, { color: '#A78BFA' }]}>{batteryLevel || '--'}</Text>
-          <Text style={[styles.miniLbl, { color: '#5B21B6' }]}>Battery</Text>
-          <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${batteryLevel}%` as any, backgroundColor: '#7C3AED' }]} /></View>
-        </View>
-      </View>
+      {/* Side Menu */}
+      {menuVisible && (
+        <Animated.View style={[StyleSheet.absoluteFill, styles.menuOverlay, { opacity: menuFade }]}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeMenu} activeOpacity={1} />
+          <Animated.View style={[styles.menuPanel, { transform: [{ translateX: menuSlide }] }]}>
 
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Heute</Text>
-          {totalHabits > 0 && (
-            <Text style={styles.sectionBadge}>{completedHabits}/{totalHabits} Habits</Text>
-          )}
-        </View>
-        {[
-          { label: 'Schlaf geloggt', done: sleep !== null, score: sleep?.sleepScore ?? null },
-          { label: 'Check-in', done: checkin !== null, score: checkin?.score ?? null },
-          ...habits.slice(0, 4).map((h: any) => ({ label: h.name, done: h.completedToday, score: null, streak: h.streak })),
-        ].map((item, i) => (
-          <View key={i} style={styles.todayRow}>
-            <View style={[styles.todayCheck, item.done && styles.todayCheckDone]}>
-              {item.done && <Text style={styles.todayCheckMark}>✓</Text>}
+            <View style={styles.menuHeader}>
+              <View style={styles.menuAvatar}>
+                <Text style={styles.menuAvatarText}>{initial}</Text>
+              </View>
+              <View style={styles.menuHeaderInfo}>
+                <Text style={styles.menuName}>{firstName}</Text>
+                <Text style={styles.menuSub}>{profile?.goal ?? 'Performance'}</Text>
+              </View>
+              <TouchableOpacity onPress={closeMenu} style={styles.menuCloseBtn} activeOpacity={0.7}>
+                <Text style={styles.menuCloseText}>✕</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={[styles.todayLabel, !item.done && { color: '#3D2E5C' }]}>{item.label}</Text>
-            {item.score !== null && item.done && (
-              <View style={styles.scorePill}><Text style={styles.scorePillText}>Score {item.score}</Text></View>
-            )}
-            {(item as any).streak > 0 && <Text style={styles.streakText}>🔥 {(item as any).streak}</Text>}
-          </View>
-        ))}
-      </View>
-    </ScrollView>
+
+            <View style={styles.menuDivider} />
+
+            {[
+              {
+                icon: '👤', label: 'Profil', sub: 'Dein Profil bearbeiten',
+                color: '#A78BFA', bg: 'rgba(124,58,237,0.12)', border: 'rgba(124,58,237,0.25)',
+                onPress: () => { closeMenu(); setTimeout(() => router.push('/profile' as any), 250); }
+              },
+              {
+                icon: '⚙️', label: 'Einstellungen', sub: 'Bald verfügbar',
+                color: '#67E8F9', bg: 'rgba(6,182,212,0.08)', border: 'rgba(6,182,212,0.2)',
+                onPress: () => {}
+              },
+              {
+                icon: '📊', label: 'Statistiken', sub: 'Bald verfügbar',
+                color: '#FB923C', bg: 'rgba(251,146,60,0.08)', border: 'rgba(251,146,60,0.2)',
+                onPress: () => {}
+              },
+            ].map((item, i) => (
+              <TouchableOpacity
+                key={i}
+                style={[styles.menuItem, { backgroundColor: item.bg, borderColor: item.border }]}
+                onPress={item.onPress}
+                activeOpacity={0.75}
+              >
+                <View style={[styles.menuItemIcon, { backgroundColor: item.bg }]}>
+                  <Text style={styles.menuItemEmoji}>{item.icon}</Text>
+                </View>
+                <View style={styles.menuItemInfo}>
+                  <Text style={[styles.menuItemLabel, { color: item.color }]}>{item.label}</Text>
+                  <Text style={styles.menuItemSub}>{item.sub}</Text>
+                </View>
+                <Text style={[styles.menuItemArrow, { color: item.color }]}>›</Text>
+              </TouchableOpacity>
+            ))}
+
+            <View style={styles.menuFooter}>
+              <Text style={styles.menuFooterText}>Stride App · v1.0</Text>
+            </View>
+          </Animated.View>
+        </Animated.View>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#07040F', paddingHorizontal: 20 },
+
+  // Header
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 60, marginBottom: 20 },
   greeting: { color: '#5B4A8A', fontSize: 12, letterSpacing: 0.5 },
   name: { color: '#E2D9F3', fontSize: 26, fontWeight: '500', marginTop: 2 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(124,58,237,0.2)', borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.4)', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#A78BFA', fontSize: 18, fontWeight: '500' },
+
+  // Menu Button (Hamburger)
+  menuBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'flex-end', justifyContent: 'center', paddingRight: 12, gap: 5 },
+  menuBtnLine: { height: 1.5, width: 20, backgroundColor: '#5B4A8A', borderRadius: 1 },
+
+  // Score Section
   topRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   mainCard: { flex: 1, backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', padding: 12, alignItems: 'center' },
   legend: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 6 },
@@ -229,12 +431,16 @@ const styles = StyleSheet.create({
   legendLabel: { color: '#5B4A8A', fontSize: 9 },
   batteryCard: { width: 90, backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', padding: 12, alignItems: 'center', justifyContent: 'center', gap: 8 },
   batteryCardLabel: { color: '#5B4A8A', fontSize: 9, textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center' },
+
+  // Focus Card
   focusCard: { backgroundColor: 'rgba(124,58,237,0.08)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.2)', padding: 16, marginBottom: 12 },
   focusTop: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   focusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#A78BFA' },
   focusLabel: { color: '#A78BFA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '500' },
   focusTitle: { color: '#E2D9F3', fontSize: 16, fontWeight: '500', marginBottom: 4 },
   focusSub: { color: '#5B4A8A', fontSize: 12, lineHeight: 18 },
+
+  // Mini Stats
   miniRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   miniCard: { flex: 1, borderRadius: 14, padding: 12, borderWidth: 0.5 },
   miniPink: { backgroundColor: 'rgba(236,72,153,0.08)', borderColor: 'rgba(236,72,153,0.2)' },
@@ -244,6 +450,8 @@ const styles = StyleSheet.create({
   miniLbl: { fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 },
   miniBar: { height: 3, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden', marginTop: 8 },
   miniBarFill: { height: '100%', borderRadius: 2 },
+
+  // Today Section
   section: { backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', padding: 16, marginBottom: 40 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   sectionTitle: { color: '#5B4A8A', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
@@ -256,4 +464,26 @@ const styles = StyleSheet.create({
   scorePill: { backgroundColor: 'rgba(124,58,237,0.15)', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.3)' },
   scorePillText: { color: '#A78BFA', fontSize: 10, fontWeight: '500' },
   streakText: { color: '#5B4A8A', fontSize: 11 },
+
+  // Side Menu
+  menuOverlay: { backgroundColor: 'rgba(0,0,0,0.6)' },
+  menuPanel: { position: 'absolute', top: 0, right: 0, bottom: 0, width: 280, backgroundColor: '#0A0714', borderLeftWidth: 0.5, borderLeftColor: 'rgba(124,58,237,0.2)', padding: 24, paddingTop: 60 },
+  menuHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+  menuAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(124,58,237,0.2)', borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.4)', alignItems: 'center', justifyContent: 'center' },
+  menuAvatarText: { color: '#A78BFA', fontSize: 20, fontWeight: '500' },
+  menuHeaderInfo: { flex: 1 },
+  menuName: { color: '#E2D9F3', fontSize: 16, fontWeight: '500' },
+  menuSub: { color: '#5B4A8A', fontSize: 12, marginTop: 2 },
+  menuCloseBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center' },
+  menuCloseText: { color: '#5B4A8A', fontSize: 14 },
+  menuDivider: { height: 0.5, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 20 },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 16, borderWidth: 0.5, padding: 14, marginBottom: 10 },
+  menuItemIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  menuItemEmoji: { fontSize: 18 },
+  menuItemInfo: { flex: 1 },
+  menuItemLabel: { fontSize: 14, fontWeight: '500' },
+  menuItemSub: { color: '#5B4A8A', fontSize: 11, marginTop: 2 },
+  menuItemArrow: { fontSize: 20, fontWeight: '300' },
+  menuFooter: { position: 'absolute', bottom: 40, left: 24 },
+  menuFooterText: { color: '#3D2E5C', fontSize: 11 },
 });
