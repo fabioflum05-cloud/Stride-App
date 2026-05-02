@@ -1,10 +1,8 @@
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Rect, Text as SvgText } from 'react-native-svg';
-
 type CheckinData = { energie: number; stress: number; motivation: number; score: number; date?: string; };
 type SleepData = { sleepScore: number; hrv: number; schlafStunden: number; date?: string; };
 type BatteryData = { level: number; date?: string; calorieEntries?: { kcal: number }[]; };
@@ -87,6 +85,32 @@ export default function HomeScreen() {
   const [battery, setBattery] = useState<BatteryData | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [habits, setHabits] = useState<Habit[]>([]);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+const slideAnim = useRef(new Animated.Value(20)).current;
+
+
+useFocusEffect(
+  useCallback(() => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(20);
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
+    ]).start();
+  }, [])
+);
+
+useFocusEffect(
+  useCallback(() => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(20);
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
+    ]).start();
+  }, [])
+);
+
 
   useEffect(() => {
     async function load() {

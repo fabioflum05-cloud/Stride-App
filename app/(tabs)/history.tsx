@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
-import { Alert, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
-
 const screenWidth = Dimensions.get('window').width - 40;
 
 type DayData = {
@@ -49,6 +49,19 @@ export default function HistoryScreen() {
   const [days, setDays] = useState<DayData[]>([]);
   const [activeChart, setActiveChart] = useState<'performance' | 'sleep' | 'battery' | 'kcal'>('performance');
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['sleepScore', 'checkinScore']);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+const slideAnim = useRef(new Animated.Value(20)).current;
+
+useFocusEffect(
+  useCallback(() => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(20);
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
+    ]).start();
+  }, [])
+);
 
   useEffect(() => {
     async function load() {
@@ -161,11 +174,12 @@ export default function HistoryScreen() {
     };
   });
 
-  return (
+ return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
       <Text style={styles.headerLabel}>Verlauf</Text>
       <Text style={styles.title}>Dein{'\n'}Fortschritt</Text>
-
+</Animated.View>
       <View style={styles.summaryGrid}>
         <View style={[styles.summaryCard, { borderColor: 'rgba(124,58,237,0.25)' }]}>
           <Text style={[styles.summaryVal, { color: '#A78BFA' }]}>{avg || '--'}</Text>

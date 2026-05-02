@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-
 type Set = { reps: string; weight: string; };
 type Exercise = { id: string; name: string; muscleGroup: string; sets: Set[]; };
 type Workout = { id: string; date: string; name: string; exercises: Exercise[]; duration: number; intensity: number; type: 'gym' | 'run'; };
@@ -233,6 +232,8 @@ function RunScreen({ onStop }: { onStop: () => void }) {
 
 // ─── Main Training Screen ─────────────────────────────────────
 export default function TrainingScreen() {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [runs, setRuns] = useState<RunData[]>([]);
   const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
@@ -247,6 +248,18 @@ export default function TrainingScreen() {
   const [startTime] = useState(Date.now());
   const [lastWorkoutData, setLastWorkoutData] = useState<Record<string, Set[]>>({});
   const [activeTab, setActiveTab] = useState<'gym' | 'run'>('gym');
+  
+
+useFocusEffect(
+  useCallback(() => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(20);
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
+    ]).start();
+  }, [])
+);
 
   useFocusEffect(
     useCallback(() => {
@@ -452,7 +465,7 @@ export default function TrainingScreen() {
       {/* Gym / Startseite */}
       {(activeTab === 'gym' || !isActive) && (
         <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-
+         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}></Animated.View>
           {!isActive && (
             <>
               <Text style={styles.headerLabel}>Training</Text>
@@ -461,7 +474,7 @@ export default function TrainingScreen() {
               {/* Gym Card */}
               <TouchableOpacity
                 style={styles.gymCard}
-                onPress={() => setShowTypeModal(true)}
+                onPress={() => startRun()}
                 activeOpacity={0.85}
               >
                 <View style={styles.cardTop}>
@@ -687,6 +700,7 @@ export default function TrainingScreen() {
               <View style={{ height: 120 }} />
             </>
           )}
+          
         </ScrollView>
       )}
 
