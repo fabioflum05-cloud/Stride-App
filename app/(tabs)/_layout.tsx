@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import { theme } from '../../constants/theme';
+
 function HomeIcon({ color }: { color: string }) {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -117,7 +119,7 @@ function MainTabBar({ pathname }: { pathname: string }) {
               <View style={styles.dotWrap}>
                 {active && <View style={styles.dotActive} />}
               </View>
-              <Icon color={active ? '#A5F3FC' : '#1A3A4A'} />
+              <Icon color={active ? theme.blue : theme.textTertiary} />
               <Text style={[styles.label, active && styles.labelActive]}>{label}</Text>
             </TouchableOpacity>
           );
@@ -143,10 +145,10 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
               activeOpacity={0.6}
             >
               <View style={styles.dotWrap}>
-                {active && <View style={[styles.dotActive, { backgroundColor: '#FB923C' }]} />}
+                {active && <View style={[styles.dotActive, { backgroundColor: theme.orange }]} />}
               </View>
-              <Icon color={isStop ? '#FB7185' : active ? '#FB923C' : '#3A2010'} />
-              <Text style={[styles.label, active && { color: '#FB923C' }, isStop && { color: '#FB7185' }]}>
+              <Icon color={isStop ? theme.red : active ? theme.orange : theme.textTertiary} />
+              <Text style={[styles.label, active && { color: theme.orange }, isStop && { color: theme.red }]}>
                 {label}
               </Text>
             </TouchableOpacity>
@@ -162,18 +164,19 @@ const MAIN_ROUTES = ['/', '/health', '/training', '/history'];
 function AnimatedScreen() {
   const pathname = usePathname();
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(10)).current;
 
   useEffect(() => {
     fadeAnim.setValue(0);
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 250,
-      useNativeDriver: true,
-    }).start();
+    slideAnim.setValue(10);
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 80, friction: 12 }),
+    ]).start();
   }, [pathname]);
 
   return (
-    <Animated.View style={{ flex: 1, opacity: fadeAnim }}>
+    <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
       <Slot />
     </Animated.View>
   );
@@ -182,8 +185,6 @@ function AnimatedScreen() {
 export default function TabLayout() {
   const pathname = usePathname();
   const [isTraining, setIsTraining] = useState(false);
-  const translateX = useRef(new Animated.Value(0)).current;
-  const screenWidth = 390;
 
   const currentIdx = MAIN_ROUTES.findIndex(r =>
     r === '/' ? pathname === '/' : pathname.startsWith(r)
@@ -216,61 +217,33 @@ export default function TabLayout() {
   }
 
   const swipe = Gesture.Pan()
-    .runOnJS(true)
-    .activeOffsetX([-20, 20])
-    .failOffsetY([-15, 15])
-    .onUpdate((e) => {
-      translateX.setValue(e.translationX);
-    })
+  .runOnJS(true)
+  .activeOffsetX([-10, 10])
+  .failOffsetY([-5, 5])
+  .minDistance(10)
     .onEnd((e) => {
-      if (e.velocityX < -300 || e.translationX < -80) {
+      if (e.velocityX > 200 || e.translationX > 50) {
+        if (currentIdx > 0) {
+          router.push(MAIN_ROUTES[currentIdx - 1] as any);
+        } else {
+          router.back();
+        }
+        return;
+      }
+      if (e.velocityX < -200 || e.translationX < -50) {
         const next = MAIN_ROUTES[Math.min(currentIdx + 1, MAIN_ROUTES.length - 1)];
         if (next !== MAIN_ROUTES[currentIdx]) {
           router.push(next as any);
-Animated.timing(translateX, {
-  toValue: -screenWidth,
-  duration: 180,
-  useNativeDriver: true,
-}).start(() => {
-  translateX.setValue(0);
-});
-        } else {
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
         }
-      } else if (e.velocityX > 300 || e.translationX > 80) {
-        const prev = MAIN_ROUTES[Math.max(currentIdx - 1, 0)];
-        if (prev !== MAIN_ROUTES[currentIdx]) {
-          router.push(prev as any);
-Animated.timing(translateX, {
-  toValue: screenWidth,
-  duration: 180,
-  useNativeDriver: true,
-}).start(() => {
-  translateX.setValue(0);
-});
-        } else {
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
-        }
-      } else {
-        Animated.spring(translateX, {
-          toValue: 0,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 10,
-        }).start();
       }
     });
 
   return (
     <GestureDetector gesture={swipe}>
-      <View style={{ flex: 1, backgroundColor: '#07040F', overflow: 'hidden' }}>
-        <Animated.View style={{
-          flex: 1,
-          paddingBottom: 100,
-          transform: [{ translateX }],
-        }}>
+      <View style={{ flex: 1, backgroundColor: theme.bg, overflow: 'hidden' }}>
+        <View style={{ flex: 1, paddingBottom: 100 }}>
           <AnimatedScreen />
-        </Animated.View>
+        </View>
         {isTraining
           ? <TrainingTabBar onStop={stopTraining} />
           : <MainTabBar pathname={pathname} />
@@ -282,11 +255,17 @@ Animated.timing(translateX, {
 
 const styles = StyleSheet.create({
   wrapper: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 14, paddingBottom: 22, backgroundColor: 'transparent' },
-  container: { flexDirection: 'row', backgroundColor: '#080E12', borderRadius: 26, borderWidth: 0.5, borderColor: 'rgba(34,211,238,0.15)', paddingVertical: 10, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'space-around', shadowColor: '#22D3EE', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 16 },
-  trainingContainer: { borderColor: 'rgba(251,146,60,0.3)', backgroundColor: '#120A05', shadowColor: '#FB923C' },
+  container: {
+    flexDirection: 'row', backgroundColor: theme.card, borderRadius: 26,
+    borderWidth: 0.5, borderColor: theme.border, paddingVertical: 10,
+    paddingHorizontal: 4, alignItems: 'center', justifyContent: 'space-around',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08, shadowRadius: 16, elevation: 8,
+  },
+  trainingContainer: { borderColor: theme.orange + '40', backgroundColor: theme.card },
   tab: { flex: 1, alignItems: 'center', gap: 3 },
   dotWrap: { height: 6, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  dotActive: { width: 4, height: 4, borderRadius: 2, backgroundColor: '#22D3EE', shadowColor: '#22D3EE', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 6 },
-  label: { color: '#1A3A4A', fontSize: 8, letterSpacing: 0.5 },
-  labelActive: { color: '#A5F3FC' },
+  dotActive: { width: 4, height: 4, borderRadius: 2, backgroundColor: theme.blue },
+  label: { color: theme.textTertiary, fontSize: 9, letterSpacing: 0.5 },
+  labelActive: { color: theme.blue, fontWeight: '500' },
 });

@@ -105,16 +105,9 @@ export default function HistoryScreen() {
     );
 
     if (sorted.length === 0) {
-      setDays([
-        { date: '2026-04-16', dateLabel: '16.4', checkinScore: 65, sleepScore: 71, batteryLevel: 55, hrv: 52, schlafStunden: 6.5, workouts: 1 },
-        { date: '2026-04-17', dateLabel: '17.4', checkinScore: 70, sleepScore: 78, batteryLevel: 62, hrv: 61, schlafStunden: 7.5, workouts: 0 },
-        { date: '2026-04-18', dateLabel: '18.4', checkinScore: 58, sleepScore: 65, batteryLevel: 48, hrv: 45, schlafStunden: 5.5, workouts: 1 },
-        { date: '2026-04-19', dateLabel: '19.4', checkinScore: 80, sleepScore: 85, batteryLevel: 70, hrv: 72, schlafStunden: 8.5, workouts: 0 },
-        { date: '2026-04-20', dateLabel: '20.4', checkinScore: 75, sleepScore: 80, batteryLevel: 65, hrv: 68, schlafStunden: 7.0, workouts: 1 },
-        { date: '2026-04-21', dateLabel: '21.4', checkinScore: 82, sleepScore: 88, batteryLevel: 72, hrv: 81, schlafStunden: 8.0, workouts: 0 },
-        { date: '2026-04-22', dateLabel: '22.4', checkinScore: 78, sleepScore: 94, batteryLevel: 68, hrv: 90, schlafStunden: 9.0, workouts: 1 },
-      ]);
-      return;
+  setDays([]);
+  return;
+
     }
     setDays(sorted);
   }
