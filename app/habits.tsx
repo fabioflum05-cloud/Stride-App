@@ -1,22 +1,28 @@
 import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
-import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-
-type Habit = { id: string; name: string; identity: string; category: string; streak: number; completedDates: string[]; };
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
+import { Alert, Animated, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { theme } from '../constants/theme';
+type Habit = { id: string; name: string; category: string; streak: number; completedDates: string[]; };
 
 const CATEGORIES = [
-  { key: 'health', label: '💪 Health', color: '#10B981' },
-  { key: 'mind', label: '🧠 Mental', color: '#A78BFA' },
-  { key: 'sleep', label: '🌙 Schlaf', color: '#EC4899' },
-  { key: 'nutrition', label: '🥗 Ernährung', color: '#FB923C' },
-  { key: 'training', label: '🏋️ Training', color: '#67E8F9' },
-  { key: 'other', label: '⭐ Anderes', color: '#F472B6' },
+  { key: 'health', label: '💪 Health', color: theme.green },
+  { key: 'mind', label: '🧠 Mental', color: theme.purple },
+  { key: 'sleep', label: '🌙 Schlaf', color: theme.pink },
+  { key: 'nutrition', label: '🥗 Ernährung', color: theme.orange },
+  { key: 'training', label: '🏋️ Training', color: theme.teal },
+  { key: 'other', label: '⭐ Anderes', color: theme.blue },
 ];
 
 const CATEGORY_COLORS: Record<string, string> = {
-  health: '#10B981', mind: '#A78BFA', sleep: '#EC4899',
-  nutrition: '#FB923C', training: '#67E8F9', other: '#F472B6',
+  health: theme.green, mind: theme.purple, sleep: theme.pink,
+  nutrition: theme.orange, training: theme.teal, other: theme.blue,
+};
+
+const CATEGORY_BG: Record<string, string> = {
+  health: theme.greenLight, mind: theme.purpleLight, sleep: theme.pinkLight,
+  nutrition: theme.orangeLight, training: theme.tealLight, other: theme.blueLight,
 };
 
 function isToday(dateString: string) {
@@ -43,144 +49,292 @@ function calculateStreak(completedDates: string[]): number {
 export default function HabitsScreen() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [showModal, setShowModal] = useState(false);
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [habitName, setHabitName] = useState('');
-  const [habitIdentity, setHabitIdentity] = useState('');
   const [habitCategory, setHabitCategory] = useState('health');
 
-  useEffect(() => {
-    async function load() {
-      const raw = await AsyncStorage.getItem('habits');
-      if (raw) setHabits(JSON.parse(raw));
-    }
-    load();
-  }, []);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+      fadeAnim.setValue(0);
+      slideAnim.setValue(20);
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
+      ]).start();
+    }, [])
+  );
+
+  async function load() {
+    const raw = await AsyncStorage.getItem('habits');
+    if (raw) setHabits(JSON.parse(raw));
+  }
+
+  async function save(updated: Habit[]) {
+    setHabits(updated);
+    await AsyncStorage.setItem('habits', JSON.stringify(updated));
+  }
 
   async function toggleHabit(id: string) {
     const updated = habits.map(h => {
       if (h.id !== id) return h;
       const completedToday = h.completedDates.some(isToday);
-      const newDates = completedToday ? h.completedDates.filter(d => !isToday(d)) : [...h.completedDates, new Date().toISOString()];
+      const newDates = completedToday
+        ? h.completedDates.filter(d => !isToday(d))
+        : [...h.completedDates, new Date().toISOString()];
       return { ...h, completedDates: newDates, streak: calculateStreak(newDates) };
     });
-    setHabits(updated);
-    await AsyncStorage.setItem('habits', JSON.stringify(updated));
+    await save(updated);
   }
 
-  async function addHabit() {
+  async function addOrEditHabit() {
     if (!habitName.trim()) { Alert.alert('Name fehlt'); return; }
-    const habit: Habit = { id: Date.now().toString(), name: habitName.trim(), identity: habitIdentity.trim(), category: habitCategory, streak: 0, completedDates: [] };
-    const updated = [...habits, habit];
-    setHabits(updated);
-    await AsyncStorage.setItem('habits', JSON.stringify(updated));
-    setHabitName(''); setHabitIdentity(''); setHabitCategory('health');
+
+    if (editingHabit) {
+      const updated = habits.map(h =>
+        h.id === editingHabit.id ? { ...h, name: habitName.trim(), category: habitCategory } : h
+      );
+      await save(updated);
+    } else {
+      const habit: Habit = {
+        id: Date.now().toString(),
+        name: habitName.trim(),
+        category: habitCategory,
+        streak: 0,
+        completedDates: [],
+      };
+      await save([...habits, habit]);
+    }
+
+    setHabitName('');
+    setHabitCategory('health');
+    setEditingHabit(null);
     setShowModal(false);
   }
 
+  function openEdit(habit: Habit) {
+    setEditingHabit(habit);
+    setHabitName(habit.name);
+    setHabitCategory(habit.category);
+    setShowModal(true);
+  }
+
+  function openNew() {
+    setEditingHabit(null);
+    setHabitName('');
+    setHabitCategory('health');
+    setShowModal(true);
+  }
+
   async function deleteHabit(id: string) {
-    Alert.alert('Habit löschen?', '', [
+    Alert.alert('Habit löschen?', 'Diese Aktion kann nicht rückgängig gemacht werden.', [
       { text: 'Abbrechen', style: 'cancel' },
-      { text: 'Löschen', style: 'destructive', onPress: async () => {
-        const updated = habits.filter(h => h.id !== id);
-        setHabits(updated);
-        await AsyncStorage.setItem('habits', JSON.stringify(updated));
-      }}
+      {
+        text: 'Löschen', style: 'destructive', onPress: async () => {
+          await save(habits.filter(h => h.id !== id));
+        }
+      }
     ]);
   }
 
+  const completedToday = habits.filter(h => h.completedDates.some(isToday)).length;
+
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <BackButton />
-      <Text style={styles.headerLabel}>Habits</Text>
-      <Text style={styles.title}>Deine{'\n'}Gewohnheiten</Text>
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
 
-      {CATEGORIES.map(cat => {
-        const catHabits = habits.filter(h => h.category === cat.key);
-        if (catHabits.length === 0) return null;
-        return (
-          <View key={cat.key} style={styles.categorySection}>
-            <Text style={[styles.categoryLabel, { color: cat.color }]}>{cat.label}</Text>
-            {catHabits.map(habit => {
-              const done = habit.completedDates.some(isToday);
-              const color = CATEGORY_COLORS[habit.category];
-              return (
-                <TouchableOpacity key={habit.id}
-                  style={[styles.habitRow, done && { borderColor: color + '40', backgroundColor: color + '08' }]}
-                  onPress={() => toggleHabit(habit.id)}
-                  onLongPress={() => deleteHabit(habit.id)}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.check, done && { backgroundColor: color + '30', borderColor: color }]}>
-                    {done && <Text style={[styles.checkMark, { color }]}>✓</Text>}
-                  </View>
-                  <View style={styles.habitInfo}>
-                    <Text style={[styles.habitName, done && { color: '#5B4A8A' }]}>{habit.name}</Text>
-                  </View>
-                  {habit.streak > 0 && (
-                    <View style={styles.streakBadge}>
-                      <Text style={styles.streakText}>🔥 {habit.streak}</Text>
+          <BackButton />
+<Text style={styles.headerLabel}>Habits</Text>
+          <Text style={styles.title}>Deine{'\n'}Gewohnheiten</Text>
+
+          {/* Progress Card */}
+          {habits.length > 0 && (
+            <View style={styles.progressCard}>
+              <View style={styles.progressTop}>
+                <Text style={styles.progressNum}>{completedToday}</Text>
+                <Text style={styles.progressSlash}>/</Text>
+                <Text style={styles.progressTotal}>{habits.length}</Text>
+                <Text style={styles.progressLabel}>heute erledigt</Text>
+              </View>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${(completedToday / habits.length) * 100}%` as any }]} />
+              </View>
+            </View>
+          )}
+
+          {/* Habits by Category */}
+          {CATEGORIES.map(cat => {
+            const catHabits = habits.filter(h => h.category === cat.key);
+            if (catHabits.length === 0) return null;
+            return (
+              <View key={cat.key} style={styles.categorySection}>
+                <Text style={[styles.categoryLabel, { color: CATEGORY_COLORS[cat.key] }]}>{cat.label}</Text>
+                {catHabits.map(habit => {
+                  const done = habit.completedDates.some(isToday);
+                  const color = CATEGORY_COLORS[habit.category];
+                  const bg = CATEGORY_BG[habit.category];
+                  return (
+                    <View
+                      key={habit.id}
+                      style={[styles.habitRow, done && { backgroundColor: bg, borderColor: color + '40' }]}
+                    >
+                      <TouchableOpacity
+                        style={[styles.check, done && { backgroundColor: color, borderColor: color }]}
+                        onPress={() => toggleHabit(habit.id)}
+                        activeOpacity={0.7}
+                      >
+                        {done && <Text style={styles.checkMark}>✓</Text>}
+                      </TouchableOpacity>
+
+                      <TouchableOpacity style={{ flex: 1 }} onPress={() => toggleHabit(habit.id)} activeOpacity={0.7}>
+                        <Text style={[styles.habitName, done && { color: color }]}>{habit.name}</Text>
+                      </TouchableOpacity>
+
+                      {habit.streak > 0 && (
+                        <View style={[styles.streakBadge, { backgroundColor: theme.orangeLight }]}>
+                          <Text style={styles.streakText}>🔥 {habit.streak}</Text>
+                        </View>
+                      )}
+
+                      {/* Edit Button */}
+                      <TouchableOpacity
+                        style={styles.editBtn}
+                        onPress={() => openEdit(habit)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.editBtnText}>✎</Text>
+                      </TouchableOpacity>
+
+                      {/* Delete Button */}
+                      <TouchableOpacity
+                        style={styles.deleteBtn}
+                        onPress={() => deleteHabit(habit.id)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Text style={styles.deleteBtnText}>×</Text>
+                      </TouchableOpacity>
                     </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        );
-      })}
+                  );
+                })}
+              </View>
+            );
+          })}
 
-      <TouchableOpacity style={styles.addBtn} onPress={() => setShowModal(true)}>
-        <Text style={styles.addBtnText}>+ Habit hinzufügen</Text>
-      </TouchableOpacity>
+          {habits.length === 0 && (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>📋</Text>
+              <Text style={styles.emptyTitle}>Noch keine Habits</Text>
+              <Text style={styles.emptySub}>Füge deinen ersten Habit hinzu und baue gesunde Gewohnheiten auf.</Text>
+            </View>
+          )}
 
+          <TouchableOpacity style={styles.addBtn} onPress={openNew} activeOpacity={0.85}>
+            <Text style={styles.addBtnText}>+ Habit hinzufügen</Text>
+          </TouchableOpacity>
+
+          <View style={{ height: 120 }} />
+        </Animated.View>
+      </ScrollView>
+
+      {/* Add/Edit Modal */}
       <Modal visible={showModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Neuer Habit</Text>
-            <TextInput style={styles.input} placeholder="Name" placeholderTextColor="#3D2E5C" value={habitName} onChangeText={setHabitName} />
+            <Text style={styles.modalTitle}>{editingHabit ? 'Habit bearbeiten' : 'Neuer Habit'}</Text>
+
+            <Text style={styles.inputLabel}>Name</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="z.B. Meditation, Wasser trinken..."
+              placeholderTextColor={theme.textTertiary}
+              value={habitName}
+              onChangeText={setHabitName}
+              autoFocus
+            />
+
+            <Text style={styles.inputLabel}>Kategorie</Text>
             <View style={styles.catGrid}>
               {CATEGORIES.map(cat => (
-                <TouchableOpacity key={cat.key}
-                  style={[styles.catBtn, habitCategory === cat.key && { backgroundColor: CATEGORY_COLORS[cat.key] + '25', borderColor: CATEGORY_COLORS[cat.key] + '60' }]}
-                  onPress={() => setHabitCategory(cat.key)}>
-                  <Text style={[styles.catBtnText, habitCategory === cat.key && { color: CATEGORY_COLORS[cat.key] }]}>{cat.label}</Text>
+                <TouchableOpacity
+                  key={cat.key}
+                  style={[
+                    styles.catBtn,
+                    habitCategory === cat.key && {
+                      backgroundColor: CATEGORY_BG[cat.key],
+                      borderColor: CATEGORY_COLORS[cat.key],
+                    }
+                  ]}
+                  onPress={() => setHabitCategory(cat.key)}
+                >
+                  <Text style={[styles.catBtnText, habitCategory === cat.key && { color: CATEGORY_COLORS[cat.key] }]}>
+                    {cat.label}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
-            <TouchableOpacity style={styles.saveBtn} onPress={addHabit}>
-              <Text style={styles.saveBtnText}>Erstellen</Text>
+
+            <TouchableOpacity style={styles.saveBtn} onPress={addOrEditHabit}>
+              <Text style={styles.saveBtnText}>{editingHabit ? 'Speichern' : 'Erstellen'}</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowModal(false)}>
+            <TouchableOpacity onPress={() => { setShowModal(false); setEditingHabit(null); }}>
               <Text style={styles.cancelBtnText}>Abbrechen</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#07040F', paddingHorizontal: 20 },
-  headerLabel: { color: '#5B4A8A', fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
-  title: { color: '#E2D9F3', fontSize: 28, fontWeight: '500', lineHeight: 36, marginBottom: 20 },
+  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
+  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 20 },
+
+  progressCard: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 20, ...theme.shadow },
+  progressTop: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginBottom: 12 },
+  progressNum: { color: theme.blue, fontSize: 36, fontWeight: '700' },
+  progressSlash: { color: theme.textTertiary, fontSize: 24 },
+  progressTotal: { color: theme.textSecondary, fontSize: 24, fontWeight: '500' },
+  progressLabel: { color: theme.textSecondary, fontSize: 13, marginLeft: 6 },
+  progressBar: { height: 6, backgroundColor: theme.cardSecondary, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: theme.blue, borderRadius: 3 },
+
   categorySection: { marginBottom: 20 },
-  categoryLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: '500', marginBottom: 10 },
-  habitRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.07)', padding: 14, marginBottom: 8 },
-  check: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
-  checkMark: { fontSize: 12, fontWeight: '600' },
-  habitInfo: { flex: 1 },
-  habitName: { color: '#E2D9F3', fontSize: 14, fontWeight: '500' },
-  streakBadge: { backgroundColor: 'rgba(251,146,60,0.15)', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
-  streakText: { color: '#FB923C', fontSize: 11, fontWeight: '500' },
-  addBtn: { backgroundColor: '#7C3AED', borderRadius: 16, padding: 16, alignItems: 'center', marginBottom: 40 },
-  addBtnText: { color: '#fff', fontSize: 15, fontWeight: '500' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalCard: { backgroundColor: '#0D0A1A', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
-  modalTitle: { color: '#E2D9F3', fontSize: 20, fontWeight: '500' },
-  input: { backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: 14, color: '#E2D9F3', fontSize: 15 },
+  categoryLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: '600', marginBottom: 8 },
+
+  habitRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.card, borderRadius: 14, borderWidth: 1, borderColor: theme.border, padding: 12, marginBottom: 8, ...theme.shadow },
+  check: { width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: theme.textTertiary, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  checkMark: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  habitName: { color: theme.textPrimary, fontSize: 14, fontWeight: '500' },
+  streakBadge: { borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
+  streakText: { color: theme.orange, fontSize: 11, fontWeight: '500' },
+  editBtn: { width: 30, height: 30, borderRadius: 8, backgroundColor: theme.blueLight, alignItems: 'center', justifyContent: 'center' },
+  editBtnText: { color: theme.blue, fontSize: 14 },
+  deleteBtn: { width: 30, height: 30, borderRadius: 8, backgroundColor: '#FFEBEE', alignItems: 'center', justifyContent: 'center' },
+  deleteBtnText: { color: theme.red, fontSize: 18 },
+
+  emptyState: { alignItems: 'center', paddingVertical: 40, gap: 8 },
+  emptyEmoji: { fontSize: 48 },
+  emptyTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: '600' },
+  emptySub: { color: theme.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 20 },
+
+  addBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', ...theme.shadow },
+  addBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
+  modalTitle: { color: theme.textPrimary, fontSize: 20, fontWeight: '600' },
+  inputLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
+  input: { backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 14, color: theme.textPrimary, fontSize: 15 },
   catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  catBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.08)' },
-  catBtnText: { color: '#3D2E5C', fontSize: 12, fontWeight: '500' },
-  saveBtn: { backgroundColor: '#7C3AED', borderRadius: 14, padding: 16, alignItems: 'center' },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '500' },
-  cancelBtnText: { color: '#5B4A8A', fontSize: 14, textAlign: 'center', padding: 14 },
+  catBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.cardSecondary, borderWidth: 1, borderColor: 'transparent' },
+  catBtnText: { color: theme.textSecondary, fontSize: 12, fontWeight: '500' },
+  saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center' },
+  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  cancelBtnText: { color: theme.textSecondary, fontSize: 14, textAlign: 'center', padding: 14 },
 });

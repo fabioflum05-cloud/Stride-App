@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { Alert, Animated, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
+import { theme } from '../../constants/theme';
+
 const screenWidth = Dimensions.get('window').width - 40;
 
 type DayData = {
@@ -18,12 +20,12 @@ type DayData = {
 };
 
 const METRICS = [
-  { key: 'checkinScore', label: 'Performance', color: '#7C3AED' },
-  { key: 'sleepScore', label: 'Sleep Score', color: '#EC4899' },
-  { key: 'hrv', label: 'HRV', color: '#67E8F9' },
-  { key: 'schlafStunden', label: 'Schlafdauer', color: '#A78BFA' },
-  { key: 'batteryLevel', label: 'Battery', color: '#06B6D4' },
-  { key: 'workouts', label: 'Training', color: '#FB923C' },
+  { key: 'checkinScore', label: 'Performance', color: theme.blue },
+  { key: 'sleepScore', label: 'Sleep Score', color: theme.pink },
+  { key: 'hrv', label: 'HRV', color: theme.teal },
+  { key: 'schlafStunden', label: 'Schlafdauer', color: theme.purple },
+  { key: 'batteryLevel', label: 'Battery', color: theme.green },
+  { key: 'workouts', label: 'Training', color: theme.orange },
 ];
 
 function formatDate(dateString: string) {
@@ -49,77 +51,76 @@ export default function HistoryScreen() {
   const [days, setDays] = useState<DayData[]>([]);
   const [activeChart, setActiveChart] = useState<'performance' | 'sleep' | 'battery' | 'kcal'>('performance');
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['sleepScore', 'checkinScore']);
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
-const slideAnim = useRef(new Animated.Value(20)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
 
-useFocusEffect(
-  useCallback(() => {
-    fadeAnim.setValue(0);
-    slideAnim.setValue(20);
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
-    ]).start();
-  }, [])
-);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+      fadeAnim.setValue(0);
+      slideAnim.setValue(20);
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
+      ]).start();
+    }, [])
+  );
 
-  useEffect(() => {
-    async function load() {
-      const rawCheckin = await AsyncStorage.getItem('checkinHistory');
-      const rawSleep = await AsyncStorage.getItem('sleepHistory');
-      const rawWorkouts = await AsyncStorage.getItem('workouts');
+  async function load() {
+    const rawCheckin = await AsyncStorage.getItem('checkinHistory');
+    const rawSleep = await AsyncStorage.getItem('sleepHistory');
+    const rawWorkouts = await AsyncStorage.getItem('workouts');
 
-      const dayMap: Record<string, DayData> = {};
+    const dayMap: Record<string, DayData> = {};
 
-      if (rawCheckin) {
-        JSON.parse(rawCheckin).forEach((e: any) => {
-          const key = getDayKey(e.date);
-          if (!dayMap[key]) dayMap[key] = { date: e.date, dateLabel: formatDate(e.date) };
-          dayMap[key].checkinScore = e.score;
-        });
-      }
-
-      if (rawSleep) {
-        JSON.parse(rawSleep).forEach((e: any) => {
-          const key = getDayKey(e.date);
-          if (!dayMap[key]) dayMap[key] = { date: e.date, dateLabel: formatDate(e.date) };
-          dayMap[key].sleepScore = e.sleepScore;
-          dayMap[key].hrv = e.hrv;
-          dayMap[key].schlafStunden = e.schlafStunden;
-        });
-      }
-
-      if (rawWorkouts) {
-        JSON.parse(rawWorkouts).forEach((w: any) => {
-          const key = getDayKey(w.date);
-          if (!dayMap[key]) dayMap[key] = { date: w.date, dateLabel: formatDate(w.date) };
-          dayMap[key].workouts = (dayMap[key].workouts ?? 0) + 1;
-        });
-      }
-
-      const sorted = Object.values(dayMap).sort((a, b) =>
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
-
-      if (sorted.length === 0) {
-        setDays([
-          { date: '2026-04-16', dateLabel: '16.4', checkinScore: 65, sleepScore: 71, batteryLevel: 55, hrv: 52, schlafStunden: 6.5, workouts: 1 },
-          { date: '2026-04-17', dateLabel: '17.4', checkinScore: 70, sleepScore: 78, batteryLevel: 62, hrv: 61, schlafStunden: 7.5, workouts: 0 },
-          { date: '2026-04-18', dateLabel: '18.4', checkinScore: 58, sleepScore: 65, batteryLevel: 48, hrv: 45, schlafStunden: 5.5, workouts: 1 },
-          { date: '2026-04-19', dateLabel: '19.4', checkinScore: 80, sleepScore: 85, batteryLevel: 70, hrv: 72, schlafStunden: 8.5, workouts: 0 },
-          { date: '2026-04-20', dateLabel: '20.4', checkinScore: 75, sleepScore: 80, batteryLevel: 65, hrv: 68, schlafStunden: 7.0, workouts: 1 },
-          { date: '2026-04-21', dateLabel: '21.4', checkinScore: 82, sleepScore: 88, batteryLevel: 72, hrv: 81, schlafStunden: 8.0, workouts: 0 },
-          { date: '2026-04-22', dateLabel: '22.4', checkinScore: 78, sleepScore: 94, batteryLevel: 68, hrv: 90, schlafStunden: 9.0, workouts: 1 },
-        ]);
-        return;
-      }
-      setDays(sorted);
+    if (rawCheckin) {
+      JSON.parse(rawCheckin).forEach((e: any) => {
+        const key = getDayKey(e.date);
+        if (!dayMap[key]) dayMap[key] = { date: e.date, dateLabel: formatDate(e.date) };
+        dayMap[key].checkinScore = e.score;
+      });
     }
-    load();
-  }, []);
+
+    if (rawSleep) {
+      JSON.parse(rawSleep).forEach((e: any) => {
+        const key = getDayKey(e.date);
+        if (!dayMap[key]) dayMap[key] = { date: e.date, dateLabel: formatDate(e.date) };
+        dayMap[key].sleepScore = e.sleepScore;
+        dayMap[key].hrv = e.hrv;
+        dayMap[key].schlafStunden = e.schlafStunden;
+      });
+    }
+
+    if (rawWorkouts) {
+      JSON.parse(rawWorkouts).forEach((w: any) => {
+        const key = getDayKey(w.date);
+        if (!dayMap[key]) dayMap[key] = { date: w.date, dateLabel: formatDate(w.date) };
+        dayMap[key].workouts = (dayMap[key].workouts ?? 0) + 1;
+      });
+    }
+
+    const sorted = Object.values(dayMap).sort((a, b) =>
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    if (sorted.length === 0) {
+      setDays([
+        { date: '2026-04-16', dateLabel: '16.4', checkinScore: 65, sleepScore: 71, batteryLevel: 55, hrv: 52, schlafStunden: 6.5, workouts: 1 },
+        { date: '2026-04-17', dateLabel: '17.4', checkinScore: 70, sleepScore: 78, batteryLevel: 62, hrv: 61, schlafStunden: 7.5, workouts: 0 },
+        { date: '2026-04-18', dateLabel: '18.4', checkinScore: 58, sleepScore: 65, batteryLevel: 48, hrv: 45, schlafStunden: 5.5, workouts: 1 },
+        { date: '2026-04-19', dateLabel: '19.4', checkinScore: 80, sleepScore: 85, batteryLevel: 70, hrv: 72, schlafStunden: 8.5, workouts: 0 },
+        { date: '2026-04-20', dateLabel: '20.4', checkinScore: 75, sleepScore: 80, batteryLevel: 65, hrv: 68, schlafStunden: 7.0, workouts: 1 },
+        { date: '2026-04-21', dateLabel: '21.4', checkinScore: 82, sleepScore: 88, batteryLevel: 72, hrv: 81, schlafStunden: 8.0, workouts: 0 },
+        { date: '2026-04-22', dateLabel: '22.4', checkinScore: 78, sleepScore: 94, batteryLevel: 68, hrv: 90, schlafStunden: 9.0, workouts: 1 },
+      ]);
+      return;
+    }
+    setDays(sorted);
+  }
 
   async function clearHistory() {
-    Alert.alert('Verlauf löschen?', '', [
+    Alert.alert('Verlauf löschen?', 'Diese Aktion kann nicht rückgängig gemacht werden.', [
       { text: 'Abbrechen', style: 'cancel' },
       {
         text: 'Löschen', style: 'destructive', onPress: async () => {
@@ -146,14 +147,14 @@ useFocusEffect(
   const labels = last14.map(d => d.dateLabel);
 
   const chartConfigs: Record<string, { data: number[], color: string, label: string }> = {
-    performance: { data: last14.map(d => d.checkinScore ?? 0), color: '#7C3AED', label: 'Performance Score' },
-    sleep: { data: last14.map(d => d.sleepScore ?? 0), color: '#EC4899', label: 'Sleep Score' },
-    battery: { data: last14.map(d => d.batteryLevel ?? 0), color: '#06B6D4', label: 'Body Battery' },
-    kcal: { data: last14.map(d => d.totalKcal ?? 0), color: '#FB923C', label: 'Kalorien' },
+    performance: { data: last14.map(d => d.checkinScore ?? 0), color: theme.blue, label: 'Performance Score' },
+    sleep: { data: last14.map(d => d.sleepScore ?? 0), color: theme.pink, label: 'Sleep Score' },
+    battery: { data: last14.map(d => d.batteryLevel ?? 0), color: theme.green, label: 'Body Battery' },
+    kcal: { data: last14.map(d => d.totalKcal ?? 0), color: theme.orange, label: 'Kalorien' },
   };
 
   const active = chartConfigs[activeChart];
-  const validData = active.data.some(v => v > 0) ? active.data : [1, 1, 1, 1, 1, 1, 1];
+  const validData = active.data.some(v => v > 0) ? active.data : [1, 2, 3, 2, 3, 2, 1];
 
   const avg = days.filter(d => d.checkinScore).length > 0
     ? Math.round(days.reduce((s, d) => s + (d.checkinScore ?? 0), 0) / days.filter(d => d.checkinScore).length)
@@ -174,208 +175,231 @@ useFocusEffect(
     };
   });
 
- return (
+  const chartConfig = {
+    backgroundColor: 'transparent',
+    backgroundGradientFrom: theme.card,
+    backgroundGradientTo: theme.card,
+    decimalPlaces: 0,
+    color: (opacity = 1) => `${active.color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`,
+    labelColor: () => theme.textSecondary,
+    propsForDots: { r: '4', strokeWidth: '2', stroke: active.color, fill: active.color },
+    propsForBackgroundLines: { stroke: theme.borderLight },
+  };
+
+  return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-      <Text style={styles.headerLabel}>Verlauf</Text>
-      <Text style={styles.title}>Dein{'\n'}Fortschritt</Text>
-</Animated.View>
-      <View style={styles.summaryGrid}>
-        <View style={[styles.summaryCard, { borderColor: 'rgba(124,58,237,0.25)' }]}>
-          <Text style={[styles.summaryVal, { color: '#A78BFA' }]}>{avg || '--'}</Text>
-          <Text style={styles.summaryLbl}>Ø Performance</Text>
-        </View>
-        <View style={[styles.summaryCard, { borderColor: 'rgba(236,72,153,0.25)' }]}>
-          <Text style={[styles.summaryVal, { color: '#F472B6' }]}>{bestSleep || '--'}</Text>
-          <Text style={styles.summaryLbl}>Bester Schlaf</Text>
-        </View>
-        <View style={[styles.summaryCard, { borderColor: 'rgba(6,182,212,0.25)' }]}>
-          <Text style={[styles.summaryVal, { color: '#67E8F9' }]}>{avgBattery || '--'}</Text>
-          <Text style={styles.summaryLbl}>Ø Battery</Text>
-        </View>
-        <View style={[styles.summaryCard, { borderColor: 'rgba(251,146,60,0.25)' }]}>
-          <Text style={[styles.summaryVal, { color: '#FB923C' }]}>{days.length}</Text>
-          <Text style={styles.summaryLbl}>Tage getrackt</Text>
-        </View>
-      </View>
 
-      <View style={styles.chartCard}>
-        <View style={styles.chartTabs}>
+        <Text style={styles.headerLabel}>Verlauf</Text>
+        <Text style={styles.title}>Dein{'\n'}Fortschritt</Text>
+
+        {/* Summary Cards */}
+        <View style={styles.summaryGrid}>
           {[
-            { key: 'performance', label: 'Score', color: '#7C3AED' },
-            { key: 'sleep', label: 'Schlaf', color: '#EC4899' },
-            { key: 'battery', label: 'Battery', color: '#06B6D4' },
-            { key: 'kcal', label: 'kcal', color: '#FB923C' },
-          ].map(tab => (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.chartTab, activeChart === tab.key && { borderColor: tab.color, backgroundColor: tab.color + '20' }]}
-              onPress={() => setActiveChart(tab.key as any)}
-            >
-              <Text style={[styles.chartTabText, { color: activeChart === tab.key ? tab.color : '#3D2E5C' }]}>{tab.label}</Text>
-            </TouchableOpacity>
+            { val: avg || '--', lbl: 'Ø Performance', color: theme.blue },
+            { val: bestSleep || '--', lbl: 'Bester Schlaf', color: theme.pink },
+            { val: avgBattery || '--', lbl: 'Ø Battery', color: theme.green },
+            { val: days.length, lbl: 'Tage getrackt', color: theme.orange },
+          ].map(s => (
+            <View key={s.lbl} style={styles.summaryCard}>
+              <Text style={[styles.summaryVal, { color: s.color }]}>{s.val}</Text>
+              <Text style={styles.summaryLbl}>{s.lbl}</Text>
+            </View>
           ))}
         </View>
-        <Text style={[styles.chartLabel, { color: active.color }]}>{active.label}</Text>
-        <LineChart
-          data={{ labels, datasets: [{ data: validData.map(v => Math.max(v, 0.1)) }] }}
-          width={screenWidth - 32}
-          height={180}
-          chartConfig={{
-            backgroundColor: 'transparent',
-            backgroundGradientFrom: '#0D0A1A',
-            backgroundGradientTo: '#0D0A1A',
-            decimalPlaces: 0,
-            color: (opacity = 1) => `${active.color}${Math.round(opacity * 255).toString(16).padStart(2, '0')}`,
-            labelColor: () => '#5B4A8A',
-            propsForDots: { r: '4', strokeWidth: '2', stroke: active.color, fill: active.color },
-            propsForBackgroundLines: { stroke: 'rgba(255,255,255,0.04)' },
-          }}
-          bezier
-          style={styles.chart}
-          withInnerLines={true}
-          withOuterLines={false}
-        />
-      </View>
 
-      <Text style={styles.sectionTitle}>Muster erkennen</Text>
-      <Text style={styles.sectionSub}>Wähle bis zu 4 Metriken – normalisiert für Vergleichbarkeit.</Text>
-
-      <View style={styles.metricGrid}>
-        {METRICS.map(m => {
-          const selected = selectedMetrics.includes(m.key);
-          return (
-            <TouchableOpacity
-              key={m.key}
-              style={[styles.metricChip, selected && { backgroundColor: m.color + '20', borderColor: m.color + '60' }]}
-              onPress={() => toggleMetric(m.key)}
-            >
-              <View style={[styles.metricChipDot, { backgroundColor: selected ? m.color : '#3D2E5C' }]} />
-              <Text style={[styles.metricChipText, { color: selected ? m.color : '#3D2E5C' }]}>{m.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {multiDatasets.length > 0 && last14.length >= 2 && (
-        <View style={styles.multiChartCard}>
-          <View style={styles.multiLegend}>
-            {selectedMetrics.map(key => {
-              const m = METRICS.find(m => m.key === key)!;
-              return (
-                <View key={key} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: m.color }]} />
-                  <Text style={[styles.legendText, { color: m.color }]}>{m.label}</Text>
-                </View>
-              );
-            })}
+        {/* Chart Card */}
+        <View style={styles.chartCard}>
+          <View style={styles.chartTabs}>
+            {[
+              { key: 'performance', label: 'Score', color: theme.blue },
+              { key: 'sleep', label: 'Schlaf', color: theme.pink },
+              { key: 'battery', label: 'Battery', color: theme.green },
+              { key: 'kcal', label: 'kcal', color: theme.orange },
+            ].map(tab => (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.chartTab, activeChart === tab.key && { backgroundColor: tab.color }]}
+                onPress={() => setActiveChart(tab.key as any)}
+              >
+                <Text style={[styles.chartTabText, { color: activeChart === tab.key ? '#fff' : theme.textSecondary }]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
+          <Text style={[styles.chartLabel, { color: active.color }]}>{active.label}</Text>
           <LineChart
-            data={{ labels, datasets: multiDatasets }}
+            data={{ labels, datasets: [{ data: validData.map(v => Math.max(v, 0.1)), color: (opacity = 1) => active.color }] }}
             width={screenWidth - 32}
-            height={200}
-            chartConfig={{
-              backgroundColor: 'transparent',
-              backgroundGradientFrom: '#0D0A1A',
-              backgroundGradientTo: '#0D0A1A',
-              decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(167,139,250,${opacity})`,
-              labelColor: () => '#5B4A8A',
-              propsForDots: { r: '3', strokeWidth: '1' },
-              propsForBackgroundLines: { stroke: 'rgba(255,255,255,0.04)' },
-            }}
+            height={180}
+            chartConfig={chartConfig}
             bezier
             style={styles.chart}
             withInnerLines={true}
             withOuterLines={false}
             withDots={true}
           />
-          <Text style={styles.normalizedNote}>* Alle Werte normalisiert auf 0–100</Text>
         </View>
-      )}
 
-      <Text style={styles.sectionTitle}>Tagesübersicht</Text>
-      {days.slice(-7).reverse().map((day, i) => (
-        <View key={i} style={styles.dayCard}>
-          <View style={styles.dayHeader}>
-            <Text style={styles.dayDate}>{day.dateLabel}</Text>
-            {day.checkinScore && (
-              <View style={styles.dayScorePill}>
-                <Text style={styles.dayScoreText}>Score {day.checkinScore}</Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.dayStats}>
-            {day.sleepScore !== undefined && (
-              <View style={styles.dayStat}>
-                <Text style={[styles.dayStatVal, { color: '#F472B6' }]}>{day.sleepScore}</Text>
-                <Text style={styles.dayStatLbl}>Schlaf</Text>
-              </View>
-            )}
-            {day.hrv !== undefined && (
-              <View style={styles.dayStat}>
-                <Text style={[styles.dayStatVal, { color: '#67E8F9' }]}>{day.hrv}</Text>
-                <Text style={styles.dayStatLbl}>HRV</Text>
-              </View>
-            )}
-            {day.schlafStunden !== undefined && (
-              <View style={styles.dayStat}>
-                <Text style={[styles.dayStatVal, { color: '#A78BFA' }]}>{day.schlafStunden}h</Text>
-                <Text style={styles.dayStatLbl}>Dauer</Text>
-              </View>
-            )}
-            {day.workouts !== undefined && day.workouts > 0 && (
-              <View style={styles.dayStat}>
-                <Text style={[styles.dayStatVal, { color: '#FB923C' }]}>{day.workouts}</Text>
-                <Text style={styles.dayStatLbl}>Training</Text>
-              </View>
-            )}
-          </View>
+        {/* Multi Metric */}
+        <Text style={styles.sectionTitle}>Muster erkennen</Text>
+        <Text style={styles.sectionSub}>Wähle bis zu 4 Metriken zum Vergleichen</Text>
+
+        <View style={styles.metricGrid}>
+          {METRICS.map(m => {
+            const selected = selectedMetrics.includes(m.key);
+            return (
+              <TouchableOpacity
+                key={m.key}
+                style={[styles.metricChip, selected && { backgroundColor: m.color + '18', borderColor: m.color }]}
+                onPress={() => toggleMetric(m.key)}
+              >
+                <View style={[styles.metricChipDot, { backgroundColor: selected ? m.color : theme.textTertiary }]} />
+                <Text style={[styles.metricChipText, { color: selected ? m.color : theme.textSecondary }]}>{m.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
-      ))}
 
-      <TouchableOpacity style={styles.clearBtn} onPress={clearHistory}>
-        <Text style={styles.clearBtnText}>Verlauf löschen</Text>
-      </TouchableOpacity>
+        {multiDatasets.length > 0 && last14.length >= 2 && (
+          <View style={styles.multiChartCard}>
+            <View style={styles.multiLegend}>
+              {selectedMetrics.map(key => {
+                const m = METRICS.find(m => m.key === key)!;
+                return (
+                  <View key={key} style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: m.color }]} />
+                    <Text style={[styles.legendText, { color: m.color }]}>{m.label}</Text>
+                  </View>
+                );
+              })}
+            </View>
+            <LineChart
+              data={{ labels, datasets: multiDatasets }}
+              width={screenWidth - 32}
+              height={200}
+              chartConfig={{
+                backgroundColor: 'transparent',
+                backgroundGradientFrom: theme.card,
+                backgroundGradientTo: theme.card,
+                decimalPlaces: 0,
+                color: (opacity = 1) => `rgba(26,115,232,${opacity})`,
+                labelColor: () => theme.textSecondary,
+                propsForDots: { r: '3', strokeWidth: '1' },
+                propsForBackgroundLines: { stroke: theme.borderLight },
+              }}
+              bezier
+              style={styles.chart}
+              withInnerLines={true}
+              withOuterLines={false}
+            />
+            <Text style={styles.normalizedNote}>* Alle Werte normalisiert auf 0–100</Text>
+          </View>
+        )}
+
+        {/* Day Cards */}
+        <Text style={styles.sectionTitle}>Tagesübersicht</Text>
+        {days.slice(-7).reverse().map((day, i) => (
+          <View key={i} style={styles.dayCard}>
+            <View style={styles.dayHeader}>
+              <Text style={styles.dayDate}>{day.dateLabel}</Text>
+              {day.checkinScore && (
+                <View style={[styles.dayScorePill, { backgroundColor: theme.blueLight }]}>
+                  <Text style={[styles.dayScoreText, { color: theme.blue }]}>Score {day.checkinScore}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.dayStats}>
+              {day.sleepScore !== undefined && (
+                <View style={styles.dayStat}>
+                  <Text style={[styles.dayStatVal, { color: theme.pink }]}>{day.sleepScore}</Text>
+                  <Text style={styles.dayStatLbl}>Schlaf</Text>
+                </View>
+              )}
+              {day.hrv !== undefined && (
+                <View style={styles.dayStat}>
+                  <Text style={[styles.dayStatVal, { color: theme.teal }]}>{day.hrv}</Text>
+                  <Text style={styles.dayStatLbl}>HRV</Text>
+                </View>
+              )}
+              {day.schlafStunden !== undefined && (
+                <View style={styles.dayStat}>
+                  <Text style={[styles.dayStatVal, { color: theme.purple }]}>{day.schlafStunden}h</Text>
+                  <Text style={styles.dayStatLbl}>Dauer</Text>
+                </View>
+              )}
+              {day.workouts !== undefined && day.workouts > 0 && (
+                <View style={styles.dayStat}>
+                  <Text style={[styles.dayStatVal, { color: theme.orange }]}>{day.workouts}</Text>
+                  <Text style={styles.dayStatLbl}>Training</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        ))}
+
+        <TouchableOpacity style={styles.clearBtn} onPress={clearHistory}>
+          <Text style={styles.clearBtnText}>Verlauf löschen</Text>
+        </TouchableOpacity>
+
+        <View style={{ height: 100 }} />
+      </Animated.View>
+
+      
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#07040F', paddingHorizontal: 20 },
-  headerLabel: { color: '#5B4A8A', fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
-  title: { color: '#E2D9F3', fontSize: 28, fontWeight: '500', lineHeight: 36, marginBottom: 24 },
+  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
+  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 24 },
+
   summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  summaryCard: { width: '48%', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 0.5, padding: 14 },
-  summaryVal: { fontSize: 28, fontWeight: '500' },
-  summaryLbl: { color: '#5B4A8A', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3 },
-  chartCard: { backgroundColor: '#0D0A1A', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.2)', padding: 16, marginBottom: 24 },
+  summaryCard: { width: '48%', backgroundColor: theme.card, borderRadius: 14, padding: 14, ...theme.shadow },
+  summaryVal: { fontSize: 28, fontWeight: '600' },
+  summaryLbl: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3 },
+
+  chartCard: { backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 20, ...theme.shadow },
   chartTabs: { flexDirection: 'row', gap: 6, marginBottom: 12 },
-  chartTab: { flex: 1, paddingVertical: 7, borderRadius: 20, alignItems: 'center', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.08)' },
+  chartTab: { flex: 1, paddingVertical: 7, borderRadius: 20, alignItems: 'center', backgroundColor: theme.cardSecondary },
   chartTabText: { fontSize: 11, fontWeight: '500' },
-  chartLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 },
+  chartLabel: { fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8, fontWeight: '600' },
   chart: { borderRadius: 12, marginLeft: -16 },
-  sectionTitle: { color: '#5B4A8A', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 },
-  sectionSub: { color: '#3D2E5C', fontSize: 12, marginBottom: 12 },
+  
+
+  sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 6 },
+  sectionSub: { color: theme.textSecondary, fontSize: 12, marginBottom: 12 },
   metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  metricChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.07)' },
+  metricChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, ...theme.shadow },
   metricChipDot: { width: 6, height: 6, borderRadius: 3 },
   metricChipText: { fontSize: 12, fontWeight: '500' },
-  multiChartCard: { backgroundColor: '#0D0A1A', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.07)', padding: 16, marginBottom: 24, gap: 12 },
+
+  multiChartCard: { backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 24, gap: 12, ...theme.shadow },
   multiLegend: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { fontSize: 11, fontWeight: '500' },
-  normalizedNote: { color: '#3D2E5C', fontSize: 10, fontStyle: 'italic' },
-  dayCard: { backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 14, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', padding: 14, marginBottom: 8 },
+  normalizedNote: { color: theme.textTertiary, fontSize: 10, fontStyle: 'italic' },
+
+  dayCard: { backgroundColor: theme.card, borderRadius: 14, padding: 14, marginBottom: 8, ...theme.shadow },
   dayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  dayDate: { color: '#E2D9F3', fontSize: 14, fontWeight: '500' },
-  dayScorePill: { backgroundColor: 'rgba(124,58,237,0.15)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
-  dayScoreText: { color: '#A78BFA', fontSize: 11, fontWeight: '500' },
+  dayDate: { color: theme.textPrimary, fontSize: 14, fontWeight: '600' },
+  dayScorePill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
+  dayScoreText: { fontSize: 11, fontWeight: '500' },
   dayStats: { flexDirection: 'row', gap: 16 },
   dayStat: { alignItems: 'center' },
-  dayStatVal: { fontSize: 16, fontWeight: '500' },
-  dayStatLbl: { color: '#5B4A8A', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 },
-  clearBtn: { padding: 14, alignItems: 'center', marginBottom: 40, borderRadius: 14, backgroundColor: 'rgba(251,113,133,0.08)', borderWidth: 0.5, borderColor: 'rgba(251,113,133,0.2)' },
-  clearBtnText: { color: '#FB7185', fontSize: 13 },
+  dayStatVal: { fontSize: 16, fontWeight: '600' },
+  dayStatLbl: { color: theme.textSecondary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 },
+
+  clearBtn: { padding: 14, alignItems: 'center', marginBottom: 20, borderRadius: 14, backgroundColor: '#FFEBEE' },
+  clearBtnText: { color: theme.red, fontSize: 13, fontWeight: '500' },
+
+  // Expanded Modal
+  expandedOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  expandedCard: { backgroundColor: theme.card, borderRadius: 20, padding: 20, width: '100%', ...theme.shadow },
+  expandedHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  expandedClose: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.cardSecondary, alignItems: 'center', justifyContent: 'center' },
+  expandedCloseText: { color: theme.textSecondary, fontSize: 13 },
 });

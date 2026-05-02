@@ -1,18 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Svg, { Circle, Rect, Text as SvgText } from 'react-native-svg';
-type CheckinData = { energie: number; stress: number; motivation: number; score: number; date?: string; };
-type SleepData = { sleepScore: number; hrv: number; schlafStunden: number; date?: string; };
-type BatteryData = { level: number; date?: string; calorieEntries?: { kcal: number }[]; };
-type Profile = { name: string; goal: string; };
-type Habit = { id: string; name: string; completedDates: string[]; streak: number; };
+import { useCallback, useRef, useState } from 'react';
+import { Animated, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Svg, { Circle, Defs, LinearGradient, Path, Polyline, Stop } from 'react-native-svg';
+import { theme } from '../../constants/theme';
+
+const W = Dimensions.get('window').width;
 
 function isToday(dateString: string) {
   const date = new Date(dateString);
   const today = new Date();
-  return date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear();
+  return date.getDate() === today.getDate() &&
+    date.getMonth() === today.getMonth() &&
+    date.getFullYear() === today.getFullYear();
 }
 
 function getGreeting() {
@@ -22,7 +22,7 @@ function getGreeting() {
   return 'Guten Abend';
 }
 
-function calculatePerformanceScore(checkin: CheckinData | null, sleep: SleepData | null, battery: BatteryData | null): number {
+function calculatePerformanceScore(checkin: any, sleep: any, battery: any): number {
   if (!checkin && !sleep) return 0;
   const sleepScore = sleep?.sleepScore ?? 50;
   const energieScore = checkin ? checkin.energie * 20 : 50;
@@ -32,252 +32,487 @@ function calculatePerformanceScore(checkin: CheckinData | null, sleep: SleepData
   return Math.round(sleepScore * 0.30 + energieScore * 0.20 + stressScore * 0.20 + motivationScore * 0.15 + batteryScore * 0.15);
 }
 
-function ScoreRings({ performance = 0, sleep = 0, energy = 0 }: { performance: number, sleep: number, energy: number }) {
-  const toArc = (score: number, radius: number) => {
-    const circumference = 2 * Math.PI * radius;
-    const filled = (Math.min(score, 100) / 100) * circumference;
-    return `${filled} ${circumference - filled}`;
-  };
-  return (
-    <Svg width={180} height={180} viewBox="0 0 160 160">
-      <Circle cx={80} cy={80} r={68} fill="none" stroke="#130C1E" strokeWidth={12} />
-      <Circle cx={80} cy={80} r={68} fill="none" stroke="#7C3AED" strokeWidth={12}
-        strokeDasharray={toArc(performance, 68)} strokeDashoffset={2 * Math.PI * 68 * 0.25}
-        strokeLinecap="round" rotation={-90} origin="80,80" />
-      <Circle cx={80} cy={80} r={52} fill="none" stroke="#130C1E" strokeWidth={10} />
-      <Circle cx={80} cy={80} r={52} fill="none" stroke="#EC4899" strokeWidth={10}
-        strokeDasharray={toArc(sleep, 52)} strokeDashoffset={2 * Math.PI * 52 * 0.25}
-        strokeLinecap="round" rotation={-90} origin="80,80" />
-      <Circle cx={80} cy={80} r={36} fill="none" stroke="#130C1E" strokeWidth={8} />
-      <Circle cx={80} cy={80} r={36} fill="none" stroke="#06B6D4" strokeWidth={8}
-        strokeDasharray={toArc(energy, 36)} strokeDashoffset={2 * Math.PI * 36 * 0.25}
-        strokeLinecap="round" rotation={-90} origin="80,80" />
-      <SvgText x={80} y={82} textAnchor="middle" fill="#E2D9F3" fontSize={26} fontWeight="500">{performance}</SvgText>
-      <SvgText x={80} y={94} textAnchor="middle" fill="#5B4A8A" fontSize={9} letterSpacing={2}>SCORE</SvgText>
-    </Svg>
-  );
-}
+function EnergyChart() {
+  const hours = [6, 8, 10, 12, 14, 16, 18, 20, 22];
+  const values = [20, 35, 75, 90, 85, 70, 55, 40, 25];
+  const W = 280;
+  const H = 60;
+  const pad = 10;
 
-function MiniBattery({ level }: { level: number }) {
-  const color = level >= 70 ? '#7C3AED' : level >= 40 ? '#EC4899' : '#FB7185';
-  const statusColor = level >= 70 ? '#A78BFA' : level >= 40 ? '#F472B6' : '#FB7185';
-  const statusText = level >= 70 ? 'Gut' : level >= 40 ? 'Moderat' : 'Kritisch';
-  const fillHeight = Math.round((level / 100) * 90);
+  const points = values.map((v, i) => {
+    const x = pad + (i / (values.length - 1)) * (W - pad * 2);
+    const y = H - pad - (v / 100) * (H - pad * 2);
+    return `${x},${y}`;
+  }).join(' ');
+
+  const optimalStart = pad + (2 / (values.length - 1)) * (W - pad * 2);
+  const optimalEnd = pad + (4 / (values.length - 1)) * (W - pad * 2);
+
   return (
-    <View style={{ alignItems: 'center' }}>
-      <Svg width={60} height={110} viewBox="0 0 60 110">
-        <Circle cx={30} cy={8} r={6} fill="none" stroke="#2A1F40" strokeWidth={1.5} />
-        <Circle cx={30} cy={8} r={3} fill="#2A1F40" />
-        <Rect x={5} y={15} width={50} height={90} rx={10} fill="#0D0A1A" stroke="#2A1F40" strokeWidth={1.5} />
-        <Rect x={5} y={15 + (90 - fillHeight)} width={50} height={fillHeight} rx={6} fill={color} opacity={0.85} />
-        <Rect x={5} y={15} width={50} height={90} rx={10} fill="none" stroke="#3D2E5C" strokeWidth={1.5} />
-        <SvgText x={30} y={66} textAnchor="middle" fill="#E2D9F3" fontSize={16} fontWeight="500">{level}</SvgText>
-        <SvgText x={30} y={78} textAnchor="middle" fill="#5B4A8A" fontSize={7} letterSpacing={1}>BAT</SvgText>
+    <View>
+      <Svg width={W} height={H}>
+        <Defs>
+          <LinearGradient id="optGrad" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={theme.green} stopOpacity={0.15} />
+            <Stop offset="1" stopColor={theme.green} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Path
+          d={`M ${optimalStart} ${pad} L ${optimalEnd} ${pad} L ${optimalEnd} ${H - pad} L ${optimalStart} ${H - pad} Z`}
+          fill="url(#optGrad)"
+        />
+        <Polyline
+          points={points}
+          fill="none"
+          stroke={theme.blue}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {values.map((v, i) => {
+          const x = pad + (i / (values.length - 1)) * (W - pad * 2);
+          const y = H - pad - (v / 100) * (H - pad * 2);
+          const color = v >= 70 ? theme.green : v >= 45 ? theme.orange : theme.red;
+          return <Circle key={i} cx={x} cy={y} r={3} fill={color} />;
+        })}
       </Svg>
-      <Text style={{ color: statusColor, fontSize: 9, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.8 }}>{statusText}</Text>
+      <View style={styles.energyTimes}>
+        {hours.filter((_, i) => i % 2 === 0).map(h => (
+          <Text key={h} style={styles.energyTime}>{h}h</Text>
+        ))}
+      </View>
+      <View style={styles.optimalBadge}>
+        <View style={styles.optimalDot} />
+        <Text style={styles.optimalText}>Optimal trainieren: 10–14 Uhr</Text>
+      </View>
     </View>
   );
 }
 
 export default function HomeScreen() {
-  const [checkin, setCheckin] = useState<CheckinData | null>(null);
-  const [sleep, setSleep] = useState<SleepData | null>(null);
-  const [battery, setBattery] = useState<BatteryData | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [habits, setHabits] = useState<Habit[]>([]);
+  const [checkin, setCheckin] = useState<any>(null);
+  const [sleep, setSleep] = useState<any>(null);
+  const [battery, setBattery] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [habits, setHabits] = useState<any[]>([]);
+  const [streak, setStreak] = useState(0);
+  const [menuVisible, setMenuVisible] = useState(false);
+
   const fadeAnim = useRef(new Animated.Value(0)).current;
-const slideAnim = useRef(new Animated.Value(20)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
+  const menuSlide = useRef(new Animated.Value(320)).current;
+  const menuFade = useRef(new Animated.Value(0)).current;
 
+  useFocusEffect(
+    useCallback(() => {
+      load();
+      fadeAnim.setValue(0);
+      slideAnim.setValue(20);
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
+      ]).start();
+    }, [])
+  );
 
-useFocusEffect(
-  useCallback(() => {
-    fadeAnim.setValue(0);
-    slideAnim.setValue(20);
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
-    ]).start();
-  }, [])
-);
+  async function load() {
+    const rawCheckin = await AsyncStorage.getItem('lastCheckin');
+    const rawSleep = await AsyncStorage.getItem('lastSleep');
+    const rawBattery = await AsyncStorage.getItem('batteryData');
+    const rawProfile = await AsyncStorage.getItem('profile');
+    const rawHabits = await AsyncStorage.getItem('habits');
 
-useFocusEffect(
-  useCallback(() => {
-    fadeAnim.setValue(0);
-    slideAnim.setValue(20);
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
-    ]).start();
-  }, [])
-);
-
-
-  useEffect(() => {
-    async function load() {
-      const rawCheckin = await AsyncStorage.getItem('lastCheckin');
-      const rawSleep = await AsyncStorage.getItem('lastSleep');
-      const rawBattery = await AsyncStorage.getItem('batteryData');
-      const rawProfile = await AsyncStorage.getItem('profile');
-      const rawHabits = await AsyncStorage.getItem('habits');
-
-      if (rawCheckin) { const c = JSON.parse(rawCheckin); if (isToday(c.date ?? '')) setCheckin(c); }
-      if (rawSleep) { const s = JSON.parse(rawSleep); if (isToday(s.date ?? '')) setSleep(s); }
-      if (rawBattery) { const b = JSON.parse(rawBattery); if (isToday(b.date ?? '')) setBattery(b); }
-      if (rawProfile) setProfile(JSON.parse(rawProfile));
-      if (rawHabits) {
-        const h: Habit[] = JSON.parse(rawHabits);
-        setHabits(h.map((habit: any) => ({ ...habit, completedToday: habit.completedDates?.some(isToday) ?? false })));
-      }
+    if (rawCheckin) { const c = JSON.parse(rawCheckin); if (isToday(c.date ?? '')) setCheckin(c); }
+    if (rawSleep) { const s = JSON.parse(rawSleep); if (isToday(s.date ?? '')) setSleep(s); }
+    if (rawBattery) { const b = JSON.parse(rawBattery); if (isToday(b.date ?? '')) setBattery(b); }
+    if (rawProfile) setProfile(JSON.parse(rawProfile));
+    if (rawHabits) {
+      const h = JSON.parse(rawHabits);
+      const mapped = h.map((habit: any) => ({
+        ...habit,
+        completedToday: habit.completedDates?.some(isToday) ?? false,
+      }));
+      setHabits(mapped);
+      const s = calculateStreak(mapped);
+      setStreak(s);
     }
-    load();
-  }, []);
+  }
+
+  function calculateStreak(habitList: any[]): number {
+    if (habitList.length === 0) return 0;
+    let s = 0;
+    const today = new Date();
+    for (let i = 0; i < 365; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const anyDone = habitList.some(h =>
+        h.completedDates?.some((cd: string) => {
+          const dd = new Date(cd);
+          return dd.getDate() === d.getDate() &&
+            dd.getMonth() === d.getMonth() &&
+            dd.getFullYear() === d.getFullYear();
+        })
+      );
+      if (anyDone) s++;
+      else break;
+    }
+    return s;
+  }
+
+  function openMenu() {
+    setMenuVisible(true);
+    Animated.parallel([
+      Animated.spring(menuSlide, { toValue: 0, useNativeDriver: true, tension: 80, friction: 12 }),
+      Animated.timing(menuFade, { toValue: 1, duration: 250, useNativeDriver: true }),
+    ]).start();
+  }
+
+  function closeMenu() {
+    Animated.parallel([
+      Animated.timing(menuSlide, { toValue: 320, duration: 220, useNativeDriver: true }),
+      Animated.timing(menuFade, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => setMenuVisible(false));
+  }
 
   const score = calculatePerformanceScore(checkin, sleep, battery);
   const sleepScore = sleep?.sleepScore ?? 0;
-  const energieScore = checkin ? checkin.energie * 20 : 0;
   const batteryLevel = battery?.level ?? 0;
-  const firstName = profile?.name?.split(' ')[0] ?? 'Athlet'
+  const kcal = battery?.calorieEntries?.reduce((s: number, e: any) => s + e.kcal, 0) ?? 0;
+  const firstName = profile?.name?.split(' ')[0] ?? 'Athlet';
   const initial = firstName.charAt(0).toUpperCase();
-  const completedHabits = habits.filter((h: any) => h.completedToday).length;
+  const completedHabits = habits.filter(h => h.completedToday).length;
   const totalHabits = habits.length;
 
   const focusText = score >= 70
-    ? { title: 'Vollgas möglich 💪', sub: 'Alles grün – perfekter Tag für intensives Training.' }
+    ? '💪 Vollgas möglich'
     : score >= 50
-      ? { title: 'Moderat halten ⚡', sub: 'Solide Basis heute. Nicht übertreiben.' }
-      : score > 0
-        ? { title: 'Erholung heute 🌙', sub: 'Dein Körper braucht Pause. Leicht halten.' }
-        : { title: `${getGreeting()}! 🌱`, sub: 'Füll Sleep Log und Check-in aus um deinen Score zu sehen.' };
+    ? '⚡ Moderat halten'
+    : score > 0
+    ? '🌙 Erholung heute'
+    : '🌱 Score ausfüllen';
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      
+    <View style={styles.root}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
 
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>{getGreeting()}</Text>
-          <Text style={styles.name}>{firstName}</Text>
-        </View>
-        <TouchableOpacity style={styles.avatar} onPress={() => router.push('/profile' as any)}>
-          <Text style={styles.avatarText}>{initial}</Text>
-        </TouchableOpacity>
-      </View>
+          {/* Header */}
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.greeting}>{getGreeting()}</Text>
+              <Text style={styles.name}>{firstName}</Text>
+            </View>
+            <TouchableOpacity style={styles.menuBtn} onPress={openMenu} activeOpacity={0.7}>
+              <View style={styles.menuBtnLine} />
+              <View style={[styles.menuBtnLine, { width: 14 }]} />
+              <View style={[styles.menuBtnLine, { width: 18 }]} />
+            </TouchableOpacity>
+          </View>
 
-      <View style={styles.topRow}>
-        <View style={styles.mainCard}>
-          <ScoreRings performance={score} sleep={sleepScore} energy={energieScore} />
-          <View style={styles.legend}>
-            {[{ color: '#7C3AED', label: 'Perf.' }, { color: '#EC4899', label: 'Schlaf' }, { color: '#06B6D4', label: 'Energy' }].map(item => (
-              <View key={item.label} style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                <Text style={styles.legendLabel}>{item.label}</Text>
+          {/* Score Card */}
+          <View style={styles.scoreCard}>
+            <View style={styles.scoreTop}>
+              <View>
+                <Text style={styles.scoreLabel}>Performance Score</Text>
+                <Text style={styles.scoreNum}>{score || '--'}</Text>
+              </View>
+              <View style={styles.focusBadge}>
+                <Text style={styles.focusBadgeText}>{focusText}</Text>
+              </View>
+            </View>
+            <View style={styles.scoreBars}>
+              {[
+                { label: 'Schlaf', value: sleepScore },
+                { label: 'Energy', value: batteryLevel },
+                { label: 'Check-in', value: checkin ? checkin.score : 0 },
+              ].map(bar => (
+                <View key={bar.label} style={styles.scoreBarWrap}>
+                  <Text style={styles.scoreBarLabel}>{bar.label}</Text>
+                  <View style={styles.scoreBarTrack}>
+                    <View style={[styles.scoreBarFill, { width: `${bar.value}%` as any }]} />
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          {/* Streak */}
+          {streak > 0 && (
+            <View style={styles.streakCard}>
+              <Text style={styles.streakEmoji}>🔥</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.streakTitle}>{streak} Tage Streak!</Text>
+                <Text style={styles.streakSub}>Jeden Tag aktiv – weiter so!</Text>
+              </View>
+              <View style={styles.streakBadge}>
+                <Text style={styles.streakBadgeText}>{streak}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Mini Stats */}
+          <View style={styles.statsRow}>
+            {[
+              { label: 'Sleep Score', value: sleepScore || '--', color: theme.pink },
+              { label: 'kcal', value: kcal || '--', color: theme.orange },
+              { label: 'Battery', value: batteryLevel || '--', color: theme.blue },
+            ].map(s => (
+              <View key={s.label} style={styles.statCard}>
+                <Text style={[styles.statVal, { color: s.color }]}>{s.value}</Text>
+                <Text style={styles.statLbl}>{s.label}</Text>
               </View>
             ))}
           </View>
-        </View>
-        <View style={styles.batteryCard}>
-          <Text style={styles.batteryCardLabel}>Body{'\n'}Battery</Text>
-          <MiniBattery level={batteryLevel} />
-        </View>
-      </View>
 
-      <View style={styles.focusCard}>
-        <View style={styles.focusTop}>
-          <View style={styles.focusDot} />
-          <Text style={styles.focusLabel}>Today's Focus</Text>
-        </View>
-        <Text style={styles.focusTitle}>{focusText.title}</Text>
-        <Text style={styles.focusSub}>{focusText.sub}</Text>
-      </View>
-
-      <View style={styles.miniRow}>
-        <View style={[styles.miniCard, styles.miniPink]}>
-          <Text style={[styles.miniVal, { color: '#F472B6' }]}>{sleepScore || '--'}</Text>
-          <Text style={[styles.miniLbl, { color: '#9D174D' }]}>Sleep Score</Text>
-          <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${sleepScore}%` as any, backgroundColor: '#EC4899' }]} /></View>
-        </View>
-        <View style={[styles.miniCard, styles.miniOrange]}>
-          <Text style={[styles.miniVal, { color: '#FB923C' }]}>
-            {battery?.calorieEntries ? battery.calorieEntries.reduce((s, e) => s + e.kcal, 0) : '--'}
-          </Text>
-          <Text style={[styles.miniLbl, { color: '#92400E' }]}>kcal</Text>
-          <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${Math.min(((battery?.calorieEntries?.reduce((s, e) => s + e.kcal, 0) ?? 0) / 3000) * 100, 100)}%` as any, backgroundColor: '#FB923C' }]} /></View>
-        </View>
-        <View style={[styles.miniCard, styles.miniPurple]}>
-          <Text style={[styles.miniVal, { color: '#A78BFA' }]}>{batteryLevel || '--'}</Text>
-          <Text style={[styles.miniLbl, { color: '#5B21B6' }]}>Battery</Text>
-          <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${batteryLevel}%` as any, backgroundColor: '#7C3AED' }]} /></View>
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Heute</Text>
-          {totalHabits > 0 && (
-            <Text style={styles.sectionBadge}>{completedHabits}/{totalHabits} Habits</Text>
-          )}
-        </View>
-        {[
-          { label: 'Schlaf geloggt', done: sleep !== null, score: sleep?.sleepScore ?? null },
-          { label: 'Check-in', done: checkin !== null, score: checkin?.score ?? null },
-          ...habits.slice(0, 4).map((h: any) => ({ label: h.name, done: h.completedToday, score: null, streak: h.streak })),
-        ].map((item, i) => (
-          <View key={i} style={styles.todayRow}>
-            <View style={[styles.todayCheck, item.done && styles.todayCheckDone]}>
-              {item.done && <Text style={styles.todayCheckMark}>✓</Text>}
-            </View>
-            <Text style={[styles.todayLabel, !item.done && { color: '#3D2E5C' }]}>{item.label}</Text>
-            {item.score !== null && item.done && (
-              <View style={styles.scorePill}><Text style={styles.scorePillText}>Score {item.score}</Text></View>
-            )}
-            {(item as any).streak > 0 && <Text style={styles.streakText}>🔥 {(item as any).streak}</Text>}
+          {/* Energy Chart */}
+          <View style={styles.energyCard}>
+            <Text style={styles.sectionTitle}>Energie-Verlauf</Text>
+            <EnergyChart />
           </View>
-        ))}
-      </View>
-    </ScrollView>
+
+          {/* Habits */}
+          <View style={styles.habitsCard}>
+            <View style={styles.habitsHeader}>
+              <Text style={styles.sectionTitle}>Habits heute</Text>
+              {totalHabits > 0 && (
+                <View style={styles.habitsBadge}>
+                  <Text style={styles.habitsBadgeText}>{completedHabits}/{totalHabits} ✓</Text>
+                </View>
+              )}
+            </View>
+            {habits.length === 0 ? (
+              <Text style={styles.emptyText}>Keine Habits definiert</Text>
+            ) : (
+              habits.slice(0, 5).map((h, i) => (
+                <View key={h.id} style={[styles.habitRow, i === habits.slice(0, 5).length - 1 && { borderBottomWidth: 0 }]}>
+                  <View style={[styles.habitCheck, h.completedToday && styles.habitCheckDone]}>
+                    {h.completedToday && <Text style={styles.habitCheckMark}>✓</Text>}
+                  </View>
+                  <Text style={[styles.habitName, !h.completedToday && { color: theme.textSecondary }]}>
+                    {h.name}
+                  </Text>
+                  {h.streak > 0 && (
+                    <Text style={styles.habitStreak}>🔥 {h.streak}</Text>
+                  )}
+                </View>
+              ))
+            )}
+            {totalHabits > 5 && (
+              <TouchableOpacity onPress={() => router.push('/habits' as any)}>
+                <Text style={styles.habitsMore}>+{totalHabits - 5} weitere →</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Today Checklist */}
+          <View style={styles.todayCard}>
+            <Text style={styles.sectionTitle}>Heute erledigen</Text>
+            {[
+              { label: 'Schlaf Log', done: sleep !== null, route: '/sleep' },
+              { label: 'Daily Check-in', done: checkin !== null, route: '/checkin' },
+              { label: 'Body Battery', done: batteryLevel > 0, route: '/battery' },
+            ].map((item, i) => (
+              <TouchableOpacity
+                key={item.label}
+                style={[styles.todayRow, i === 2 && { borderBottomWidth: 0 }]}
+                onPress={() => router.push(item.route as any)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.todayCheck, item.done && styles.todayCheckDone]}>
+                  {item.done && <Text style={styles.todayCheckMark}>✓</Text>}
+                </View>
+                <Text style={[styles.todayLabel, !item.done && { color: theme.textSecondary }]}>
+                  {item.label}
+                </Text>
+                <Text style={styles.todayArrow}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={{ height: 120 }} />
+        </Animated.View>
+      </ScrollView>
+
+      {/* Side Menu */}
+      {menuVisible && (
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: menuFade }]}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeMenu} activeOpacity={1}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }} />
+          </TouchableOpacity>
+          <Animated.View style={[styles.menuPanel, { transform: [{ translateX: menuSlide }] }]}>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+              <TouchableOpacity
+                style={styles.menuProfileRow}
+                onPress={() => { closeMenu(); setTimeout(() => router.push('/profile' as any), 250); }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.menuAvatar}>
+                  <Text style={styles.menuAvatarText}>{initial}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.menuProfileName}>{firstName}</Text>
+                  <Text style={styles.menuProfileSub}>{profile?.goal ?? 'Performance'}</Text>
+                </View>
+                <Text style={styles.menuChevron}>›</Text>
+              </TouchableOpacity>
+
+              <View style={styles.menuDivider} />
+
+              <Text style={styles.menuSectionLabel}>Allgemein</Text>
+              <View style={styles.menuGroup}>
+                {[
+                  { icon: '🎨', label: 'Design', bg: theme.blue, onPress: () => {} },
+                  { icon: '🔔', label: 'Benachrichtigungen', bg: theme.orange, onPress: () => {} },
+                  { icon: '🌐', label: 'Sprache', bg: theme.teal, onPress: () => {} },
+                ].map((item, i, arr) => (
+                  <TouchableOpacity
+                    key={item.label}
+                    style={[styles.menuRow, i < arr.length - 1 && styles.menuRowBorder]}
+                    onPress={item.onPress}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.menuRowIcon, { backgroundColor: item.bg }]}>
+                      <Text style={{ fontSize: 15 }}>{item.icon}</Text>
+                    </View>
+                    <Text style={styles.menuRowLabel}>{item.label}</Text>
+                    <Text style={styles.menuChevron}>›</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.menuSectionLabel}>Daten</Text>
+              <View style={styles.menuGroup}>
+                {[
+                  { icon: '📊', label: 'Statistiken', bg: theme.green, onPress: () => {} },
+                  { icon: '📤', label: 'Export', bg: theme.pink, onPress: () => {} },
+                ].map((item, i, arr) => (
+                  <TouchableOpacity
+                    key={item.label}
+                    style={[styles.menuRow, i < arr.length - 1 && styles.menuRowBorder]}
+                    onPress={item.onPress}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.menuRowIcon, { backgroundColor: item.bg }]}>
+                      <Text style={{ fontSize: 15 }}>{item.icon}</Text>
+                    </View>
+                    <Text style={styles.menuRowLabel}>{item.label}</Text>
+                    <Text style={styles.menuChevron}>›</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={styles.menuSectionLabel}>Info</Text>
+              <View style={styles.menuGroup}>
+                <TouchableOpacity style={styles.menuRow} onPress={() => {}} activeOpacity={0.7}>
+                  <View style={[styles.menuRowIcon, { backgroundColor: theme.purple }]}>
+                    <Text style={{ fontSize: 15 }}>ℹ️</Text>
+                  </View>
+                  <Text style={styles.menuRowLabel}>Über die App</Text>
+                  <Text style={styles.menuChevron}>›</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.menuFooterText}>Stride App · v1.0</Text>
+              <View style={{ height: 40 }} />
+            </ScrollView>
+            <TouchableOpacity onPress={closeMenu} style={styles.menuCloseBtn} activeOpacity={0.7}>
+              <Text style={styles.menuCloseText}>✕</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Animated.View>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#07040F', paddingHorizontal: 20 },
+  root: { flex: 1, backgroundColor: theme.bg },
+  container: { flex: 1, paddingHorizontal: 20 },
+
+  // Header
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 60, marginBottom: 20 },
-  greeting: { color: '#5B4A8A', fontSize: 12, letterSpacing: 0.5 },
-  name: { color: '#E2D9F3', fontSize: 26, fontWeight: '500', marginTop: 2 },
-  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(124,58,237,0.2)', borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.4)', alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#A78BFA', fontSize: 18, fontWeight: '500' },
-  topRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
-  mainCard: { flex: 1, backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', padding: 12, alignItems: 'center' },
-  legend: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 6 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  legendDot: { width: 6, height: 6, borderRadius: 3 },
-  legendLabel: { color: '#5B4A8A', fontSize: 9 },
-  batteryCard: { width: 90, backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', padding: 12, alignItems: 'center', justifyContent: 'center', gap: 8 },
-  batteryCardLabel: { color: '#5B4A8A', fontSize: 9, textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center' },
-  focusCard: { backgroundColor: 'rgba(124,58,237,0.08)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.2)', padding: 16, marginBottom: 12 },
-  focusTop: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
-  focusDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#A78BFA' },
-  focusLabel: { color: '#A78BFA', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, fontWeight: '500' },
-  focusTitle: { color: '#E2D9F3', fontSize: 16, fontWeight: '500', marginBottom: 4 },
-  focusSub: { color: '#5B4A8A', fontSize: 12, lineHeight: 18 },
-  miniRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  miniCard: { flex: 1, borderRadius: 14, padding: 12, borderWidth: 0.5 },
-  miniPink: { backgroundColor: 'rgba(236,72,153,0.08)', borderColor: 'rgba(236,72,153,0.2)' },
-  miniOrange: { backgroundColor: 'rgba(251,146,60,0.08)', borderColor: 'rgba(251,146,60,0.2)' },
-  miniPurple: { backgroundColor: 'rgba(124,58,237,0.08)', borderColor: 'rgba(124,58,237,0.2)' },
-  miniVal: { fontSize: 18, fontWeight: '500' },
-  miniLbl: { fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 },
-  miniBar: { height: 3, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden', marginTop: 8 },
-  miniBarFill: { height: '100%', borderRadius: 2 },
-  section: { backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', padding: 16, marginBottom: 40 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  sectionTitle: { color: '#5B4A8A', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
-  sectionBadge: { color: '#A78BFA', fontSize: 11, backgroundColor: 'rgba(124,58,237,0.15)', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.3)' },
-  todayRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: 'rgba(255,255,255,0.04)' },
-  todayCheck: { width: 20, height: 20, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' },
-  todayCheckDone: { backgroundColor: 'rgba(124,58,237,0.3)', borderColor: 'rgba(124,58,237,0.5)' },
-  todayCheckMark: { color: '#A78BFA', fontSize: 10 },
-  todayLabel: { flex: 1, color: '#C4B5D9', fontSize: 13 },
-  scorePill: { backgroundColor: 'rgba(124,58,237,0.15)', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 0.5, borderColor: 'rgba(124,58,237,0.3)' },
-  scorePillText: { color: '#A78BFA', fontSize: 10, fontWeight: '500' },
-  streakText: { color: '#5B4A8A', fontSize: 11 },
+  greeting: { color: theme.textSecondary, fontSize: 13 },
+  name: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', marginTop: 2 },
+  menuBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: theme.card, alignItems: 'flex-end', justifyContent: 'center', paddingRight: 10, gap: 5, ...theme.shadow },
+  menuBtnLine: { height: 1.5, width: 18, backgroundColor: theme.textSecondary, borderRadius: 1 },
+
+  // Score Card
+  scoreCard: { backgroundColor: theme.blue, borderRadius: 20, padding: 18, marginBottom: 12 },
+  scoreTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 },
+  scoreLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
+  scoreNum: { color: '#FFFFFF', fontSize: 48, fontWeight: '300', lineHeight: 52 },
+  focusBadge: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6 },
+  focusBadgeText: { color: '#FFFFFF', fontSize: 12, fontWeight: '500' },
+  scoreBars: { flexDirection: 'row', gap: 10 },
+  scoreBarWrap: { flex: 1 },
+  scoreBarLabel: { color: 'rgba(255,255,255,0.65)', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
+  scoreBarTrack: { height: 4, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, overflow: 'hidden' },
+  scoreBarFill: { height: '100%', backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: 2 },
+
+  // Streak
+  streakCard: { backgroundColor: theme.orange, borderRadius: 16, padding: 14, marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10, ...theme.shadow },
+  streakEmoji: { fontSize: 24 },
+  streakTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
+  streakSub: { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 2 },
+  streakBadge: { backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 20, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  streakBadgeText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+
+  // Stats Row
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  statCard: { flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 12, alignItems: 'center', ...theme.shadow },
+  statVal: { fontSize: 20, fontWeight: '600' },
+  statLbl: { color: theme.textSecondary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3 },
+
+  // Energy Chart
+  energyCard: { backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 12, ...theme.shadow },
+  energyTimes: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, paddingHorizontal: 10 },
+  energyTime: { color: theme.textSecondary, fontSize: 9 },
+  optimalBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8, backgroundColor: theme.greenLight, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, alignSelf: 'flex-start' },
+  optimalDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.green },
+  optimalText: { color: '#1B5E20', fontSize: 11, fontWeight: '500' },
+
+  // Habits
+  habitsCard: { backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 12, ...theme.shadow },
+  habitsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  habitsBadge: { backgroundColor: theme.blueLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  habitsBadgeText: { color: theme.blue, fontSize: 11, fontWeight: '500' },
+  habitRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
+  habitCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: theme.textTertiary, alignItems: 'center', justifyContent: 'center' },
+  habitCheckDone: { backgroundColor: theme.green, borderColor: theme.green },
+  habitCheckMark: { color: '#FFFFFF', fontSize: 11, fontWeight: '600' },
+  habitName: { flex: 1, color: theme.textPrimary, fontSize: 14 },
+  habitStreak: { color: theme.orange, fontSize: 12, fontWeight: '500' },
+  habitsMore: { color: theme.blue, fontSize: 12, marginTop: 8, textAlign: 'center' },
+  emptyText: { color: theme.textSecondary, fontSize: 13, textAlign: 'center', paddingVertical: 10 },
+
+  // Today
+  todayCard: { backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 12, ...theme.shadow },
+  todayRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
+  todayCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: theme.textTertiary, alignItems: 'center', justifyContent: 'center' },
+  todayCheckDone: { backgroundColor: theme.blue, borderColor: theme.blue },
+  todayCheckMark: { color: '#FFFFFF', fontSize: 11, fontWeight: '600' },
+  todayLabel: { flex: 1, color: theme.textPrimary, fontSize: 14 },
+  todayArrow: { color: theme.textTertiary, fontSize: 18 },
+
+  // Section Title
+  sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 10 },
+
+  // Menu
+  menuPanel: { position: 'absolute', top: 0, right: 0, bottom: 0, width: '78%', backgroundColor: '#FFFFFF', paddingTop: 56 },
+  menuProfileRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 16 },
+  menuAvatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: theme.blueLight, alignItems: 'center', justifyContent: 'center' },
+  menuAvatarText: { color: theme.blue, fontSize: 22, fontWeight: '600' },
+  menuProfileName: { color: theme.textPrimary, fontSize: 17, fontWeight: '600' },
+  menuProfileSub: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
+  menuChevron: { color: theme.textTertiary, fontSize: 22 },
+  menuDivider: { height: 0.5, backgroundColor: theme.border, marginHorizontal: 20, marginVertical: 12 },
+  menuSectionLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, paddingHorizontal: 20, marginBottom: 8, marginTop: 4 },
+  menuGroup: { backgroundColor: theme.cardSecondary, borderRadius: 14, marginHorizontal: 14, marginBottom: 20, overflow: 'hidden' },
+  menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13, paddingHorizontal: 14, backgroundColor: theme.card },
+  menuRowBorder: { borderBottomWidth: 0.5, borderBottomColor: theme.border },
+  menuRowIcon: { width: 32, height: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  menuRowLabel: { flex: 1, color: theme.textPrimary, fontSize: 15 },
+  menuCloseBtn: { position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: 15, backgroundColor: theme.cardSecondary, alignItems: 'center', justifyContent: 'center' },
+  menuCloseText: { color: theme.textSecondary, fontSize: 13 },
+  menuFooterText: { color: theme.textTertiary, fontSize: 11, textAlign: 'center', marginTop: 8 },
 });
