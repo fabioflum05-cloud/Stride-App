@@ -190,6 +190,114 @@ function shouldRecommendPRTest(exerciseName: string, prHistory: PRHistory): { re
   return { recommend: false, reason: `Nächster Test in ${90-days} Tagen`, daysSince: days };
 }
 
+// ─── Training Recommendation ──────────────────────────────────
+// Based on sleep score (0–100) and 1RM, recommends sets/reps/weight
+function getTrainingRecommendation(
+  exerciseName: string, userMaxes: UserMaxes, sleepScore: number, goal: string
+): { sets: number; reps: number; weight: number; note: string } | null {
+  const max = userMaxes[exerciseName];
+  if (!max) return null;
+
+  // Sleep modifier: poor sleep → reduce intensity
+  const sleepMod = sleepScore >= 80 ? 1.0 : sleepScore >= 60 ? 0.95 : sleepScore >= 40 ? 0.88 : 0.80;
+
+  let pctMax: number, sets: number, reps: number;
+  if (goal === 'strength') {
+    pctMax = 0.85 * sleepMod; sets = 5; reps = 3;
+  } else if (goal === 'hypertrophy') {
+    pctMax = 0.70 * sleepMod; sets = 4; reps = 10;
+  } else if (goal === 'endurance') {
+    pctMax = 0.55 * sleepMod; sets = 3; reps = 15;
+  } else { // maintenance
+    pctMax = 0.65 * sleepMod; sets = 3; reps = 8;
+  }
+
+  const weight = Math.round((max * pctMax) / 2.5) * 2.5; // round to nearest 2.5kg
+  const sleepNote = sleepScore < 60 ? ' (Schlaf war nicht ideal → Gewicht reduziert)' : '';
+  const note = `Ziel: ${goal === 'hypertrophy' ? 'Muskelaufbau' : goal === 'strength' ? 'Kraft' : goal === 'endurance' ? 'Ausdauer' : 'Erhalt'}${sleepNote}`;
+  return { sets, reps, weight, note };
+}
+
+// ─── Persistent Rest Timer (survives background) ──────────────
+function useRestTimer() {
+  const KEY = 'restTimerState';
+  const [seconds, setSeconds] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
+  const [targetSeconds, setTargetSeconds] = useState(90);
+  const startTimeRef = useRef<number | null>(null);
+  const intervalRef = useRef<any>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
+  useEffect(() => {
+    // Restore on mount
+    AsyncStorage.getItem(KEY).then(raw => {
+      if (!raw) return;
+      const { startedAt, target, running } = JSON.parse(raw);
+      if (running && startedAt) {
+        const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+        const remaining = Math.max(0, target - elapsed);
+        setTargetSeconds(target);
+        setSeconds(remaining);
+        startTimeRef.current = startedAt;
+        if (remaining > 0) setIsRunning(true);
+      }
+    });
+
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (appStateRef.current === 'active' && next.match(/inactive|background/)) {
+        if (startTimeRef.current) {
+          AsyncStorage.setItem(KEY, JSON.stringify({
+            startedAt: startTimeRef.current, target: targetSeconds, running: isRunning
+          }));
+        }
+      }
+      if (appStateRef.current.match(/inactive|background/) && next === 'active') {
+        AsyncStorage.getItem(KEY).then(raw => {
+          if (!raw) return;
+          const { startedAt, target, running } = JSON.parse(raw);
+          if (running && startedAt) {
+            const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+            const remaining = Math.max(0, target - elapsed);
+            setSeconds(remaining);
+            if (remaining === 0) { setIsRunning(false); startTimeRef.current = null; }
+          }
+        });
+      }
+      appStateRef.current = next;
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    if (isRunning) {
+      if (!startTimeRef.current) startTimeRef.current = Date.now() - (targetSeconds - seconds) * 1000;
+      AsyncStorage.setItem(KEY, JSON.stringify({ startedAt: startTimeRef.current, target: targetSeconds, running: true }));
+      intervalRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTimeRef.current!) / 1000);
+        const remaining = Math.max(0, targetSeconds - elapsed);
+        setSeconds(remaining);
+        if (remaining === 0) { setIsRunning(false); startTimeRef.current = null; clearInterval(intervalRef.current); AsyncStorage.removeItem(KEY); }
+      }, 1000);
+    } else {
+      clearInterval(intervalRef.current);
+    }
+    return () => clearInterval(intervalRef.current);
+  }, [isRunning]);
+
+  function startFor(secs: number) {
+    setTargetSeconds(secs);
+    setSeconds(secs);
+    startTimeRef.current = Date.now();
+    setIsRunning(true);
+    AsyncStorage.setItem(KEY, JSON.stringify({ startedAt: Date.now(), target: secs, running: true }));
+  }
+
+  function stop() { setIsRunning(false); setSeconds(0); startTimeRef.current = null; AsyncStorage.removeItem(KEY); }
+
+  const pct = targetSeconds > 0 ? Math.max(0, seconds / targetSeconds) : 0;
+  return { seconds, isRunning, startFor, stop, pct, targetSeconds };
+}
+
 // ─── Persistent Timer Hook ────────────────────────────────────
 function usePersistentTimer(key: string) {
   const [seconds, setSeconds] = useState(0);
@@ -747,89 +855,198 @@ function PRProgressScreen({ onClose }: { onClose: () => void }) {
   const [prHistory, setPRHistory] = useState<PRHistory>({});
   const [userMaxes, setUserMaxes] = useState<UserMaxes>({});
   const [selectedEx, setSelectedEx] = useState<string|null>(null);
-  const [showAddPR, setShowAddPR] = useState(false);
+  const [showAddPR, setShowAddPR] = useState<string|null>(null);
   const [newWeight, setNewWeight] = useState('');
   const [newReps, setNewReps] = useState('');
+  const [editingEntry, setEditingEntry] = useState<{exName:string;idx:number}|null>(null);
+  const [editWeight, setEditWeight] = useState('');
+  const [editReps, setEditReps] = useState('');
 
   useEffect(()=>{
     AsyncStorage.getItem('prHistory').then(r=>r&&setPRHistory(JSON.parse(r)));
     AsyncStorage.getItem('userMaxes').then(r=>r&&setUserMaxes(JSON.parse(r)));
   },[]);
 
+  async function saveHistory(updated: PRHistory) {
+    setPRHistory(updated);
+    await AsyncStorage.setItem('prHistory',JSON.stringify(updated));
+    const newMaxes = {...userMaxes};
+    for (const [name,entries] of Object.entries(updated)) {
+      if (entries.length>0) newMaxes[name]=Math.max(...entries.map(e=>e.estimated1RM));
+    }
+    setUserMaxes(newMaxes);
+    await AsyncStorage.setItem('userMaxes',JSON.stringify(newMaxes));
+  }
+
   async function addPR(exName: string) {
     const w=parseFloat(newWeight), r=parseFloat(newReps);
     if (w<=0||r<=0) return;
     const est1RM = calculate1RM(w,r);
-    const entry: PREntry = { date:new Date().toISOString(), weight:w, reps:r, estimated1RM:est1RM };
-    const updated = { ...prHistory, [exName]: [...(prHistory[exName]||[]), entry] };
-    setPRHistory(updated);
-    await AsyncStorage.setItem('prHistory',JSON.stringify(updated));
-    // Update maxes if new PR
-    if (est1RM > (userMaxes[exName]||0)) {
-      const newMaxes = {...userMaxes,[exName]:est1RM};
-      setUserMaxes(newMaxes);
-      await AsyncStorage.setItem('userMaxes',JSON.stringify(newMaxes));
-    }
-    setShowAddPR(false); setNewWeight(''); setNewReps('');
+    const updated = { ...prHistory, [exName]: [...(prHistory[exName]||[]), {date:new Date().toISOString(),weight:w,reps:r,estimated1RM:est1RM}] };
+    await saveHistory(updated);
+    setShowAddPR(null); setNewWeight(''); setNewReps('');
+  }
+
+  async function saveEdit() {
+    if (!editingEntry) return;
+    const w=parseFloat(editWeight), r=parseFloat(editReps);
+    if (w<=0||r<=0) return;
+    const est1RM = calculate1RM(w,r);
+    const updated = {...prHistory};
+    updated[editingEntry.exName] = updated[editingEntry.exName].map((e,i)=>
+      i===editingEntry.idx ? {...e,weight:w,reps:r,estimated1RM:est1RM} : e
+    );
+    await saveHistory(updated);
+    setEditingEntry(null);
+  }
+
+  async function deleteEntry(exName: string, idx: number) {
+    Alert.alert('Eintrag löschen?','',[
+      {text:'Abbrechen',style:'cancel'},
+      {text:'Löschen',style:'destructive',onPress:async()=>{
+        const updated = {...prHistory};
+        updated[exName] = updated[exName].filter((_,i)=>i!==idx);
+        if (updated[exName].length===0) delete updated[exName];
+        await saveHistory(updated);
+      }}
+    ]);
   }
 
   const exercises = Object.keys(prHistory);
 
   return (
     <Modal visible={true} animationType="slide">
-      <ScrollView style={[styles.container,{paddingTop:60}]}>
+      <ScrollView style={[styles.container,{paddingTop:60}]} showsVerticalScrollIndicator={false}>
         <TouchableOpacity onPress={onClose} style={{marginBottom:16}}>
           <Text style={{color:theme.blue,fontSize:16}}>← Zurück</Text>
         </TouchableOpacity>
         <Text style={styles.title}>PR Entwicklung 📈</Text>
+        <Text style={[styles.sectionLabel,{marginBottom:16}]}>Tippe auf eine Übung um die History zu sehen</Text>
+
         {exercises.map(exName=>{
           const history = prHistory[exName]||[];
           const rec = shouldRecommendPRTest(exName,prHistory);
           const latest = history[history.length-1];
-          return (
-            <TouchableOpacity key={exName} style={styles.exerciseCard} onPress={()=>setSelectedEx(exName===selectedEx?null:exName)}>
-              <View style={styles.exerciseHeader}>
-                <Text style={styles.exerciseName}>{exName}</Text>
-                {rec.recommend&&<View style={[styles.cardBadge,{backgroundColor:'#FF6B6B20'}]}>
-                  <Text style={{color:'#FF6B6B',fontSize:10,fontWeight:'600'}}>Test empfohlen!</Text>
-                </View>}
-              </View>
-              {latest&&<Text style={styles.oneRM}>Aktueller Max: <Text style={{color:theme.blue,fontWeight:'600'}}>{latest.estimated1RM}kg</Text></Text>}
-              <Text style={[styles.manualLabel,{fontSize:10}]}>{rec.reason}</Text>
+          const isOpen = selectedEx===exName;
+          const trend = history.length>=2 ? history[history.length-1].estimated1RM - history[history.length-2].estimated1RM : null;
 
-              {selectedEx===exName&&(
-                <>
+          return (
+            <View key={exName} style={[styles.exerciseCard,isOpen&&{borderLeftWidth:3,borderLeftColor:theme.blue}]}>
+              {/* Tap header to open/close */}
+              <TouchableOpacity onPress={()=>setSelectedEx(isOpen?null:exName)} activeOpacity={0.7}>
+                <View style={styles.exerciseHeader}>
+                  <Text style={styles.exerciseName}>{exName}</Text>
+                  <View style={{flexDirection:'row',gap:6,alignItems:'center'}}>
+                    {rec.recommend&&<View style={[styles.cardBadge,{backgroundColor:'#FF6B6B20'}]}>
+                      <Text style={{color:'#FF6B6B',fontSize:10,fontWeight:'600'}}>Test fällig!</Text>
+                    </View>}
+                    {trend!==null&&<Text style={{color:trend>=0?theme.green:theme.red,fontSize:11,fontWeight:'600'}}>{trend>=0?'↑':'↓'}{Math.abs(trend)}kg</Text>}
+                    <Text style={{color:theme.textSecondary,fontSize:18}}>{isOpen?'▲':'▼'}</Text>
+                  </View>
+                </View>
+                {latest&&<Text style={styles.oneRM}>Max: <Text style={{color:theme.blue,fontWeight:'600'}}>{latest.estimated1RM}kg</Text>
+                  {'  '}<Text style={{color:theme.textSecondary}}>{latest.weight}kg × {latest.reps} Wdh.</Text>
+                </Text>}
+                <Text style={[styles.manualLabel,{fontSize:10}]}>{rec.reason}</Text>
+              </TouchableOpacity>
+
+              {isOpen&&(
+                <View style={{marginTop:12,gap:4}}>
+                  {/* Mini bar chart */}
+                  {history.length>1&&(
+                    <View style={{flexDirection:'row',alignItems:'flex-end',gap:4,height:72,marginBottom:12,paddingHorizontal:4}}>
+                      {history.map((e,i)=>{
+                        const maxVal=Math.max(...history.map(h=>h.estimated1RM));
+                        const barH=Math.max(8,Math.round((e.estimated1RM/maxVal)*60));
+                        const isLast=i===history.length-1;
+                        return (
+                          <View key={i} style={{flex:1,alignItems:'center',gap:2}}>
+                            <Text style={{color:isLast?theme.blue:theme.textTertiary,fontSize:8,fontWeight:'600'}}>{e.estimated1RM}</Text>
+                            <View style={{width:'80%',height:barH,backgroundColor:isLast?theme.blue:theme.blueLight,borderRadius:3}}/>
+                            <Text style={{color:theme.textTertiary,fontSize:7}}>{new Date(e.date).toLocaleDateString('de',{day:'2-digit',month:'2-digit'})}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* Entry list with edit + delete */}
                   {history.map((e,i)=>(
-                    <View key={i} style={[styles.historyItem,{paddingVertical:8}]}>
-                      <View style={[styles.historyDot,{backgroundColor:theme.blue}]}/>
+                    <View key={i} style={[styles.historyItem,{paddingVertical:10,gap:8}]}>
+                      <View style={[styles.historyDot,{backgroundColor:i===history.length-1?theme.blue:theme.textTertiary,marginTop:2}]}/>
                       <View style={styles.historyInfo}>
-                        <Text style={styles.historyName}>{e.weight}kg × {e.reps} Wdh.</Text>
-                        <Text style={styles.historyMeta}>Est. 1RM: {e.estimated1RM}kg</Text>
+                        <Text style={styles.historyName}>{e.weight}kg × {e.reps} Wdh. <Text style={{color:theme.blue}}>→ {e.estimated1RM}kg</Text></Text>
+                        <Text style={styles.historyMeta}>{new Date(e.date).toLocaleDateString('de',{weekday:'short',day:'2-digit',month:'2-digit',year:'2-digit'})}</Text>
                       </View>
-                      <Text style={styles.historyDate}>{new Date(e.date).toLocaleDateString('de',{day:'2-digit',month:'2-digit',year:'2-digit'})}</Text>
+                      {/* Edit button */}
+                      <TouchableOpacity style={[styles.cardBadge,{backgroundColor:theme.blueLight,paddingHorizontal:8}]}
+                        onPress={()=>{setEditingEntry({exName,idx:i});setEditWeight(String(e.weight));setEditReps(String(e.reps));}}>
+                        <Text style={{color:theme.blue,fontSize:12}}>✏️</Text>
+                      </TouchableOpacity>
+                      {/* Delete button */}
+                      <TouchableOpacity style={[styles.cardBadge,{backgroundColor:'#FF6B6B20',paddingHorizontal:8}]}
+                        onPress={()=>deleteEntry(exName,i)}>
+                        <Text style={{color:'#FF6B6B',fontSize:16}}>×</Text>
+                      </TouchableOpacity>
                     </View>
                   ))}
-                  <TouchableOpacity style={styles.addSetBtn} onPress={()=>{setShowAddPR(true);}}>
+
+                  {/* Add new PR */}
+                  <TouchableOpacity style={styles.addSetBtn} onPress={()=>setShowAddPR(showAddPR===exName?null:exName)}>
                     <Text style={styles.addSetBtnText}>+ Neuen PR eintragen</Text>
                   </TouchableOpacity>
-                  {showAddPR&&(
+                  {showAddPR===exName&&(
                     <View style={{gap:8,marginTop:8}}>
                       <View style={{flexDirection:'row',gap:8}}>
-                        <TextInput style={[styles.setInput,{flex:1}]} value={newWeight} onChangeText={setNewWeight} keyboardType="decimal-pad" placeholder="kg" placeholderTextColor={theme.textTertiary}/>
-                        <TextInput style={[styles.setInput,{flex:1}]} value={newReps} onChangeText={setNewReps} keyboardType="numeric" placeholder="Wdh." placeholderTextColor={theme.textTertiary}/>
+                        <TextInput style={[styles.setInput,{flex:1}]} value={newWeight} onChangeText={setNewWeight}
+                          keyboardType="decimal-pad" placeholder="kg" placeholderTextColor={theme.textTertiary}/>
+                        <TextInput style={[styles.setInput,{flex:1}]} value={newReps} onChangeText={setNewReps}
+                          keyboardType="numeric" placeholder="Wdh." placeholderTextColor={theme.textTertiary}/>
                       </View>
+                      {newWeight&&newReps&&parseFloat(newWeight)>0&&parseFloat(newReps)>0&&(
+                        <Text style={{color:theme.blue,fontSize:12,textAlign:'center',fontWeight:'600'}}>
+                          Est. 1RM: {calculate1RM(parseFloat(newWeight),parseFloat(newReps))}kg
+                        </Text>
+                      )}
                       <TouchableOpacity style={styles.saveBtn} onPress={()=>addPR(exName)}>
-                        <Text style={styles.saveBtnText}>Speichern</Text>
+                        <Text style={styles.saveBtnText}>Speichern ✓</Text>
                       </TouchableOpacity>
                     </View>
                   )}
-                </>
+                </View>
               )}
-            </TouchableOpacity>
+            </View>
           );
         })}
         <View style={{height:80}}/>
       </ScrollView>
+
+      {/* Edit Modal */}
+      <Modal visible={!!editingEntry} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Eintrag bearbeiten ✏️</Text>
+            <Text style={styles.inputLabel}>Gewicht (kg)</Text>
+            <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight}
+              keyboardType="decimal-pad" placeholder="85" placeholderTextColor={theme.textTertiary}/>
+            <Text style={styles.inputLabel}>Wiederholungen</Text>
+            <TextInput style={styles.input} value={editReps} onChangeText={setEditReps}
+              keyboardType="numeric" placeholder="3" placeholderTextColor={theme.textTertiary}/>
+            {editWeight&&editReps&&parseFloat(editWeight)>0&&parseFloat(editReps)>0&&(
+              <View style={{backgroundColor:theme.blueLight,borderRadius:12,padding:12,alignItems:'center'}}>
+                <Text style={{color:theme.blue,fontSize:11,textTransform:'uppercase',letterSpacing:1}}>Neuer Est. 1RM</Text>
+                <Text style={{color:theme.blue,fontSize:28,fontWeight:'700'}}>{calculate1RM(parseFloat(editWeight),parseFloat(editReps))}kg</Text>
+              </View>
+            )}
+            <TouchableOpacity style={styles.saveBtn} onPress={saveEdit}>
+              <Text style={styles.saveBtnText}>Speichern ✓</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={()=>setEditingEntry(null)}>
+              <Text style={styles.cancelBtnText}>Abbrechen</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -964,6 +1181,266 @@ function NutritionAdviceModal({ advice, onClose }: {
   );
 }
 
+// ─── Standalone Max Test Screen ──────────────────────────────
+function MaxTestModal({ onClose }: { onClose: () => void }) {
+  const [exercises, setExercises] = useState<{name:string;muscleGroup:string}[]>([]);
+  const [idx, setIdx] = useState(0);
+  const [weight, setWeight] = useState('');
+  const [reps, setReps] = useState('');
+  const [done, setDone] = useState(false);
+
+  useEffect(()=>{
+    async function load() {
+      const raw = await AsyncStorage.getItem('userExercises');
+      const allEx: {name:string;muscleGroup:string}[] = raw ? JSON.parse(raw) : DEFAULT_PRESET_EXERCISES;
+      // Only test exercises where 1RM is meaningful (exclude pure bodyweight/core)
+      const testable = allEx.filter(e => !['Core','Waden','Ganzkörper'].includes(e.muscleGroup));
+      setExercises(testable);
+    }
+    load();
+  },[]);
+
+  async function submit() {
+    const ex = exercises[idx];
+    const w = parseFloat(weight), r = parseFloat(reps);
+    if (w > 0 && r > 0) {
+      const est1RM = calculate1RM(w, r);
+      // Save to userMaxes
+      const rawMaxes = await AsyncStorage.getItem('userMaxes');
+      const maxes: UserMaxes = rawMaxes ? JSON.parse(rawMaxes) : {};
+      if (est1RM > (maxes[ex.name] || 0)) {
+        maxes[ex.name] = est1RM;
+        await AsyncStorage.setItem('userMaxes', JSON.stringify(maxes));
+      }
+      // Save to prHistory
+      const rawPR = await AsyncStorage.getItem('prHistory');
+      const prHistory: PRHistory = rawPR ? JSON.parse(rawPR) : {};
+      prHistory[ex.name] = [...(prHistory[ex.name]||[]), {
+        date: new Date().toISOString(), weight: w, reps: r, estimated1RM: est1RM,
+      }];
+      await AsyncStorage.setItem('prHistory', JSON.stringify(prHistory));
+    }
+    next();
+  }
+
+  function next() {
+    if (idx < exercises.length - 1) {
+      setIdx(i => i+1); setWeight(''); setReps('');
+    } else {
+      setDone(true);
+    }
+  }
+
+  if (exercises.length === 0) return null;
+
+  const ex = exercises[idx];
+  const est = weight && reps && parseFloat(weight) > 0 && parseFloat(reps) > 0
+    ? calculate1RM(parseFloat(weight), parseFloat(reps)) : null;
+
+  return (
+    <Modal visible={true} animationType="slide">
+      <ScrollView style={[ob.scroll]} contentContainerStyle={ob.scrollContent}>
+        {done ? (
+          <View style={ob.center}>
+            <Text style={ob.emoji}>💪</Text>
+            <Text style={ob.title}>Max-Test abgeschlossen!</Text>
+            <Text style={ob.sub}>Deine neuen Maximalwerte sind gespeichert. Die Muskel-Battery und PR-Kurven werden jetzt präziser.</Text>
+            <TouchableOpacity style={ob.btn} onPress={onClose}><Text style={ob.btnText}>Fertig</Text></TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <TouchableOpacity onPress={onClose} style={{marginBottom:16}}>
+              <Text style={{color:theme.textSecondary,fontSize:14}}>× Abbrechen</Text>
+            </TouchableOpacity>
+            <Text style={ob.progress}>{idx+1} / {exercises.length}</Text>
+            {/* Progress bar */}
+            <View style={{height:4,backgroundColor:theme.cardSecondary,borderRadius:2,marginBottom:20}}>
+              <View style={{height:4,backgroundColor:theme.blue,borderRadius:2,width:`${((idx+1)/exercises.length)*100}%` as any}}/>
+            </View>
+            <Text style={ob.title}>Max-Test</Text>
+            <Text style={ob.subtitle}>{ex.name}</Text>
+            <View style={[ob.musclePill,{backgroundColor:(MUSCLE_COLORS[ex.muscleGroup]||'#666')+'30'}]}>
+              <Text style={[ob.musclePillText,{color:MUSCLE_COLORS[ex.muscleGroup]||'#666'}]}>{ex.muscleGroup}</Text>
+            </View>
+            <Text style={ob.hint}>
+              Gib dein bestes Set ein – nicht unbedingt 1 Wiederholung. Z.B. 3×85kg ist auch gut. Wir berechnen deinen geschätzten 1RM mit der Epley-Formel.
+            </Text>
+            <View style={ob.inputRow}>
+              <View style={ob.inputBlock}>
+                <Text style={ob.inputLabel}>Gewicht (kg)</Text>
+                <TextInput style={ob.input} value={weight} onChangeText={setWeight}
+                  keyboardType="decimal-pad" placeholder="85" placeholderTextColor={theme.textTertiary}/>
+              </View>
+              <View style={ob.inputBlock}>
+                <Text style={ob.inputLabel}>Wiederholungen</Text>
+                <TextInput style={ob.input} value={reps} onChangeText={setReps}
+                  keyboardType="numeric" placeholder="3" placeholderTextColor={theme.textTertiary}/>
+              </View>
+            </View>
+            {est && (
+              <View style={ob.estimate}>
+                <Text style={ob.estimateLabel}>Geschätzter 1RM</Text>
+                <Text style={ob.estimateVal}>{est} kg</Text>
+                <Text style={[ob.estimateLabel,{marginTop:4}]}>
+                  {est > 0 ? `= ${Math.round(est*0.85)}kg für 5 Wdh. · ${Math.round(est*0.75)}kg für 10 Wdh.` : ''}
+                </Text>
+              </View>
+            )}
+            <TouchableOpacity style={ob.btn} onPress={submit}>
+              <Text style={ob.btnText}>{idx < exercises.length-1 ? 'Weiter →' : 'Abschliessen ✓'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={ob.skipBtn} onPress={next}>
+              <Text style={ob.skipText}>Überspringen</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </ScrollView>
+    </Modal>
+  );
+}
+
+// ─── Workout Feedback Modal ───────────────────────────────────
+function WorkoutFeedbackModal({ workout, nutrition, userMaxes, onClose }: {
+  workout: Workout;
+  nutrition: ReturnType<typeof getNutritionAdvice>;
+  userMaxes: UserMaxes;
+  onClose: () => void;
+}) {
+  const [userRating, setUserRating] = useState(0); // 1–5 stars
+  const [userNote, setUserNote] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  // Auto-analysis
+  const intensityScore = calcWorkoutIntensityScore(workout.exercises, userMaxes);
+  const totalVolume = workout.exercises.reduce((t,ex)=>t+ex.sets.reduce((s,set)=>s+parseFloat(set.reps||'0')*parseFloat(set.weight||'0'),0),0);
+  const totalSetsCount = workout.exercises.reduce((s,ex)=>s+ex.sets.filter(set=>parseFloat(set.reps||'0')>0&&parseFloat(set.weight||'0')>0).length,0);
+  const workoutScore = Math.min(100, Math.round(
+    intensityScore * 40 +
+    Math.min(totalSetsCount / 20, 1) * 25 +
+    Math.min(workout.duration / 90, 1) * 20 +
+    Math.min(totalVolume / 5000, 1) * 15
+  ));
+  const newPRs = workout.exercises.filter(ex=>{
+    const best=getBest1RM(ex.sets);
+    return best>0&&best>=(userMaxes[ex.name]||0);
+  });
+
+  const autoFeedback = () => {
+    if (workoutScore>=85) return { emoji:'🔥', label:'Aussergewöhnlich', color:'#FF6B6B' };
+    if (workoutScore>=70) return { emoji:'💪', label:'Starkes Training', color:theme.green };
+    if (workoutScore>=50) return { emoji:'👍', label:'Solides Training', color:theme.blue };
+    if (workoutScore>=30) return { emoji:'😐', label:'Leichtes Training', color:theme.orange };
+    return { emoji:'🌱', label:'Aufwärm-Session', color:theme.textSecondary };
+  };
+  const auto = autoFeedback();
+
+  async function save() {
+    const feedback = {
+      workoutId: workout.id, date: new Date().toISOString(),
+      userRating, userNote, autoScore: intensityScore,
+    };
+    const raw = await AsyncStorage.getItem('workoutFeedback');
+    const all = raw ? JSON.parse(raw) : [];
+    all.push(feedback);
+    await AsyncStorage.setItem('workoutFeedback', JSON.stringify(all));
+    setSaved(true);
+    setTimeout(onClose, 800);
+  }
+
+  return (
+    <Modal visible={true} transparent animationType="slide">
+      <View style={styles.modalOverlay}>
+        <ScrollView>
+          <View style={[styles.modalCard,{gap:16}]}>
+            {saved ? (
+              <View style={{alignItems:'center',padding:20}}>
+                <Text style={{fontSize:48}}>✅</Text>
+                <Text style={[styles.modalTitle,{textAlign:'center',marginTop:8}]}>Gespeichert!</Text>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.modalTitle}>Training abgeschlossen 🎉</Text>
+
+                {/* Auto analysis */}
+                <View style={[styles.exerciseCard,{borderLeftWidth:3,borderLeftColor:auto.color,gap:8}]}>
+                  <View style={{flexDirection:'row',alignItems:'center',gap:16}}>
+                    <Text style={{fontSize:32}}>{auto.emoji}</Text>
+                    <View style={{flex:1}}>
+                      <Text style={[styles.cardTitle,{color:auto.color}]}>{auto.label}</Text>
+                      <Text style={{color:theme.textSecondary,fontSize:11}}>Trainingsscore</Text>
+                    </View>
+                    {/* Big score circle */}
+                    <View style={{width:56,height:56,borderRadius:28,backgroundColor:auto.color+'20',alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:auto.color}}>
+                      <Text style={{color:auto.color,fontSize:20,fontWeight:'700'}}>{workoutScore}</Text>
+                    </View>
+                  </View>
+                  <View style={{flexDirection:'row',justifyContent:'space-around',marginTop:4}}>
+                    <View style={{alignItems:'center'}}>
+                      <Text style={[styles.liveStatVal,{color:theme.blue,fontSize:18}]}>{workout.exercises.length}</Text>
+                      <Text style={styles.liveStatLbl}>Übungen</Text>
+                    </View>
+                    <View style={{alignItems:'center'}}>
+                      <Text style={[styles.liveStatVal,{color:theme.green,fontSize:18}]}>{workout.duration}min</Text>
+                      <Text style={styles.liveStatLbl}>Dauer</Text>
+                    </View>
+                    <View style={{alignItems:'center'}}>
+                      <Text style={[styles.liveStatVal,{color:theme.orange,fontSize:18}]}>{Math.round(totalVolume)}kg</Text>
+                      <Text style={styles.liveStatLbl}>Volumen</Text>
+                    </View>
+                    <View style={{alignItems:'center'}}>
+                      <Text style={[styles.liveStatVal,{color:'#A78BFA',fontSize:18}]}>{totalSetsCount}</Text>
+                      <Text style={styles.liveStatLbl}>Sets</Text>
+                    </View>
+                  </View>
+                  {newPRs.length>0&&(
+                    <View style={{backgroundColor:'#FFD70020',borderRadius:8,padding:8,marginTop:4}}>
+                      <Text style={{color:'#FFD700',fontSize:12,fontWeight:'600',textAlign:'center'}}>
+                        🏆 Neuer PR: {newPRs.map(e=>e.name).join(', ')}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* User rating */}
+                <Text style={styles.inputLabel}>Wie fühlst du dich?</Text>
+                <View style={{flexDirection:'row',justifyContent:'center',gap:12}}>
+                  {['😴','😕','😐','😊','🔥'].map((emoji,i)=>(
+                    <TouchableOpacity key={i} onPress={()=>setUserRating(i+1)}
+                      style={{padding:8,borderRadius:12,backgroundColor:userRating===i+1?theme.blueLight:'transparent'}}>
+                      <Text style={{fontSize:28}}>{emoji}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* User note */}
+                <Text style={styles.inputLabel}>Notiz (optional)</Text>
+                <TextInput style={[styles.input,{minHeight:60}]}
+                  value={userNote} onChangeText={setUserNote} multiline
+                  placeholder="z.B. Schulter hat gezwickt, nächstes Mal mehr Gewicht bei Bankdrücken..."
+                  placeholderTextColor={theme.textTertiary}/>
+
+                {/* Nutrition */}
+                <View style={[styles.exerciseCard,{borderLeftWidth:3,borderLeftColor:theme.green}]}>
+                  <Text style={[styles.manualCardTitle,{color:theme.green}]}>JETZT ESSEN</Text>
+                  <Text style={{color:theme.textPrimary,fontSize:15,fontWeight:'600'}}>{nutrition.proteinG}g Protein · {nutrition.carbsG}g Kohlenhydrate</Text>
+                  <Text style={{color:theme.textSecondary,fontSize:11,marginTop:4}}>In ~{nutrition.hours}h: {nutrition.proteinLater}g Protein · {nutrition.carbsLater}g KH</Text>
+                </View>
+
+                <TouchableOpacity style={styles.saveBtn} onPress={save}>
+                  <Text style={styles.saveBtnText}>Speichern ✓</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
+                  <Text style={styles.cancelBtnText}>Überspringen</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Main Training Screen ─────────────────────────────────────
 export default function TrainingScreen() {
   const [onboardingDone, setOnboardingDone] = useState<boolean|null>(null);
@@ -991,7 +1468,13 @@ export default function TrainingScreen() {
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [bodyWeight, setBodyWeight] = useState(70);
   const [prHistory, setPRHistory] = useState<PRHistory>({});
+  const [showMaxTest, setShowMaxTest] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [lastFinishedWorkout, setLastFinishedWorkout] = useState<Workout|null>(null);
+  const [userGoal, setUserGoal] = useState<string>('hypertrophy');
+  const [sleepScore, setSleepScore] = useState<number>(75);
   const workoutStartRef = useRef(Date.now());
+  const restTimer = useRestTimer();
 
   const gymTimer = usePersistentTimer('gymWorkoutTimer');
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -1027,6 +1510,9 @@ export default function TrainingScreen() {
         else { setActiveWorkout(w); setActiveTab('gym'); }
       }
     }
+    // Restore workout start time
+    const rawStart = await AsyncStorage.getItem('workoutStartTime');
+    if (rawStart) workoutStartRef.current = parseInt(rawStart);
 
     const rawRuns = await AsyncStorage.getItem('runs');
     if (rawRuns) setRuns(JSON.parse(rawRuns));
@@ -1045,6 +1531,15 @@ export default function TrainingScreen() {
 
     const rawPR = await AsyncStorage.getItem('prHistory');
     if (rawPR) setPRHistory(JSON.parse(rawPR));
+
+    const rawGoal = await AsyncStorage.getItem('userGoal');
+    if (rawGoal) setUserGoal(rawGoal);
+
+    const rawSleep = await AsyncStorage.getItem('sleepData');
+    if (rawSleep) {
+      const sleepData = JSON.parse(rawSleep);
+      if (sleepData.score) setSleepScore(sleepData.score);
+    }
   }
 
   async function startRun() {
@@ -1080,8 +1575,10 @@ export default function TrainingScreen() {
     };
     workoutStartRef.current = Date.now();
     setActiveWorkout(workout); setShowNewWorkout(false); setWorkoutName(''); setActiveTab('gym');
-    await AsyncStorage.setItem('activeWorkout',JSON.stringify(workout));
+    await AsyncStorage.setItem('activeWorkout', JSON.stringify(workout));
+    await AsyncStorage.setItem('workoutStartTime', String(Date.now()));
     gymTimer.reset();
+    gymTimer.start();
   }
 
   async function addExercise(name: string, muscleGroup: string) {
@@ -1180,6 +1677,7 @@ export default function TrainingScreen() {
     history.push(finished);
     await AsyncStorage.setItem('workouts',JSON.stringify(history));
     await AsyncStorage.removeItem('activeWorkout');
+    await AsyncStorage.removeItem('workoutStartTime');
     gymTimer.reset();
 
     // Muskel Battery update
@@ -1202,10 +1700,46 @@ export default function TrainingScreen() {
     setWorkouts(prev=>[...prev,finished]);
     setActiveWorkout(null);
 
-    // Show nutrition advice
+    // Calculate and save workout score to history
+    const intensityScore = calcWorkoutIntensityScore(finished.exercises, newMaxes);
+    const totalVolume = finished.exercises.reduce((t,ex)=>t+ex.sets.reduce((s,set)=>s+parseFloat(set.reps||'0')*parseFloat(set.weight||'0'),0),0);
+    const totalSetsCount = finished.exercises.reduce((s,ex)=>s+ex.sets.filter(set=>parseFloat(set.reps||'0')>0&&parseFloat(set.weight||'0')>0).length,0);
+    // Score 0–100: weighted combo of intensity, volume relative to max, sets, duration
+    const workoutScore = Math.min(100, Math.round(
+      intensityScore * 40 +               // how hard relative to your max
+      Math.min(totalSetsCount / 20, 1) * 25 + // sets (max reward at 20 sets)
+      Math.min(duration / 90, 1) * 20 +   // duration (max reward at 90min)
+      Math.min(totalVolume / 5000, 1) * 15 // volume (max reward at 5000kg)
+    ));
+    const rawWH = await AsyncStorage.getItem('workoutHistory');
+    const workoutHistory = rawWH ? JSON.parse(rawWH) : [];
+    workoutHistory.push({
+      date: new Date().toISOString(),
+      score: workoutScore,
+      name: finished.name,
+      duration,
+      totalSets: totalSetsCount,
+      totalVolume: Math.round(totalVolume),
+      intensityPct: Math.round(intensityScore * 100),
+    });
+    await AsyncStorage.setItem('workoutHistory', JSON.stringify(workoutHistory));
+
+    // Show feedback modal (includes nutrition)
     const advice = getNutritionAdvice({...finished,type:'gym'},newMaxes,bodyWeight);
     setNutritionAdvice(advice);
-    setShowNutrition(true);
+    setLastFinishedWorkout(finished);
+    setShowFeedback(true);
+  }
+
+  async function deleteCustomExercise(name: string) {
+    Alert.alert(`"${name}" löschen?`, 'Wird aus dem Sortiment entfernt.', [
+      { text: 'Abbrechen', style: 'cancel' },
+      { text: 'Löschen', style: 'destructive', onPress: async () => {
+        const updated = allExercises.filter(e => e.name !== name);
+        setAllExercises(updated);
+        await AsyncStorage.setItem('userExercises', JSON.stringify(updated));
+      }}
+    ]);
   }
 
   async function saveRoutine(name: string, exercises: {name:string;muscleGroup:string;defaultSets:number}[]) {
@@ -1270,7 +1804,16 @@ export default function TrainingScreen() {
       {/* Modals */}
       {viewingWorkout&&<WorkoutDetailModal workout={viewingWorkout} onClose={()=>setViewingWorkout(null)}/>}
       {showPRProgress&&<PRProgressScreen onClose={()=>setShowPRProgress(false)}/>}
+      {showMaxTest&&<MaxTestModal onClose={()=>{ setShowMaxTest(false); loadAll(); }}/>}
       {showNutrition&&nutritionAdvice&&<NutritionAdviceModal advice={nutritionAdvice} onClose={()=>setShowNutrition(false)}/>}
+      {showFeedback&&lastFinishedWorkout&&nutritionAdvice&&(
+        <WorkoutFeedbackModal
+          workout={lastFinishedWorkout}
+          nutrition={nutritionAdvice}
+          userMaxes={userMaxes}
+          onClose={()=>setShowFeedback(false)}
+        />
+      )}
       {showRoutineManager&&<RoutineManagerModal routines={routines} onSelect={(r)=>{setShowRoutineManager(false);startWorkout(r);}} onSave={saveRoutine} onClose={()=>setShowRoutineManager(false)}/>}
 
       {/* Tab toggle during active session */}
@@ -1377,6 +1920,7 @@ export default function TrainingScreen() {
                     {icon:'🏆',label:'Ranking',sub:'Dein Level',color:theme.orange,bg:theme.orangeLight,onPress:()=>router.push('/ranking' as any)},
                     {icon:'📈',label:'PR-Entwicklung',sub:'Fortschrittskurven',color:theme.blue,bg:theme.blueLight,onPress:()=>setShowPRProgress(true)},
                     {icon:'📋',label:'Routinen',sub:'Gespeicherte Pläne',color:theme.green,bg:theme.greenLight,onPress:()=>setShowRoutineManager(true)},
+                    {icon:'🎯',label:'Max-Test',sub:'1RM aktualisieren',color:'#EC4899',bg:'#EC489920',onPress:()=>setShowMaxTest(true)},
                   ].map(item=>(
                     <TouchableOpacity key={item.label} style={[styles.quickLinkCard,{borderLeftColor:item.color}]} onPress={item.onPress} activeOpacity={0.7}>
                       <View style={[styles.quickLinkIcon,{backgroundColor:item.bg}]}><Text style={{fontSize:20}}>{item.icon}</Text></View>
@@ -1454,12 +1998,40 @@ export default function TrainingScreen() {
                   </View>
                 </View>
 
-                {/* Live timer */}
-                <View style={[styles.liveStat,{flexDirection:'row',alignItems:'center',gap:12,marginBottom:12,paddingHorizontal:16}]}>
+                {/* Live timer + Rest Timer */}
+                <View style={[styles.liveStat,{flexDirection:'row',alignItems:'center',gap:12,marginBottom:8,paddingHorizontal:16}]}>
                   <Text style={[styles.liveStatVal,{color:theme.green,fontSize:26}]}>{formatTime(gymTimer.seconds)}</Text>
                   <TouchableOpacity onPress={()=>gymTimer.isRunning?gymTimer.pause():gymTimer.start()} style={{padding:8}}>
                     <Text style={{color:gymTimer.isRunning?theme.red:theme.green,fontSize:20}}>{gymTimer.isRunning?'⏸':'▶'}</Text>
                   </TouchableOpacity>
+                </View>
+
+                {/* Rest Timer */}
+                <View style={[styles.exerciseCard,{marginBottom:10,borderLeftWidth:3,borderLeftColor:restTimer.isRunning?theme.orange:theme.cardSecondary}]}>
+                  <View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between'}}>
+                    <Text style={[styles.manualCardTitle,{color:restTimer.isRunning?theme.orange:theme.textSecondary}]}>
+                      ⏱ PAUSENTIMER {restTimer.isRunning?`— ${restTimer.seconds}s`:''}
+                    </Text>
+                    {restTimer.isRunning&&(
+                      <TouchableOpacity onPress={restTimer.stop}>
+                        <Text style={{color:theme.red,fontSize:12,fontWeight:'600'}}>Stop ×</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {restTimer.isRunning&&(
+                    <View style={{height:6,backgroundColor:theme.cardSecondary,borderRadius:3,marginTop:8}}>
+                      <View style={{height:6,borderRadius:3,backgroundColor:restTimer.pct>0.3?theme.green:restTimer.pct>0.1?theme.orange:theme.red,width:`${restTimer.pct*100}%` as any}}/>
+                    </View>
+                  )}
+                  {!restTimer.isRunning&&(
+                    <View style={{flexDirection:'row',gap:8,marginTop:8}}>
+                      {[60,90,120,180].map(s=>(
+                        <TouchableOpacity key={s} style={[styles.intensityBtn,{flex:1}]} onPress={()=>restTimer.startFor(s)}>
+                          <Text style={styles.intensityBtnText}>{s<60?`${s}s`:`${s/60}min`}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </View>
 
                 <View style={styles.liveStats}>
@@ -1481,6 +2053,7 @@ export default function TrainingScreen() {
                   const mc=MUSCLE_COLORS[exercise.muscleGroup]||'#888';
                   const userMax=userMaxes[exercise.name];
                   const pctOfMax=userMax&&best1RM>0?Math.round((best1RM/userMax)*100):null;
+                  const rec=getTrainingRecommendation(exercise.name,userMaxes,sleepScore,userGoal);
                   return (
                     <View key={exercise.id} style={styles.exerciseCard}>
                       <View style={styles.exerciseHeader}>
@@ -1492,6 +2065,13 @@ export default function TrainingScreen() {
                           <Text style={styles.removeBtn}>×</Text>
                         </TouchableOpacity>
                       </View>
+                      {/* Training recommendation */}
+                      {rec&&(
+                        <View style={[styles.lastWorkoutRow,{backgroundColor:theme.blueLight,marginBottom:8}]}>
+                          <Text style={{color:theme.blue,fontSize:11,fontWeight:'600'}}>💡 Empfehlung: </Text>
+                          <Text style={{color:theme.blue,fontSize:11,flex:1}}>{rec.sets}×{rec.reps} Wdh. @ {rec.weight}kg{sleepScore<60?' 😴':''}</Text>
+                        </View>
+                      )}
                       {lastSets&&(
                         <View style={styles.lastWorkoutRow}>
                           <Text style={styles.lastWorkoutLabel}>Letztes Mal: </Text>
@@ -1510,9 +2090,9 @@ export default function TrainingScreen() {
                       {exercise.sets.map((set,si)=>(
                         <View key={si} style={styles.setRow}>
                           <Text style={styles.setNumber}>{si+1}</Text>
-                          <TextInput style={styles.setInput} placeholder={lastSets?.[si]?.reps||'0'} placeholderTextColor={theme.textTertiary}
+                          <TextInput style={styles.setInput} placeholder={lastSets?.[si]?.reps||(rec?String(rec.reps):'0')} placeholderTextColor={theme.textTertiary}
                             value={set.reps} onChangeText={v=>updateSet(exercise.id,si,'reps',v)} keyboardType="numeric"/>
-                          <TextInput style={styles.setInput} placeholder={lastSets?.[si]?.weight||'0'} placeholderTextColor={theme.textTertiary}
+                          <TextInput style={styles.setInput} placeholder={lastSets?.[si]?.weight||(rec?String(rec.weight):'0')} placeholderTextColor={theme.textTertiary}
                             value={set.weight} onChangeText={v=>updateSet(exercise.id,si,'weight',v)} keyboardType="decimal-pad"/>
                         </View>
                       ))}
@@ -1573,15 +2153,27 @@ export default function TrainingScreen() {
               {MUSCLE_GROUPS.map(mg=>{
                 const exs=allExercises.filter(e=>e.muscleGroup===mg);
                 if (exs.length===0) return null;
+                const defaultNames = new Set(DEFAULT_PRESET_EXERCISES.map(e=>e.name));
                 return (
                   <View key={mg} style={styles.presetGroup}>
                     <Text style={[styles.presetGroupLabel,{color:MUSCLE_COLORS[mg]}]}>{mg}</Text>
                     <View style={styles.presetChips}>
-                      {exs.map(ex=>(
-                        <TouchableOpacity key={ex.name} style={styles.presetChip} onPress={()=>addExercise(ex.name,ex.muscleGroup)}>
-                          <Text style={styles.presetChipText}>{ex.name}</Text>
-                        </TouchableOpacity>
-                      ))}
+                      {exs.map(ex=>{
+                        const isCustom = !defaultNames.has(ex.name);
+                        return (
+                          <View key={ex.name} style={{flexDirection:'row',alignItems:'center',gap:0}}>
+                            <TouchableOpacity style={[styles.presetChip,{borderTopRightRadius:isCustom?0:20,borderBottomRightRadius:isCustom?0:20}]} onPress={()=>addExercise(ex.name,ex.muscleGroup)}>
+                              <Text style={styles.presetChipText}>{ex.name}</Text>
+                            </TouchableOpacity>
+                            {isCustom&&(
+                              <TouchableOpacity style={[styles.presetChip,{borderTopLeftRadius:0,borderBottomLeftRadius:0,paddingHorizontal:8,backgroundColor:'#FF6B6B20'}]}
+                                onPress={()=>deleteCustomExercise(ex.name)}>
+                                <Text style={{color:'#FF6B6B',fontSize:14}}>×</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        );
+                      })}
                     </View>
                   </View>
                 );
