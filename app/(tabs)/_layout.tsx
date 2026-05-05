@@ -42,6 +42,19 @@ function HistoryIcon({ color }: { color: string }) {
   );
 }
 
+function FriendsIcon({ color }: { color: string }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Circle cx={9} cy={7} r={3} stroke={color} strokeWidth={1.5} />
+      <Path d="M3 20C3 17 5.5 15 9 15C12.5 15 15 17 15 20"
+        stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+      <Circle cx={17} cy={7} r={2} stroke={color} strokeWidth={1.5} />
+      <Path d="M19 14C19 12.3 18 11 16.5 11"
+        stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 function StopIcon({ color }: { color: string }) {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -83,6 +96,7 @@ const MAIN_TABS = [
   { route: '/health', label: 'Health', Icon: HealthIcon },
   { route: '/training', label: 'Training', Icon: TrainingIcon },
   { route: '/history', label: 'Verlauf', Icon: HistoryIcon },
+  { route: '/friends', label: 'Freunde', Icon: FriendsIcon },
 ];
 
 const TRAINING_TABS = [
@@ -99,6 +113,7 @@ function MainTabBar({ pathname }: { pathname: string }) {
     if (pathname.includes('/health') || pathname.includes('/sleep') || pathname.includes('/checkin') || pathname.includes('/battery') || pathname.includes('/habits') || pathname.includes('/weight')) return 1;
     if (pathname.includes('/training') || pathname.includes('/body') || pathname.includes('/ranking') || pathname.includes('/workout-timer') || pathname.includes('/prs')) return 2;
     if (pathname.includes('/history')) return 3;
+    if (pathname.includes('/friends')) return 4;
     return 0;
   }
 
@@ -159,7 +174,7 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
   );
 }
 
-const MAIN_ROUTES = ['/', '/health', '/training', '/history'];
+const MAIN_ROUTES = ['/', '/health', '/training', '/history', '/friends'];
 
 function AnimatedScreen() {
   const pathname = usePathname();
@@ -217,10 +232,10 @@ export default function TabLayout() {
   }
 
   const swipe = Gesture.Pan()
-  .runOnJS(true)
-  .activeOffsetX([-10, 10])
-  .failOffsetY([-5, 5])
-  .minDistance(10)
+    .runOnJS(true)
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-5, 5])
+    .minDistance(10)
     .onEnd((e) => {
       if (e.velocityX > 200 || e.translationX > 50) {
         if (currentIdx > 0) {
