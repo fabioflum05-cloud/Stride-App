@@ -55,6 +55,17 @@ function FriendsIcon({ color }: { color: string }) {
   );
 }
 
+function NutritionIcon({ color }: { color: string }) {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2C8 2 4 6 4 10C4 14 7 17 12 22C17 17 20 14 20 10C20 6 16 2 12 2Z"
+        stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M12 6V12M9 9H15"
+        stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 function StopIcon({ color }: { color: string }) {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -96,6 +107,7 @@ const MAIN_TABS = [
   { route: '/health', label: 'Health', Icon: HealthIcon },
   { route: '/training', label: 'Training', Icon: TrainingIcon },
   { route: '/history', label: 'Verlauf', Icon: HistoryIcon },
+  { route: '/nutrition', label: 'Food', Icon: NutritionIcon },
   { route: '/friends', label: 'Freunde', Icon: FriendsIcon },
 ];
 
@@ -113,7 +125,8 @@ function MainTabBar({ pathname }: { pathname: string }) {
     if (pathname.includes('/health') || pathname.includes('/sleep') || pathname.includes('/checkin') || pathname.includes('/battery') || pathname.includes('/habits') || pathname.includes('/weight')) return 1;
     if (pathname.includes('/training') || pathname.includes('/body') || pathname.includes('/ranking') || pathname.includes('/workout-timer') || pathname.includes('/prs')) return 2;
     if (pathname.includes('/history')) return 3;
-    if (pathname.includes('/friends')) return 4;
+    if (pathname.includes('/nutrition')) return 4;
+    if (pathname.includes('/friends')) return 5;
     return 0;
   }
 
@@ -174,7 +187,7 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
   );
 }
 
-const MAIN_ROUTES = ['/', '/health', '/training', '/history', '/friends'];
+const MAIN_ROUTES = ['/', '/health', '/training', '/history', '/nutrition', '/friends'];
 
 function AnimatedScreen() {
   const pathname = usePathname();
