@@ -1,10 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Animated, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Path, Polyline, Stop } from 'react-native-svg';
 import { theme } from '../../constants/theme';
 
+const SW = Dimensions.get('window').width;
 const W = Dimensions.get('window').width;
 
 function isToday(dateString: string) {
@@ -256,9 +257,9 @@ export default function HomeScreen() {
       title: 'Mein Konto',
       items: [
         { Icon: IconUser, label: 'Mein Profil', bg: theme.blueLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/profile' as any), 250); } },
-        { Icon: IconTrophy, label: 'Abzeichen & Erfolge', bg: theme.orangeLight, onPress: () => {} },
-        { Icon: IconTarget, label: 'Meine Ziele', bg: theme.purpleLight, onPress: () => {} },
-        { Icon: IconCalendar, label: 'Trainingsplan verwalten', bg: theme.greenLight, onPress: () => {} },
+        { Icon: IconTrophy, label: 'Abzeichen & Erfolge', bg: theme.orangeLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/achievements' as any), 250); } },
+        { Icon: IconTarget, label: 'Meine Ziele', bg: theme.purpleLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/goals' as any), 250); } },
+        { Icon: IconCalendar, label: 'Trainingsplan verwalten', bg: theme.greenLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/training-plan' as any), 250); } },
       ],
     },
     {
