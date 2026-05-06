@@ -56,6 +56,7 @@ export default function CheckinScreen() {
     }
   }
 
+
   async function save() {
     const score = Math.round(((energie * 20) + ((6 - stress) * 20) + (motivation * 20)) / 3);
     const data = { energie, stress, motivation, score, date: new Date().toISOString() };
@@ -146,6 +147,7 @@ export default function CheckinScreen() {
     </ScrollView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },

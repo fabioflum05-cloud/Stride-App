@@ -2,7 +2,7 @@ import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { Alert, Animated, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { theme } from '../constants/theme';
 type Habit = { id: string; name: string; category: string; streak: number; completedDates: string[]; };
 
@@ -242,8 +242,11 @@ export default function HabitsScreen() {
 
       {/* Add/Edit Modal */}
       <Modal visible={showModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
+  <KeyboardAvoidingView
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    style={{ flex: 1, justifyContent: 'flex-end' }}
+  >
+    <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{editingHabit ? 'Habit bearbeiten' : 'Neuer Habit'}</Text>
 
             <Text style={styles.inputLabel}>Name</Text>
@@ -284,7 +287,7 @@ export default function HabitsScreen() {
               <Text style={styles.cancelBtnText}>Abbrechen</Text>
             </TouchableOpacity>
           </View>
-        </View>
+  </KeyboardAvoidingView>
       </Modal>
     </View>
   );

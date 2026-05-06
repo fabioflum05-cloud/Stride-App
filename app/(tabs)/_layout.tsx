@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Slot, router, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { theme } from '../../constants/theme';
@@ -255,15 +255,21 @@ export default function TabLayout() {
 
   return (
     <GestureDetector gesture={swipe}>
-      <View style={{ flex: 1, backgroundColor: theme.bg, overflow: 'hidden' }}>
-        <View style={{ flex: 1, paddingBottom: 100 }}>
-          <AnimatedScreen />
+      <KeyboardAvoidingView
+        style={{ flex: 1, backgroundColor: theme.bg }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        <View style={{ flex: 1, overflow: 'hidden' }}>
+          <View style={{ flex: 1, paddingBottom: 100 }}>
+            <AnimatedScreen />
+          </View>
+          {isTraining
+            ? <TrainingTabBar onStop={stopTraining} />
+            : <MainTabBar pathname={pathname} />
+          }
         </View>
-        {isTraining
-          ? <TrainingTabBar onStop={stopTraining} />
-          : <MainTabBar pathname={pathname} />
-        }
-      </View>
+      </KeyboardAvoidingView>
     </GestureDetector>
   );
 }

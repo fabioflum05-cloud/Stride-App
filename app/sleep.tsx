@@ -2,7 +2,7 @@ import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { theme } from '../constants/theme';
 
 function calculateSleepScore(data: {
@@ -66,8 +66,8 @@ export default function SleepScreen() {
     const wakeH = parseInt(wakeHour); const wakeM = parseInt(wakeMinute);
     let schlafMin = (wakeH * 60 + wakeM) - (bedH * 60 + bedM);
     if (schlafMin < 0) schlafMin += 24 * 60;
-    const tiefZeit = parseFloat(deepZeit || '0') * 60;
-    const remMin = parseFloat(remZeit || '0') * 60;
+    const tiefZeit = parseFloat(deepZeit || '0');
+    const remMin = parseFloat(remZeit || '0');
     const hrvVal = parseInt(hrv || '0');
     const pulsVal = parseInt(tiefsterPuls || '50');
     const avgPulsVal = parseInt(avgPuls || '55');
@@ -77,7 +77,7 @@ export default function SleepScreen() {
       bedHour, bedMinute, wakeHour, wakeMinute,
       schlafStunden: Math.round(schlafMin / 60 * 10) / 10,
       schlafMin, tiefsterPuls: pulsVal, avgPuls: avgPulsVal,
-      hrv: hrvVal, remZeit: parseFloat(remZeit || '0'), deepZeit: parseFloat(deepZeit || '0'),
+      hrv: hrvVal, remZeit: parseFloat(remZeit || '0') / 60, deepZeit: parseFloat(deepZeit || '0') / 60,
       sleepScore: score, date: new Date().toISOString(),
     };
 
@@ -94,101 +94,103 @@ export default function SleepScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-        <BackButton />
-        <Text style={styles.headerLabel}>Schlaf Log</Text>
-        <Text style={styles.title}>Wie hast du{'\n'}geschlafen?</Text>
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: theme.bg }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+          <BackButton />
+          <Text style={styles.headerLabel}>Schlaf Log</Text>
+          <Text style={styles.title}>Wie hast du{'\n'}geschlafen?</Text>
 
-        {saved && lastScore !== null && (
-          <View style={styles.savedCard}>
-            <Text style={styles.savedEmoji}>✓</Text>
-            <Text style={styles.savedTitle}>Heute bereits geloggt</Text>
-            <Text style={styles.savedScore}>{lastScore}</Text>
-            <Text style={styles.savedScoreLabel}>Sleep Score</Text>
-            <TouchableOpacity onPress={() => setSaved(false)} style={styles.editBtn}>
-              <Text style={styles.editBtnText}>Bearbeiten</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+          {saved && lastScore !== null && (
+            <View style={styles.savedCard}>
+              <Text style={styles.savedEmoji}>✓</Text>
+              <Text style={styles.savedTitle}>Heute bereits geloggt</Text>
+              <Text style={styles.savedScore}>{lastScore}</Text>
+              <Text style={styles.savedScoreLabel}>Sleep Score</Text>
+              <TouchableOpacity onPress={() => setSaved(false)} style={styles.editBtn}>
+                <Text style={styles.editBtnText}>Bearbeiten</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
-        {!saved && (
-          <>
-            {/* Schlafzeiten */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Schlafzeiten</Text>
-              <View style={styles.timeRow}>
-                <View style={styles.timeGroup}>
-                  <Text style={styles.timeLabel}>Eingeschlafen</Text>
-                  <View style={styles.timeInputs}>
-                    <TextInput style={styles.timeInput} value={bedHour} onChangeText={setBedHour} keyboardType="numeric" maxLength={2} placeholder="22" placeholderTextColor={theme.textTertiary} />
-                    <Text style={styles.timeSep}>:</Text>
-                    <TextInput style={styles.timeInput} value={bedMinute} onChangeText={setBedMinute} keyboardType="numeric" maxLength={2} placeholder="30" placeholderTextColor={theme.textTertiary} />
+          {!saved && (
+            <>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Schlafzeiten</Text>
+                <View style={styles.timeRow}>
+                  <View style={styles.timeGroup}>
+                    <Text style={styles.timeLabel}>Eingeschlafen</Text>
+                    <View style={styles.timeInputs}>
+                      <TextInput style={styles.timeInput} value={bedHour} onChangeText={setBedHour} keyboardType="numeric" maxLength={2} placeholder="22" placeholderTextColor={theme.textTertiary} />
+                      <Text style={styles.timeSep}>:</Text>
+                      <TextInput style={styles.timeInput} value={bedMinute} onChangeText={setBedMinute} keyboardType="numeric" maxLength={2} placeholder="30" placeholderTextColor={theme.textTertiary} />
+                    </View>
+                  </View>
+                  <View style={[styles.timeGroup, { alignItems: 'flex-end' }]}>
+                    <Text style={styles.timeLabel}>Aufgestanden</Text>
+                    <View style={styles.timeInputs}>
+                      <TextInput style={styles.timeInput} value={wakeHour} onChangeText={setWakeHour} keyboardType="numeric" maxLength={2} placeholder="06" placeholderTextColor={theme.textTertiary} />
+                      <Text style={styles.timeSep}>:</Text>
+                      <TextInput style={styles.timeInput} value={wakeMinute} onChangeText={setWakeMinute} keyboardType="numeric" maxLength={2} placeholder="30" placeholderTextColor={theme.textTertiary} />
+                    </View>
                   </View>
                 </View>
-                <View style={[styles.timeGroup, { alignItems: 'flex-end' }]}>
-                  <Text style={styles.timeLabel}>Aufgestanden</Text>
-                  <View style={styles.timeInputs}>
-                    <TextInput style={styles.timeInput} value={wakeHour} onChangeText={setWakeHour} keyboardType="numeric" maxLength={2} placeholder="06" placeholderTextColor={theme.textTertiary} />
-                    <Text style={styles.timeSep}>:</Text>
-                    <TextInput style={styles.timeInput} value={wakeMinute} onChangeText={setWakeMinute} keyboardType="numeric" maxLength={2} placeholder="30" placeholderTextColor={theme.textTertiary} />
-                  </View>
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Herzfrequenz & HRV</Text>
+                <Text style={styles.cardSub}>Von deiner Smartwatch / Polar</Text>
+                <View style={styles.inputGrid}>
+                  {[
+                    { label: 'Tiefster Puls', value: tiefsterPuls, setter: setTiefsterPuls, placeholder: '48' },
+                    { label: 'Ø Puls', value: avgPuls, setter: setAvgPuls, placeholder: '55' },
+                    { label: 'HRV (ms)', value: hrv, setter: setHrv, placeholder: '65' },
+                  ].map(f => (
+                    <View key={f.label} style={styles.inputItem}>
+                      <Text style={styles.inputLabel}>{f.label}</Text>
+                      <TextInput style={styles.input} value={f.value} onChangeText={f.setter}
+                        keyboardType="numeric" placeholder={f.placeholder} placeholderTextColor={theme.textTertiary} />
+                    </View>
+                  ))}
                 </View>
               </View>
-            </View>
 
-            {/* Herzfrequenz & HRV */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Herzfrequenz & HRV</Text>
-              <Text style={styles.cardSub}>Von deiner Smartwatch / Polar</Text>
-              <View style={styles.inputGrid}>
-                {[
-                  { label: 'Tiefster Puls', value: tiefsterPuls, setter: setTiefsterPuls, placeholder: '48' },
-                  { label: 'Ø Puls', value: avgPuls, setter: setAvgPuls, placeholder: '55' },
-                  { label: 'HRV (ms)', value: hrv, setter: setHrv, placeholder: '65' },
-                ].map(f => (
-                  <View key={f.label} style={styles.inputItem}>
-                    <Text style={styles.inputLabel}>{f.label}</Text>
-                    <TextInput style={styles.input} value={f.value} onChangeText={f.setter}
-                      keyboardType="numeric" placeholder={f.placeholder} placeholderTextColor={theme.textTertiary} />
-                  </View>
-                ))}
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Schlafphasen</Text>
+                <Text style={styles.cardSub}>In Minuten – optional, von Smartwatch</Text>
+                <View style={styles.inputGrid}>
+                  {[
+                    { label: 'Tiefschlaf (min)', value: deepZeit, setter: setDeepZeit, placeholder: '90' },
+                    { label: 'REM (min)', value: remZeit, setter: setRemZeit, placeholder: '120' },
+                  ].map(f => (
+                    <View key={f.label} style={styles.inputItem}>
+                      <Text style={styles.inputLabel}>{f.label}</Text>
+                      <TextInput style={styles.input} value={f.value} onChangeText={f.setter}
+                        keyboardType="numeric" placeholder={f.placeholder} placeholderTextColor={theme.textTertiary} />
+                    </View>
+                  ))}
+                </View>
               </View>
-            </View>
 
-            {/* Schlafphasen */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Schlafphasen</Text>
-              <Text style={styles.cardSub}>In Stunden – optional, von Smartwatch</Text>
-              <View style={styles.inputGrid}>
-                {[
-                  { label: 'Tiefschlaf (h)', value: deepZeit, setter: setDeepZeit, placeholder: '1.5' },
-                  { label: 'REM (h)', value: remZeit, setter: setRemZeit, placeholder: '2.0' },
-                ].map(f => (
-                  <View key={f.label} style={styles.inputItem}>
-                    <Text style={styles.inputLabel}>{f.label}</Text>
-                    <TextInput style={styles.input} value={f.value} onChangeText={f.setter}
-                      keyboardType="decimal-pad" placeholder={f.placeholder} placeholderTextColor={theme.textTertiary} />
-                  </View>
-                ))}
+              <View style={styles.infoCard}>
+                <Text style={styles.infoTitle}>Score Formel</Text>
+                <Text style={styles.infoText}>Tiefschlaf 30% · Dauer 25% · REM 20% · HRV 15% · Puls 10%</Text>
               </View>
-            </View>
 
-            {/* Score Formel Info */}
-            <View style={styles.infoCard}>
-              <Text style={styles.infoTitle}>Score Formel</Text>
-              <Text style={styles.infoText}>Tiefschlaf 30% · Dauer 25% · REM 20% · HRV 15% · Puls 10%</Text>
-            </View>
+              <TouchableOpacity style={styles.saveBtn} onPress={save} activeOpacity={0.85}>
+                <Text style={styles.saveBtnText}>Schlaf speichern & Score anzeigen</Text>
+              </TouchableOpacity>
+            </>
+          )}
 
-            <TouchableOpacity style={styles.saveBtn} onPress={save} activeOpacity={0.85}>
-              <Text style={styles.saveBtnText}>Schlaf speichern & Score anzeigen</Text>
-            </TouchableOpacity>
-          </>
-        )}
-
-        <View style={{ height: 80 }} />
-      </Animated.View>
-    </ScrollView>
+          <View style={{ height: 80 }} />
+        </Animated.View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -196,7 +198,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
   headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
   title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 24 },
-
   savedCard: { backgroundColor: theme.card, borderRadius: 20, padding: 28, alignItems: 'center', gap: 6, ...theme.shadow, marginBottom: 20 },
   savedEmoji: { width: 52, height: 52, borderRadius: 26, backgroundColor: theme.greenLight, textAlign: 'center', lineHeight: 52, fontSize: 22, color: theme.green, fontWeight: '700', overflow: 'hidden' },
   savedTitle: { color: theme.textSecondary, fontSize: 14, marginTop: 8 },
@@ -204,27 +205,22 @@ const styles = StyleSheet.create({
   savedScoreLabel: { color: theme.textSecondary, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: -8 },
   editBtn: { marginTop: 8, backgroundColor: theme.cardSecondary, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
   editBtnText: { color: theme.blue, fontSize: 13, fontWeight: '500' },
-
   card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, gap: 12, ...theme.shadow },
   cardTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: '600' },
   cardSub: { color: theme.textSecondary, fontSize: 12, marginTop: -8 },
-
   timeRow: { flexDirection: 'row', justifyContent: 'space-between' },
   timeGroup: { gap: 8 },
   timeLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
   timeInputs: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   timeInput: { width: 56, backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 12, color: theme.textPrimary, fontSize: 22, textAlign: 'center', fontWeight: '500' },
   timeSep: { color: theme.textSecondary, fontSize: 22, fontWeight: '500' },
-
   inputGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   inputItem: { width: '48%', gap: 6 },
   inputLabel: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 },
   input: { backgroundColor: theme.cardSecondary, borderRadius: 10, padding: 12, color: theme.textPrimary, fontSize: 16, textAlign: 'center' },
-
   infoCard: { backgroundColor: theme.blueLight, borderRadius: 12, padding: 14, marginBottom: 16 },
   infoTitle: { color: theme.blue, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: '600' },
   infoText: { color: theme.blue, fontSize: 12, lineHeight: 18, opacity: 0.8 },
-
   saveBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', ...theme.shadow },
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 });
