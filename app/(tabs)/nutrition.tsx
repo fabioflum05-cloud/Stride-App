@@ -22,7 +22,8 @@ type DayLog = { date: string; entries: FoodEntry[]; goal: Macros; };
 // ─── Constants ────────────────────────────────────────────────
 const DEFAULT_GOAL: Macros = { kcal: 2500, protein: 160, carbs: 280, fat: 80 };
 const OPEN_FOOD_FACTS = 'https://world.openfoodfacts.org/api/v0/product';
-const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
+const GEMINI_API_KEY = 'AIzaSyCLGmhg7YDEh2K8ndgJdDWiDrndc84-UvU'; // neuen Key von aistudio.google.com eintragen
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 function getTodayKey() {
   const d = new Date();
@@ -178,41 +179,21 @@ function BarcodeScanner({ onResult, onClose }: {
 // ─── AI Photo Analysis ────────────────────────────────────────
 async function analyzeWithAI(base64Image: string): Promise<Partial<FoodEntry> | null> {
   try {
-    const res = await fetch(CLAUDE_API, {
+    const res = await fetch(GEMINI_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: 'image/jpeg', data: base64Image },
-            },
-            {
-              type: 'text',
-              text: `Analysiere diese Mahlzeit und schätze die Makronährstoffe. Antworte NUR mit einem JSON-Objekt, kein Text davor oder danach:
-{
-  "label": "Name der Mahlzeit",
-  "amount": 300,
-  "unit": "g",
-  "kcal": 450,
-  "protein": 35,
-  "carbs": 40,
-  "fat": 12,
-  "confidence": "low|medium|high",
-  "note": "kurze Begründung"
-}
-Schätze die Portionsgrösse realistisch. Bei Unsicherheit lieber etwas mehr schätzen.`,
-            }
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: 'image/jpeg', data: base64Image } },
+            { text: `Analysiere diese Mahlzeit und schätze die Makronährstoffe. Antworte NUR mit einem JSON-Objekt, keine Backticks, kein Text davor oder danach: {"label":"Name","amount":300,"unit":"g","kcal":450,"protein":35,"carbs":40,"fat":12}` }
           ]
-        }]
+        }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
       })
     });
     const data = await res.json();
-    const text = data.content?.[0]?.text || '';
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean = text.replace(/```json|```/g, '').trim();
     const parsed = JSON.parse(clean);
     return {
