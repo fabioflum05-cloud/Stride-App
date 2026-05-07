@@ -134,8 +134,11 @@ function MainTabBar({ pathname }: { pathname: string }) {
   const currentIndex = getIndex();
 
   return (
-    <View style={styles.wrapper} pointerEvents="box-none">
-      <View style={styles.container}>
+    <View style={[styles.wrapper, { backgroundColor: currentIndex === 2 ? '#1A1614' : 'transparent' }]} pointerEvents="box-none">
+      <View style={[styles.container, {
+  backgroundColor: currentIndex === 2 ? '#231F1C' : '#fff',
+  borderColor: currentIndex === 2 ? 'rgba(232,87,42,0.25)' : 'rgba(0,0,0,0.08)',
+}]}>
         {MAIN_TABS.map(({ route, label, Icon }, index) => {
           const active = index === currentIndex;
           return (
@@ -177,8 +180,11 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
   const pathname = usePathname();
 
   return (
-    <View style={styles.wrapper} pointerEvents="box-none">
-      <View style={[styles.container, styles.trainingContainer]}>
+    <View style={[styles.wrapper, { backgroundColor: '#1A1614' }]} pointerEvents="box-none">
+      <View style={[styles.container, { 
+  backgroundColor: '#231F1C',
+  borderColor: 'rgba(232,87,42,0.25)',
+}]}>
         {TRAINING_TABS.map(({ route, label, Icon, isStop }: any) => {
           const active = !isStop && pathname.includes(route);
           return (
@@ -285,11 +291,11 @@ export default function TabLayout() {
   return (
     <GestureDetector gesture={swipe}>
       <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: theme.bg }}
+        style={{ flex: 1, backgroundColor: currentIdx === 2 ? '#1A1614' : '#fff' }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
-        <View style={{ flex: 1, overflow: 'hidden' }}>
+        <View style={{ flex: 1, overflow: 'hidden', backgroundColor: currentIdx === 2 ? '#1A1614' : '#fff' }}>
           <View style={{ flex: 1, paddingBottom: 100 }}>
             <AnimatedScreen />
           </View>
