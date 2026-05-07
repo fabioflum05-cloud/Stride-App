@@ -27,11 +27,12 @@ function HealthIcon({ color }: { color: string }) {
 function TrainingIcon({ color }: { color: string }) {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M6 4V20M18 4V20M3 8H7M17 8H21M3 16H7M17 16H21M7 12H17"
-        stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+      <Path d="M6 7H18M6 17H18M4 10H6V14H4M18 10H20V14H18M2 11H4V13H2M20 11H22V13H20"
+        stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
   );
 }
+
 
 function HistoryIcon({ color }: { color: string }) {
   return (
@@ -147,8 +148,23 @@ function MainTabBar({ pathname }: { pathname: string }) {
               <View style={styles.dotWrap}>
                 {active && <View style={styles.dotActive} />}
               </View>
-              <Icon color={active ? theme.blue : theme.textTertiary} />
-              <Text style={[styles.label, active && styles.labelActive]}>{label}</Text>
+              {index === 2 ? (
+  <View style={{
+    backgroundColor: active ? '#E8572A' : 'rgba(232,87,42,0.12)',
+    borderRadius: 14,
+    width: 48,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  }}>
+    <Icon color={active ? '#fff' : '#E8572A'} />
+  </View>
+) : (
+  <Icon color={active ? theme.blue : theme.textTertiary} />
+)}
+<Text style={[styles.label, active && (index === 2 ? { color: '#E8572A' } : styles.labelActive)]}>
+  {label}
+</Text>
             </TouchableOpacity>
           );
         })}
