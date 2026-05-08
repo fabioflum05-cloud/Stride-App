@@ -203,11 +203,14 @@ export default function HomeScreen() {
     { title: 'Mein Konto', items: [
       { Icon: IconUser, label: 'Mein Profil', bg: theme.blueLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/profile' as any), 250); } },
       { Icon: IconTrophy, label: 'Abzeichen & Erfolge', bg: theme.orangeLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/achievements' as any), 250); } },
-      { Icon: IconTarget, label: 'Meine Ziele', bg: theme.purpleLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/goals' as any), 250); } },
-      { Icon: IconCalendar, label: 'Trainingsplan verwalten', bg: theme.greenLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/training-plan' as any), 250); } },
+      { Icon: IconTarget, label: 'Meine Ziele', bg: theme.purpleLight, onPress: () => {} },
+    ]},
+    { title: 'Aktivität', items: [
+      { Icon: IconCalendar, label: 'Verlauf', bg: theme.greenLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/history' as any), 250); } },
+      { Icon: IconCrown, label: 'Freunde', bg: theme.purpleLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/friends' as any), 250); } },
+      { Icon: IconWatch, label: 'Geräte & Wearables', bg: theme.tealLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/devices' as any), 250); } },
     ]},
     { title: 'Gesundheit & Daten', items: [
-      { Icon: IconWatch, label: 'Geräte & Wearables', bg: theme.tealLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/devices' as any), 250); } },
       { Icon: IconHeart, label: 'Gesundheitsdaten', bg: theme.pinkLight, onPress: () => {} },
       { Icon: IconUpload, label: 'Daten exportieren', bg: theme.orangeLight, onPress: () => {}, badge: 'Neu' },
     ]},
