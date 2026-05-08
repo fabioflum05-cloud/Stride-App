@@ -1209,12 +1209,12 @@ function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkou
   onStart: () => void; onStartWithRecommendation: () => void; lastWorkout: Workout | null; onBack: () => void;
 }) {
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: theme.bg }} showsVerticalScrollIndicator={false}>
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <View style={startSt.header}>
         <TouchableOpacity onPress={onBack} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
         <View><Text style={startSt.eyebrow}>Krafttraining</Text><Text style={startSt.title}>Freies Training</Text></View>
       </View>
-      <View style={{ paddingHorizontal: 16 }}>
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16 }}>
         {lastWorkout && (
           <TouchableOpacity style={startSt.recCard} onPress={onStartWithRecommendation} activeOpacity={0.88}>
             <View style={startSt.recBadgeRow}><View style={startSt.recDot} /><Text style={startSt.recBadgeText}>Empfehlung für heute</Text></View>
@@ -1227,9 +1227,13 @@ function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkou
           <Text style={startSt.emptyCardTitle}>Leeres Training</Text>
           <Text style={startSt.emptyCardSub}>Selbst Übungen zusammenstellen</Text>
         </View>
-        <View style={{ marginTop: 12, marginBottom: 40 }}><SwipeToStart onStart={onStart} /></View>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+      {/* SwipeToStart ausserhalb der ScrollView – kein Konflikt */}
+      <View style={{ paddingHorizontal: 16, paddingBottom: 140 }}>
+        <SwipeToStart onStart={onStart} />
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -1570,7 +1574,36 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
                     </View>
                   </View>
                 )}
-                {recText && <View style={active.recRow}><Text style={active.recText}>{recText}</Text></View>}
+                {recText && (() => {
+  const recWeight = userMax ? String(Math.round((userMax * 0.75) / 2.5) * 2.5) : '';
+  const recReps = '8';
+  return (
+    <TouchableOpacity
+      style={active.recRow}
+      onPress={async () => {
+  const recSets = 4;
+  const newSets = Array.from(
+    { length: Math.max(exercise.sets.length, recSets) },
+    () => ({ reps: recReps, weight: recWeight })
+  );
+  const updated = {
+    ...workout,
+    exercises: workout.exercises.map(ex =>
+      ex.id !== exercise.id ? ex : { ...ex, sets: newSets }
+    ),
+  };
+  onUpdate(updated);
+  await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
+}}
+      activeOpacity={0.75}
+    >
+      <Text style={active.recText}>💡 {recText}</Text>
+      <Text style={{ fontSize: 10, color: theme.blue, fontWeight: '600', marginTop: 3 }}>
+        Tippen zum Übernehmen →
+      </Text>
+    </TouchableOpacity>
+  );
+})()}
                 {lastSets && (
                   <View style={active.lastRow}>
                     <Text style={active.lastLabel}>Letztes Mal: </Text>

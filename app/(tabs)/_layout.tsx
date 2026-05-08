@@ -247,10 +247,11 @@ export default function TabLayout() {
   }
 
   const swipe = Gesture.Pan()
-    .runOnJS(true)
-    .activeOffsetX([-10, 10])
-    .failOffsetY([-5, 5])
-    .minDistance(10)
+  .runOnJS(true)
+  .activeOffsetX([-25, 25])
+  .failOffsetY([-8, 8])
+  .minDistance(30)
+  .enabled(false)
     .onEnd((e) => {
       if (e.velocityX > 200 || e.translationX > 50) {
         if (currentIdx > 0) router.push(MAIN_ROUTES[currentIdx - 1] as any);
