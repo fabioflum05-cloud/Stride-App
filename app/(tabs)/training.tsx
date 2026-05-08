@@ -42,6 +42,7 @@ type Exercise = { id: string; name: string; muscleGroup: string; sets: WorkoutSe
 type Workout = {
   id: string; date: string; name: string; exercises: Exercise[];
   duration: number; intensity: number; type: 'gym' | 'run' | 'manual' | 'judo';
+  score?: number;
 };
 type RunData = {
   id: string; distance: number; duration: number; pace: string;
@@ -197,6 +198,70 @@ function getWeekTrainings(workouts: Workout[]): boolean[] {
   return result;
 }
 
+// ─── Trainingsscore berechnen ─────────────────────────────────
+function calcWorkoutScore(workout: Workout, userMaxes: UserMaxes): number {
+  if (!workout.exercises || workout.exercises.length === 0) return 0;
+  let intensityScore = 0, volumeScore = 0, exerciseCount = 0;
+  for (const ex of workout.exercises) {
+    const max = userMaxes[ex.name] || 0;
+    const best = getBest1RM(ex.sets);
+    if (max > 0 && best > 0) {
+      intensityScore += Math.min(1, best / max);
+      exerciseCount++;
+    }
+    for (const set of ex.sets) {
+      const r = parseFloat(set.reps || '0'), w = parseFloat(set.weight || '0');
+      if (r > 0 && w > 0) volumeScore += r * w;
+    }
+  }
+  const avgIntensity = exerciseCount > 0 ? intensityScore / exerciseCount : 0.5;
+  const volScore = Math.min(1, volumeScore / 10000);
+  const durScore = Math.min(1, (workout.duration || 30) / 90);
+  const setCount = workout.exercises.reduce((s, ex) => s + ex.sets.length, 0);
+  const setsScore = Math.min(1, setCount / 20);
+  return Math.round((avgIntensity * 0.4 + volScore * 0.3 + durScore * 0.15 + setsScore * 0.15) * 100);
+}
+
+// ─── Trainingsplan generieren ─────────────────────────────────
+function generateTrainingPlan(goal: string, userMaxes: UserMaxes): { day: string; name: string; focus: string; exercises: { name: string; sets: number; reps: string; weight: number }[] }[] {
+  const hasPRs = Object.keys(userMaxes).length > 0;
+  const intensity = goal === 'kraft' ? 0.85 : goal === 'ausdauer' ? 0.6 : 0.72;
+  const repsRange = goal === 'kraft' ? '3–5' : goal === 'ausdauer' ? '15–20' : '8–12';
+  const setsCount = goal === 'kraft' ? 5 : goal === 'ausdauer' ? 3 : 4;
+
+  function w(name: string) {
+    const max = userMaxes[name] || 0;
+    if (!max) return 0;
+    return Math.round((max * intensity) / 2.5) * 2.5;
+  }
+
+  return [
+    { day: 'Mo', name: 'Push', focus: 'Brust · Schultern · Trizeps', exercises: [
+      { name: 'Bankdrücken', sets: setsCount, reps: repsRange, weight: w('Bankdrücken') },
+      { name: 'Schulterdrücken', sets: setsCount - 1, reps: repsRange, weight: w('Schulterdrücken') },
+      { name: 'Trizepsdrücken', sets: 3, reps: repsRange, weight: w('Trizepsdrücken') },
+    ]},
+    { day: 'Di', name: 'Pull', focus: 'Rücken · Bizeps', exercises: [
+      { name: 'Klimmzüge', sets: setsCount, reps: repsRange, weight: w('Klimmzüge') },
+      { name: 'Rudern', sets: setsCount, reps: repsRange, weight: w('Rudern') },
+      { name: 'Curls', sets: 3, reps: repsRange, weight: w('Curls') },
+    ]},
+    { day: 'Mi', name: 'Pause', focus: 'Aktive Erholung', exercises: [] },
+    { day: 'Do', name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exercises: [
+      { name: 'Kniebeugen', sets: setsCount, reps: repsRange, weight: w('Kniebeugen') },
+      { name: 'Romanian Deadlift', sets: setsCount - 1, reps: repsRange, weight: w('Romanian Deadlift') },
+      { name: 'Hip Thrust', sets: 3, reps: repsRange, weight: w('Hip Thrust') },
+    ]},
+    { day: 'Fr', name: 'Upper', focus: 'Ganzkörper Kraft', exercises: [
+      { name: 'Deadlift', sets: setsCount, reps: repsRange, weight: w('Deadlift') },
+      { name: 'Schulterdrücken', sets: 3, reps: repsRange, weight: w('Schulterdrücken') },
+      { name: 'Seitheben', sets: 3, reps: repsRange, weight: w('Seitheben') },
+    ]},
+    { day: 'Sa', name: 'Optional', focus: 'Schwachstellen', exercises: [] },
+    { day: 'So', name: 'Ruhe', focus: 'Regeneration', exercises: [] },
+  ];
+}
+
 // ─── SVG Icons ────────────────────────────────────────────────
 function IconDumbbell({ color, size = 20 }: { color: string; size?: number }) {
   return (
@@ -282,14 +347,6 @@ function IconSearch({ color, size = 20 }: { color: string; size?: number }) {
     </Svg>
   );
 }
-function IconFlame({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 2C12 2 8 6 8 10C8 12.2 9.8 14 12 14C14.2 14 16 12.2 16 10C16 8 14 5 14 5C14 5 13.5 7 12 7C10.5 7 10 5.5 10 5.5C10 5.5 12 2 12 2Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="M12 14C9 14 6 16 6 19C6 21 8 22 12 22C16 22 18 21 18 19C18 16 15 14 12 14Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
-}
 function IconPlay({ color, size = 20 }: { color: string; size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -339,24 +396,45 @@ function IconChevronsRight({ color, size = 20 }: { color: string; size?: number 
     </Svg>
   );
 }
+function IconTrash({ color, size = 18 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 6H21M8 6V4H16V6M19 6L18 20H6L5 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+function IconCalendar({ color, size = 20 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M8 2V5M16 2V5M3 8H21M5 4H19C20.1 4 21 4.9 21 6V20C21 21.1 20.1 22 19 22H5C3.9 22 3 21.1 3 20V6C3 4.9 3.9 4 5 4Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
 
 // ─── Swipe To Start ───────────────────────────────────────────
+// Uses its own PanResponder that captures horizontal swipes
+// and does NOT let them bubble up to the tab swipe handler.
 function SwipeToStart({ onStart }: { onStart: () => void }) {
   const THUMB_SIZE = 56;
   const [trackWidth, setTrackWidth] = useState(SW - 64);
   const MAX_DRAG = trackWidth - THUMB_SIZE - 12;
   const translateX = useRef(new Animated.Value(0)).current;
+  const completed = useRef(false);
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_,gs) => Math.abs(gs.dx) > Math.abs(gs.dy),
+    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 5,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderMove: (_,gs) => { translateX.setValue(Math.max(0, Math.min(gs.dx, MAX_DRAG))); },
-    onPanResponderRelease: (_,gs) => {
-      if (gs.dx > MAX_DRAG * 0.7) {
+    onPanResponderGrant: () => { completed.current = false; },
+    onPanResponderMove: (_, gs) => {
+      translateX.setValue(Math.max(0, Math.min(gs.dx, MAX_DRAG)));
+    },
+    onPanResponderRelease: (_, gs) => {
+      if (gs.dx > MAX_DRAG * 0.7 && !completed.current) {
+        completed.current = true;
         Animated.timing(translateX, { toValue: MAX_DRAG, duration: 100, useNativeDriver: true }).start(() => {
           onStart();
-          setTimeout(() => translateX.setValue(0), 500);
+          setTimeout(() => { translateX.setValue(0); completed.current = false; }, 500);
         });
       } else {
         Animated.spring(translateX, { toValue: 0, useNativeDriver: true, tension: 80, friction: 12 }).start();
@@ -376,78 +454,139 @@ function SwipeToStart({ onStart }: { onStart: () => void }) {
   );
 }
 
-// ─── Persistent Timer ─────────────────────────────────────────
-function usePersistentTimer(key: string) {
+// ─── Persistent Workout Timer ──────────────────────────────────
+// Stores startedAt in AsyncStorage so it survives app restarts.
+// Stops automatically when workout ends.
+function useWorkoutTimer(timerKey: string) {
   const [seconds, setSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const intervalRef = useRef<any>(null);
-  const startTimeRef = useRef<number | null>(null);
+  const startAtRef = useRef<number | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
-    AsyncStorage.getItem(key).then(raw => {
+    AsyncStorage.getItem(timerKey).then(raw => {
       if (!raw) return;
-      const { startedAt, running, elapsed } = JSON.parse(raw);
-      if (running && startedAt) { startTimeRef.current = startedAt; setSeconds(Math.floor((Date.now()-startedAt)/1000)); setIsRunning(true); }
-      else if (elapsed) setSeconds(elapsed);
+      try {
+        const { startedAt } = JSON.parse(raw);
+        if (startedAt) {
+          startAtRef.current = startedAt;
+          setSeconds(Math.floor((Date.now() - startedAt) / 1000));
+          setIsRunning(true);
+        }
+      } catch {}
     });
+
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (appStateRef.current === 'active' && next.match(/inactive|background/) && startTimeRef.current)
-        AsyncStorage.setItem(key, JSON.stringify({ startedAt: startTimeRef.current, running: true }));
-      if (appStateRef.current.match(/inactive|background/) && next === 'active')
-        AsyncStorage.getItem(key).then(raw => {
-          if (!raw) return;
-          const { startedAt, running } = JSON.parse(raw);
-          if (running && startedAt) setSeconds(Math.floor((Date.now()-startedAt)/1000));
-        });
+      if (next === 'active' && startAtRef.current) {
+        setSeconds(Math.floor((Date.now() - startAtRef.current) / 1000));
+      }
       appStateRef.current = next;
     });
-    return () => sub.remove();
-  }, [key]);
+    return () => { sub.remove(); clearInterval(intervalRef.current); };
+  }, [timerKey]);
 
   useEffect(() => {
-    if (isRunning) {
-      if (!startTimeRef.current) startTimeRef.current = Date.now() - seconds * 1000;
-      AsyncStorage.setItem(key, JSON.stringify({ startedAt: startTimeRef.current, running: true }));
-      intervalRef.current = setInterval(() => setSeconds(Math.floor((Date.now()-startTimeRef.current!)/1000)), 1000);
+    if (isRunning && startAtRef.current) {
+      intervalRef.current = setInterval(() => {
+        if (startAtRef.current)
+          setSeconds(Math.floor((Date.now() - startAtRef.current) / 1000));
+      }, 1000);
     } else {
       clearInterval(intervalRef.current);
-      if (startTimeRef.current)
-        AsyncStorage.setItem(key, JSON.stringify({ startedAt: startTimeRef.current, running: false, elapsed: Math.floor((Date.now()-startTimeRef.current)/1000) }));
     }
     return () => clearInterval(intervalRef.current);
   }, [isRunning]);
 
-  const reset = useCallback(() => { setSeconds(0); setIsRunning(false); startTimeRef.current = null; AsyncStorage.removeItem(key); }, [key]);
-  const start = useCallback(() => { startTimeRef.current = Date.now() - seconds * 1000; setIsRunning(true); }, [seconds]);
-  const pause = useCallback(() => setIsRunning(false), []);
-  return { seconds, isRunning, start, pause, reset };
+  const startNow = useCallback(async () => {
+    const now = Date.now();
+    startAtRef.current = now;
+    await AsyncStorage.setItem(timerKey, JSON.stringify({ startedAt: now }));
+    setIsRunning(true);
+  }, [timerKey]);
+
+  const stop = useCallback(async () => {
+    clearInterval(intervalRef.current);
+    setIsRunning(false);
+    await AsyncStorage.removeItem(timerKey);
+  }, [timerKey]);
+
+  const getDuration = useCallback(() => {
+    if (!startAtRef.current) return 0;
+    return Math.max(1, Math.round((Date.now() - startAtRef.current) / 60000));
+  }, []);
+
+  return { seconds, isRunning, startNow, stop, getDuration };
 }
 
-// ─── Rest Timer ───────────────────────────────────────────────
+// ─── Persistent Rest Timer ─────────────────────────────────────
 function useRestTimer() {
   const [seconds, setSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [targetSeconds, setTargetSeconds] = useState(90);
-  const startTimeRef = useRef<number | null>(null);
+  const startAtRef = useRef<number | null>(null);
   const intervalRef = useRef<any>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const STORE_KEY = 'restTimerData';
 
   useEffect(() => {
-    if (isRunning) {
-      if (!startTimeRef.current) startTimeRef.current = Date.now();
-      intervalRef.current = setInterval(() => {
-        const remaining = Math.max(0, targetSeconds - Math.floor((Date.now()-startTimeRef.current!)/1000));
+    AsyncStorage.getItem(STORE_KEY).then(raw => {
+      if (!raw) return;
+      try {
+        const { startedAt, target } = JSON.parse(raw);
+        if (startedAt && target) {
+          const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+          const remaining = Math.max(0, target - elapsed);
+          if (remaining > 0) {
+            startAtRef.current = startedAt;
+            setTargetSeconds(target);
+            setSeconds(remaining);
+            setIsRunning(true);
+          } else {
+            AsyncStorage.removeItem(STORE_KEY);
+          }
+        }
+      } catch {}
+    });
+
+    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active' && startAtRef.current && isRunning) {
+        const elapsed = Math.floor((Date.now() - startAtRef.current) / 1000);
+        const remaining = Math.max(0, targetSeconds - elapsed);
         setSeconds(remaining);
-        if (remaining === 0) { setIsRunning(false); startTimeRef.current = null; clearInterval(intervalRef.current); }
+        if (remaining === 0) { setIsRunning(false); AsyncStorage.removeItem(STORE_KEY); }
+      }
+      appStateRef.current = next;
+    });
+    return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    if (isRunning && startAtRef.current) {
+      intervalRef.current = setInterval(() => {
+        if (!startAtRef.current) return;
+        const elapsed = Math.floor((Date.now() - startAtRef.current) / 1000);
+        const remaining = Math.max(0, targetSeconds - elapsed);
+        setSeconds(remaining);
+        if (remaining === 0) { setIsRunning(false); startAtRef.current = null; AsyncStorage.removeItem(STORE_KEY); clearInterval(intervalRef.current); }
       }, 1000);
-    } else clearInterval(intervalRef.current);
+    } else {
+      clearInterval(intervalRef.current);
+    }
     return () => clearInterval(intervalRef.current);
   }, [isRunning, targetSeconds]);
 
-  function startFor(secs: number) { setTargetSeconds(secs); setSeconds(secs); startTimeRef.current = Date.now(); setIsRunning(true); }
-  function stop() { setIsRunning(false); setSeconds(0); startTimeRef.current = null; }
+  function startFor(secs: number) {
+    const now = Date.now();
+    startAtRef.current = now;
+    setTargetSeconds(secs);
+    setSeconds(secs);
+    setIsRunning(true);
+    AsyncStorage.setItem(STORE_KEY, JSON.stringify({ startedAt: now, target: secs }));
+  }
+  function stopRest() { setIsRunning(false); setSeconds(0); startAtRef.current = null; AsyncStorage.removeItem(STORE_KEY); }
   const pct = targetSeconds > 0 ? Math.max(0, seconds / targetSeconds) : 0;
-  return { seconds, isRunning, startFor, stop, pct };
+  return { seconds, isRunning, startFor, stop: stopRest, pct };
 }
 
 // ─── Exercise Picker ──────────────────────────────────────────
@@ -705,9 +844,9 @@ function WorkoutDetailScreen({ item, onClose }: { item: any; onClose: () => void
                 {isRun ? 'Lauftraining' : w?.name}
               </Text>
             </View>
-            {!isRun && w && (
+            {!isRun && w?.score !== undefined && (
               <View style={{ backgroundColor: '#FFF4EC', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#FFD4B0' }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#FF6B00' }}>{w.duration} min</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#FF6B00' }}>Score {w.score}</Text>
               </View>
             )}
           </View>
@@ -793,7 +932,9 @@ function WorkoutDetailScreen({ item, onClose }: { item: any; onClose: () => void
 }
 
 // ─── History Screen ───────────────────────────────────────────
-function HistoryScreen({ onClose, prHistory }: { onClose: () => void; prHistory: PRHistory }) {
+function HistoryScreen({ onClose, prHistory, onDelete }: {
+  onClose: () => void; prHistory: PRHistory; onDelete: (id: string) => void;
+}) {
   const [filter, setFilter] = useState<'alle'|'kraft'|'judo'|'lauf'|'sonstiges'>('alle');
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [runs, setRuns] = useState<RunData[]>([]);
@@ -824,6 +965,24 @@ function HistoryScreen({ onClose, prHistory }: { onClose: () => void; prHistory:
     if (filter === 'sonstiges') return t === 'manual';
     return true;
   });
+
+  async function handleDelete(item: HItem) {
+    Alert.alert('Training löschen', 'Dieses Training wirklich löschen?', [
+      { text: 'Abbrechen', style: 'cancel' },
+      { text: 'Löschen', style: 'destructive', onPress: async () => {
+        if (item._kind === 'workout') {
+          const updated = workouts.filter(w => w.id !== item.data.id);
+          setWorkouts(updated);
+          await AsyncStorage.setItem('workouts', JSON.stringify(updated));
+          onDelete(item.data.id);
+        } else {
+          const updated = runs.filter(r => r.id !== item.data.id);
+          setRuns(updated);
+          await AsyncStorage.setItem('runs', JSON.stringify(updated));
+        }
+      }},
+    ]);
+  }
 
   const typeConfig: Record<string,{ bg:string; color:string; label:string; border:string }> = {
     gym:    { bg:'#FFF4EC', color:'#FF6B00', label:'Kraft',     border:'#FFD4B0' },
@@ -902,6 +1061,18 @@ function HistoryScreen({ onClose, prHistory }: { onClose: () => void; prHistory:
                       <Text style={{ fontSize: 10, fontWeight: '700', color: '#92400E' }}>PR</Text>
                     </View>
                   )}
+                  {/* Score Badge */}
+                  {!isRun && w?.score !== undefined && w.score > 0 && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFF4EC', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#FFD4B0' }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: '#FF6B00' }}>⚡ {w.score}</Text>
+                    </View>
+                  )}
+                  {/* Delete Button */}
+                  <TouchableOpacity
+                    style={{ marginLeft: 'auto' as any, width: 28, height: 28, borderRadius: 14, backgroundColor: '#FFF2F2', alignItems: 'center', justifyContent: 'center' }}
+                    onPress={e => { e.stopPropagation?.(); handleDelete(item); }}>
+                    <IconTrash color="#FF453A" size={14} />
+                  </TouchableOpacity>
                 </View>
                 <Text style={{ fontSize: 16, fontWeight: '800', color: '#000', letterSpacing: -0.3, marginBottom: 10 }}>
                   {isRun ? 'Lauftraining' : w?.name}
@@ -947,6 +1118,92 @@ function HistoryScreen({ onClose, prHistory }: { onClose: () => void; prHistory:
   );
 }
 
+// ─── Trainingsplan Screen ─────────────────────────────────────
+function TrainingPlanScreen({ onClose, userMaxes }: { onClose: () => void; userMaxes: UserMaxes }) {
+  const [goal, setGoal] = useState<string>('');
+  const [showPlan, setShowPlan] = useState(false);
+  const plan = showPlan ? generateTrainingPlan(goal, userMaxes) : [];
+  const hasPRs = Object.keys(userMaxes).length > 0;
+
+  const goals = [
+    { key: 'hypertrophie', label: 'Muskelaufbau', emoji: '💪', desc: '8–12 Wdh., 72% 1RM' },
+    { key: 'kraft', label: 'Stärker werden', emoji: '🏋️', desc: '3–5 Wdh., 85% 1RM' },
+    { key: 'ausdauer', label: 'Ausdauer', emoji: '🏃', desc: '15–20 Wdh., 60% 1RM' },
+  ];
+
+  return (
+    <Modal visible animationType="slide">
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        <View style={hist.header}>
+          <View>
+            <Text style={hist.eyebrow}>KI-Empfehlung</Text>
+            <Text style={hist.title}>Trainingsplan</Text>
+          </View>
+          <TouchableOpacity style={hist.closeBtn} onPress={onClose}><IconClose color={theme.textPrimary} size={16} /></TouchableOpacity>
+        </View>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
+          {!hasPRs && (
+            <View style={{ backgroundColor: 'rgba(232,87,42,0.1)', borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: theme.orangeBorder }}>
+              <Text style={{ color: theme.orange, fontSize: 13, fontWeight: '600', marginBottom: 4 }}>⚠️ Keine PRs vorhanden</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Trag zuerst deine PRs ein für präzisere Gewichtsempfehlungen.</Text>
+            </View>
+          )}
+          <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 14 }}>Wähle dein Ziel – der Plan wird automatisch anhand deiner PRs berechnet.</Text>
+          <View style={{ gap: 10, marginBottom: 20 }}>
+            {goals.map(g => (
+              <TouchableOpacity key={g.key}
+                style={{ backgroundColor: goal === g.key ? theme.orangeLight : theme.card, borderRadius: 16, padding: 16, borderWidth: 1.5, borderColor: goal === g.key ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 14 }}
+                onPress={() => { setGoal(g.key); setShowPlan(false); }} activeOpacity={0.85}>
+                <Text style={{ fontSize: 28 }}>{g.emoji}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 2 }}>{g.label}</Text>
+                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>{g.desc}</Text>
+                </View>
+                {goal === g.key && <IconCheck color={theme.orange} size={18} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+          {goal !== '' && !showPlan && (
+            <TouchableOpacity style={{ backgroundColor: theme.orange, borderRadius: 14, padding: 15, alignItems: 'center', marginBottom: 20 }} onPress={() => setShowPlan(true)} activeOpacity={0.85}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Plan generieren</Text>
+            </TouchableOpacity>
+          )}
+          {showPlan && plan.map((day, i) => (
+            <View key={i} style={{ backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: theme.border }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: day.exercises.length > 0 ? 12 : 0 }}>
+                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: day.exercises.length > 0 ? theme.orangeLight : theme.cardSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: day.exercises.length > 0 ? theme.orangeBorder : theme.border }}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: day.exercises.length > 0 ? theme.orange : theme.textTertiary }}>{day.day}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.textPrimary }}>{day.name}</Text>
+                  <Text style={{ fontSize: 11, color: theme.textSecondary }}>{day.focus}</Text>
+                </View>
+              </View>
+              {day.exercises.map((ex, ei) => (
+                <View key={ei} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: theme.border }}>
+                  <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>{ex.name}</Text>
+                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>{ex.sets}×{ex.reps}</Text>
+                  {ex.weight > 0 && (
+                    <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orangeBorder }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: theme.orange }}>{ex.weight} kg</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          ))}
+          <View style={{ backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 12, marginTop: 8 }}>
+            <Text style={{ fontSize: 11, color: theme.textTertiary, textAlign: 'center', lineHeight: 16 }}>
+              Dies ist eine Empfehlung basierend auf deinen PRs. Du kannst sie jederzeit anpassen oder ignorieren.
+            </Text>
+          </View>
+          <View style={{ height: 80 }} />
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 // ─── Free Workout Start Screen ────────────────────────────────
 function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkout, onBack }: {
   onStart: () => void; onStartWithRecommendation: () => void; lastWorkout: Workout | null; onBack: () => void;
@@ -977,32 +1234,49 @@ function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkou
 }
 
 // ─── Routine Screen ───────────────────────────────────────────
-function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onBack }: {
-  routines: Routine[]; onSelectRoutine: (r: Routine) => void; onCreateRoutine: (r: Routine) => void; onBack: () => void;
+function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRoutine, onDeleteRoutine, onBack }: {
+  routines: Routine[];
+  onSelectRoutine: (r: Routine) => void;
+  onCreateRoutine: (r: Routine) => void;
+  onUpdateRoutine: (r: Routine) => void;
+  onDeleteRoutine: (id: string) => void;
+  onBack: () => void;
 }) {
   const [tab, setTab] = useState<'meine'|'suchen'>('meine');
   const [search, setSearch] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [editMode, setEditMode] = useState<'create'|'edit'>('create');
+  const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
+  const [showForm, setShowForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newExercises, setNewExercises] = useState<{ name: string; muscleGroup: string; defaultSets: number }[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const communityFiltered = COMMUNITY_ROUTINES.filter(r => search === '' || r.name.toLowerCase().includes(search.toLowerCase()));
 
-  function saveNewRoutine() {
+  function openCreate() { setEditMode('create'); setNewName(''); setNewExercises([]); setEditingRoutine(null); setShowForm(true); }
+  function openEdit(r: Routine) { setEditMode('edit'); setNewName(r.name); setNewExercises([...r.exercises]); setEditingRoutine(r); setShowForm(true); }
+
+  function saveForm() {
     if (!newName.trim()) { Alert.alert('Bitte Namen eingeben'); return; }
     if (newExercises.length === 0) { Alert.alert('Bitte mindestens eine Übung hinzufügen'); return; }
-    onCreateRoutine({ id: Date.now().toString(), name: newName.trim(), exercises: newExercises });
-    setCreating(false); setNewName(''); setNewExercises([]);
+    if (editMode === 'create') {
+      onCreateRoutine({ id: Date.now().toString(), name: newName.trim(), exercises: newExercises });
+    } else if (editingRoutine) {
+      onUpdateRoutine({ ...editingRoutine, name: newName.trim(), exercises: newExercises });
+    }
+    setShowForm(false);
   }
 
-  if (creating) {
+  if (showForm) {
     return (
       <>
         {showPicker && <ExercisePicker allExercises={DEFAULT_EXERCISES} onSelect={(name,muscleGroup) => { setNewExercises(prev => [...prev,{ name,muscleGroup,defaultSets:3 }]); setShowPicker(false); }} onClose={() => setShowPicker(false)} />}
         <ScrollView style={{ flex: 1, backgroundColor: theme.bg }} showsVerticalScrollIndicator={false}>
           <View style={startSt.header}>
-            <TouchableOpacity onPress={() => setCreating(false)} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
-            <View><Text style={startSt.eyebrow}>Neue Routine</Text><Text style={startSt.title}>Erstellen</Text></View>
+            <TouchableOpacity onPress={() => setShowForm(false)} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
+            <View>
+              <Text style={startSt.eyebrow}>{editMode === 'create' ? 'Neue Routine' : 'Routine bearbeiten'}</Text>
+              <Text style={startSt.title}>{editMode === 'create' ? 'Erstellen' : newName}</Text>
+            </View>
           </View>
           <View style={{ paddingHorizontal: 16 }}>
             <Text style={s.inputLabel}>Name der Routine</Text>
@@ -1022,8 +1296,8 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onBack }: {
             <TouchableOpacity style={startSt.addExBtn} onPress={() => setShowPicker(true)}>
               <IconPlus color={theme.orange} size={16} /><Text style={startSt.addExBtnText}>Übung hinzufügen</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[s.saveBtn,{ marginTop:20 }]} onPress={saveNewRoutine} activeOpacity={0.85}>
-              <Text style={s.saveBtnText}>Routine speichern</Text>
+            <TouchableOpacity style={[s.saveBtn,{ marginTop:20 }]} onPress={saveForm} activeOpacity={0.85}>
+              <Text style={s.saveBtnText}>{editMode === 'create' ? 'Routine speichern' : 'Änderungen speichern'}</Text>
             </TouchableOpacity>
             <View style={{ height: 80 }} />
           </View>
@@ -1049,7 +1323,7 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onBack }: {
         </View>
         {tab === 'meine' ? (
           <>
-            <TouchableOpacity style={routineSt.createBtn} onPress={() => setCreating(true)} activeOpacity={0.85}>
+            <TouchableOpacity style={routineSt.createBtn} onPress={openCreate} activeOpacity={0.85}>
               <View style={routineSt.createBtnIcon}><IconPlus color={theme.orange} size={20} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={routineSt.createBtnTitle}>Neue Routine erstellen</Text>
@@ -1064,16 +1338,24 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onBack }: {
                 <Text style={startSt.emptyStateSub}>Erstelle deine erste Routine oder entdecke vorhandene.</Text>
               </View>
             ) : routines.map(r => (
-              <TouchableOpacity key={r.id} style={startSt.routineCard} onPress={() => onSelectRoutine(r)} activeOpacity={0.85}>
-                <View style={{ flex: 1 }}>
+              <View key={r.id} style={[startSt.routineCard, { paddingRight: 8 }]}>
+                <TouchableOpacity style={{ flex: 1 }} onPress={() => onSelectRoutine(r)} activeOpacity={0.85}>
                   <Text style={startSt.routineName}>{r.name}</Text>
                   <Text style={startSt.routineMeta}>{r.exercises.map(e=>e.name).slice(0,3).join(' · ')}{r.exercises.length > 3 ? ` · +${r.exercises.length-3}` : ''}</Text>
                   <View style={startSt.routineChipRow}>
                     <View style={startSt.routineChip}><Text style={startSt.routineChipText}>{r.exercises.length} Übungen</Text></View>
                   </View>
+                </TouchableOpacity>
+                <View style={{ gap: 6 }}>
+                  <TouchableOpacity onPress={() => openEdit(r)} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.blueLight, alignItems: 'center', justifyContent: 'center' }}>
+                    <IconPencil color={theme.blue} size={14} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => Alert.alert('Löschen', `"${r.name}" löschen?`, [{ text: 'Abbrechen', style: 'cancel' }, { text: 'Löschen', style: 'destructive', onPress: () => onDeleteRoutine(r.id) }])}
+                    style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,69,58,0.12)', alignItems: 'center', justifyContent: 'center' }}>
+                    <IconTrash color={theme.red} size={14} />
+                  </TouchableOpacity>
                 </View>
-                <IconChevronRight color={theme.textTertiary} size={18} />
-              </TouchableOpacity>
+              </View>
             ))}
           </>
         ) : (
@@ -1149,18 +1431,16 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
 }) {
   const [showExercisePicker, setShowExercisePicker] = useState(false);
   const [dismissedPRWarnings, setDismissedPRWarnings] = useState<globalThis.Set<string>>(new globalThis.Set());
-  const timer = usePersistentTimer('gymWorkoutTimer');
+  const workoutTimer = useWorkoutTimer('gymWorkoutTimer');
   const restTimer = useRestTimer();
-  const workoutStartRef = useRef(Date.now());
   const [allExercises, setAllExercises] = useState(DEFAULT_EXERCISES);
 
   useEffect(() => {
-    AsyncStorage.getItem('gymWorkoutTimer').then(raw => { if (!raw) timer.start(); });
-    AsyncStorage.getItem('workoutStartTime').then(raw => {
-      if (raw) workoutStartRef.current = parseInt(raw);
-      else AsyncStorage.setItem('workoutStartTime', String(Date.now()));
-    });
     AsyncStorage.getItem('userExercises').then(r => r && setAllExercises(JSON.parse(r)));
+    // Start timer if not already running
+    if (!workoutTimer.isRunning) {
+      workoutTimer.startNow();
+    }
   }, []);
 
   async function addExercise(name: string, muscleGroup: string) {
@@ -1199,6 +1479,11 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
     onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
   }
 
+  async function handleFinish() {
+    await workoutTimer.stop();
+    onFinish();
+  }
+
   const totalSets = workout.exercises.reduce((s,ex) => s+ex.sets.length, 0);
   const totalVolume = workout.exercises.reduce((t,ex) => t+ex.sets.reduce((s,set) => s+parseFloat(set.reps||'0')*parseFloat(set.weight||'0'),0), 0);
 
@@ -1212,7 +1497,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
             <Text style={active.workoutTitle}>{workout.exercises.length > 0 ? workout.exercises[0].name : 'Training läuft'}</Text>
           </View>
           <View style={active.timerBadge}>
-            <Text style={active.timerText}>{formatTime(timer.seconds)}</Text>
+            <Text style={active.timerText}>{formatTime(workoutTimer.seconds)}</Text>
             <Text style={active.timerLabel}>Timer</Text>
           </View>
         </View>
@@ -1229,6 +1514,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
           ))}
         </View>
         <View style={{ paddingHorizontal: 16 }}>
+          {/* Rest Timer */}
           <View style={[active.pauseCard,{ borderLeftColor:restTimer.isRunning ? theme.orange : theme.cardSecondary }]}>
             <View style={{ flexDirection:'row',justifyContent:'space-between',alignItems:'center' }}>
               <View>
@@ -1239,7 +1525,8 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
               </View>
               <View style={{ flexDirection:'row',gap:6 }}>
                 {[60,90,120,180].map(sec => (
-                  <TouchableOpacity key={sec} style={[active.pauseBtn, restTimer.isRunning && { borderColor:theme.orange }]} onPress={() => restTimer.isRunning ? restTimer.stop() : restTimer.startFor(sec)}>
+                  <TouchableOpacity key={sec} style={[active.pauseBtn, restTimer.isRunning && { borderColor:theme.orange }]}
+                    onPress={() => restTimer.isRunning ? restTimer.stop() : restTimer.startFor(sec)}>
                     <Text style={[active.pauseBtnText, restTimer.isRunning && { color:theme.orange }]}>{sec < 120 ? `${sec}s` : `${sec/60}m`}</Text>
                   </TouchableOpacity>
                 ))}
@@ -1251,6 +1538,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
               </View>
             )}
           </View>
+
           {workout.exercises.map(exercise => {
             const hasPR = !!(prHistory[exercise.name]?.length) || !!(userMaxes[exercise.name]);
             const isDismissed = dismissedPRWarnings.has(exercise.id);
@@ -1323,7 +1611,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
           <TouchableOpacity style={active.addExerciseBtn} onPress={() => setShowExercisePicker(true)}>
             <IconPlus color={theme.orange} size={18} /><Text style={active.addExerciseBtnText}>Übung hinzufügen</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={active.finishBtn} onPress={onFinish} activeOpacity={0.85}>
+          <TouchableOpacity style={active.finishBtn} onPress={handleFinish} activeOpacity={0.85}>
             <Text style={active.finishBtnText}>Training abschliessen</Text>
           </TouchableOpacity>
           <View style={{ height: 120 }} />
@@ -1332,31 +1620,35 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
     </>
   );
 }
+
 // ─── Run Screen ───────────────────────────────────────────────
 function RunScreen({ onStop }: { onStop: () => void }) {
-  const timer = usePersistentTimer('activeRunTimer');
+  const runTimer = useWorkoutTimer('activeRunTimer');
   const [manualDist, setManualDist] = useState('');
   const [heartRate, setHeartRate] = useState('');
   const [calories, setCalories] = useState('');
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
+    if (!runTimer.isRunning) runTimer.startNow();
     const p = Animated.loop(Animated.sequence([
       Animated.timing(pulseAnim, { toValue: 1.03, duration: 1000, useNativeDriver: true }),
       Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
     ]));
-    if (timer.isRunning) p.start(); else p.stop();
+    p.start();
     return () => p.stop();
-  }, [timer.isRunning]);
+  }, []);
 
   const dist = parseFloat(manualDist) || 0;
-  const paceSeconds = dist > 0 ? timer.seconds / dist : 0;
-  const estimatedCalories = parseInt(calories) || Math.round(timer.seconds / 60 * 8);
+  const paceSeconds = dist > 0 ? runTimer.seconds / dist : 0;
+  const estimatedCalories = parseInt(calories) || Math.round(runTimer.seconds / 60 * 8);
 
   async function finishRun() {
+    await runTimer.stop();
+    const dur = runTimer.getDuration() * 60;
     const runData: RunData = {
-      id: Date.now().toString(), distance: dist, duration: timer.seconds,
-      pace: formatPace(dist > 0 ? timer.seconds / dist : 0),
+      id: Date.now().toString(), distance: dist, duration: dur,
+      pace: formatPace(dist > 0 ? dur / dist : 0),
       calories: estimatedCalories, heartRate: parseInt(heartRate) || 0,
       date: new Date().toISOString(),
     };
@@ -1364,23 +1656,17 @@ function RunScreen({ onStop }: { onStop: () => void }) {
     const runs = raw ? JSON.parse(raw) : [];
     runs.push(runData);
     await AsyncStorage.setItem('runs', JSON.stringify(runs));
-    await AsyncStorage.removeItem('activeRunTimer');
-    Alert.alert('Lauf abgeschlossen!', `${dist.toFixed(2)} km · ${formatTime(timer.seconds)} · ${formatPace(dist > 0 ? timer.seconds / dist : 0)} /km`,
+    await AsyncStorage.removeItem('activeWorkout');
+    Alert.alert('Lauf abgeschlossen!', `${dist.toFixed(2)} km · ${formatTime(dur)} · ${formatPace(dist > 0 ? dur / dist : 0)} /km`,
       [{ text: 'OK', onPress: onStop }]);
   }
 
   return (
     <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
       <Text style={s.headerLabel}>Lauf</Text>
-      <Animated.View style={[s.runTimerCard, timer.isRunning && { transform: [{ scale: pulseAnim }] }]}>
+      <Animated.View style={[s.runTimerCard, { transform: [{ scale: pulseAnim }] }]}>
         <Text style={s.runTimerLabel}>LAUFZEIT</Text>
-        <Text style={s.runTimerDisplay}>{formatTime(timer.seconds)}</Text>
-        <TouchableOpacity style={[s.runControlBtn, timer.isRunning ? s.runPauseBtn : s.runStartBtn]}
-          onPress={() => timer.isRunning ? timer.pause() : timer.start()} activeOpacity={0.8}>
-          <Text style={[s.runControlBtnText, { color: timer.isRunning ? theme.red : theme.green }]}>
-            {timer.isRunning ? 'Pause' : 'Start'}
-          </Text>
-        </TouchableOpacity>
+        <Text style={s.runTimerDisplay}>{formatTime(runTimer.seconds)}</Text>
       </Animated.View>
       <View style={s.runStatsGrid}>
         {[
@@ -1418,10 +1704,8 @@ function RunScreen({ onStop }: { onStop: () => void }) {
   );
 }
 
-
 // ─── Main Screen ──────────────────────────────────────────────
 type Screen = 'home' | 'freeStart' | 'routineScreen' | 'routineDetail';
-
 const DAY_LABELS = ['Mo','Di','Mi','Do','Fr','Sa','So'];
 
 export default function TrainingScreen() {
@@ -1432,6 +1716,7 @@ export default function TrainingScreen() {
   const [showHistory, setShowHistory] = useState(false);
   const [showPRScreen, setShowPRScreen] = useState(false);
   const [showPREntry, setShowPREntry] = useState(false);
+  const [showPlan, setShowPlan] = useState(false);
   const [showDeviceModal, setShowDeviceModal] = useState(false);
   const [userMaxes, setUserMaxes] = useState<UserMaxes>({});
   const [prHistory, setPRHistory] = useState<PRHistory>({});
@@ -1440,7 +1725,6 @@ export default function TrainingScreen() {
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const workoutStartRef = useRef(Date.now());
 
   useFocusEffect(useCallback(() => {
     loadAll();
@@ -1462,8 +1746,6 @@ export default function TrainingScreen() {
       const w: Workout = JSON.parse(rawActive);
       if (isToday(w.date)) { if (w.type === 'run') setActiveRun(true); else setActiveWorkout(w); }
     }
-    const rawStart = await AsyncStorage.getItem('workoutStartTime');
-    if (rawStart) workoutStartRef.current = parseInt(rawStart);
     const rawMaxes = await AsyncStorage.getItem('userMaxes');
     if (rawMaxes) setUserMaxes(JSON.parse(rawMaxes));
     const rawPR = await AsyncStorage.getItem('prHistory');
@@ -1476,6 +1758,18 @@ export default function TrainingScreen() {
 
   async function saveRoutine(r: Routine) {
     const updated = [...routines, r];
+    setRoutines(updated);
+    await AsyncStorage.setItem('routines', JSON.stringify(updated));
+  }
+
+  async function updateRoutine(r: Routine) {
+    const updated = routines.map(x => x.id === r.id ? r : x);
+    setRoutines(updated);
+    await AsyncStorage.setItem('routines', JSON.stringify(updated));
+  }
+
+  async function deleteRoutine(id: string) {
+    const updated = routines.filter(r => r.id !== id);
     setRoutines(updated);
     await AsyncStorage.setItem('routines', JSON.stringify(updated));
   }
@@ -1500,7 +1794,7 @@ export default function TrainingScreen() {
   const daysSinceGym = lastGymWorkout ? daysSince(lastGymWorkout.date) : -1;
   const kraftRecommended = daysSinceGym >= 2;
   const neverTrainedGym = daysSinceGym === -1;
-  const weekDays = getWeekTrainings(workouts); // boolean[7]
+  const weekDays = getWeekTrainings(workouts);
   const todayDayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
   const prCount = Object.keys(prHistory).length;
 
@@ -1518,9 +1812,7 @@ export default function TrainingScreen() {
 
   async function startFreeWorkout() {
     const w: Workout = { id:Date.now().toString(),date:new Date().toISOString(),name:'Freies Training',exercises:[],duration:0,intensity:3,type:'gym' };
-    workoutStartRef.current = Date.now();
     await AsyncStorage.setItem('activeWorkout', JSON.stringify(w));
-    await AsyncStorage.setItem('workoutStartTime', String(Date.now()));
     setActiveWorkout(w); setScreen('home');
   }
 
@@ -1531,9 +1823,7 @@ export default function TrainingScreen() {
       exercises:lastGymWorkout.exercises.map(ex => ({ ...ex,id:Date.now().toString()+ex.name,sets:ex.sets.map(()=>({ reps:'',weight:'' })) })),
       duration:0,intensity:3,type:'gym',
     };
-    workoutStartRef.current = Date.now();
     await AsyncStorage.setItem('activeWorkout', JSON.stringify(w));
-    await AsyncStorage.setItem('workoutStartTime', String(Date.now()));
     setActiveWorkout(w); setScreen('home');
   }
 
@@ -1548,9 +1838,7 @@ export default function TrainingScreen() {
       exercises:routine.exercises.map(re => ({ id:Date.now().toString()+re.name,name:re.name,muscleGroup:re.muscleGroup,sets:Array.from({ length:re.defaultSets },()=>({ reps:'',weight:'' })) })),
       duration:0,intensity:3,type:'gym',
     };
-    workoutStartRef.current = Date.now();
     await AsyncStorage.setItem('activeWorkout', JSON.stringify(w));
-    await AsyncStorage.setItem('workoutStartTime', String(Date.now()));
     setActiveWorkout(w); setScreen('home');
   }
 
@@ -1561,8 +1849,18 @@ export default function TrainingScreen() {
 
   async function finishWorkout() {
     if (!activeWorkout) return;
-    const duration = Math.max(1, Math.round((Date.now()-workoutStartRef.current)/60000));
-    const finished = { ...activeWorkout,duration };
+    // Get duration from stored start time
+    const rawTimer = await AsyncStorage.getItem('gymWorkoutTimer');
+    let duration = 1;
+    if (rawTimer) {
+      try {
+        const { startedAt } = JSON.parse(rawTimer);
+        if (startedAt) duration = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+      } catch {}
+    }
+    const score = calcWorkoutScore({ ...activeWorkout, duration }, userMaxes);
+    const finished: Workout = { ...activeWorkout, duration, score };
+
     const newPRH = { ...prHistory };
     for (const ex of finished.exercises) {
       const best = getBest1RM(ex.sets);
@@ -1584,15 +1882,20 @@ export default function TrainingScreen() {
     histArr.push(finished);
     await AsyncStorage.setItem('workouts', JSON.stringify(histArr));
     await AsyncStorage.removeItem('activeWorkout');
-    await AsyncStorage.removeItem('workoutStartTime');
+    await AsyncStorage.removeItem('gymWorkoutTimer');
     setActiveWorkout(null);
     await loadAll();
-    Alert.alert('Training abgeschlossen!', `${duration} Minuten · ${finished.exercises.length} Übungen`);
+    Alert.alert(
+      'Training abgeschlossen! 🎉',
+      `${duration} Minuten · ${finished.exercises.length} Übungen\n⚡ Trainingsscore: ${score}/100`
+    );
   }
 
   async function stopSession() {
     setActiveRun(false); setActiveWorkout(null);
     await AsyncStorage.removeItem('activeWorkout');
+    await AsyncStorage.removeItem('gymWorkoutTimer');
+    await AsyncStorage.removeItem('activeRunTimer');
     await loadAll();
   }
 
@@ -1602,14 +1905,24 @@ export default function TrainingScreen() {
   if (activeRun) return <RunScreen onStop={stopSession} />;
   if (activeWorkout) return <ActiveGymWorkout workout={activeWorkout} userMaxes={userMaxes} prHistory={prHistory} lastWorkoutData={lastWorkoutData} onUpdate={setActiveWorkout} onFinish={finishWorkout} />;
   if (screen === 'freeStart') return <FreeWorkoutStartScreen onStart={startFreeWorkout} onStartWithRecommendation={startFreeWithRecommendation} lastWorkout={lastGymWorkout ?? null} onBack={() => setScreen('home')} />;
-  if (screen === 'routineScreen') return <RoutineScreen routines={routines} onSelectRoutine={r => { setSelectedRoutine(r); setScreen('routineDetail'); }} onCreateRoutine={r => saveRoutine(r)} onBack={() => setScreen('home')} />;
+  if (screen === 'routineScreen') return (
+    <RoutineScreen
+      routines={routines}
+      onSelectRoutine={r => { setSelectedRoutine(r); setScreen('routineDetail'); }}
+      onCreateRoutine={saveRoutine}
+      onUpdateRoutine={updateRoutine}
+      onDeleteRoutine={deleteRoutine}
+      onBack={() => setScreen('home')}
+    />
+  );
   if (screen === 'routineDetail' && selectedRoutine) return <RoutineDetailScreen routine={selectedRoutine} onStart={startRoutineWorkout} onBack={() => setScreen('routineScreen')} />;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {showHistory && <HistoryScreen onClose={() => setShowHistory(false)} prHistory={prHistory} />}
+      {showHistory && <HistoryScreen onClose={() => { setShowHistory(false); loadAll(); }} prHistory={prHistory} onDelete={() => loadAll()} />}
       {showPRScreen && <PRScreen prHistory={prHistory} onClose={() => setShowPRScreen(false)} onAddPR={() => { setShowPRScreen(false); setShowPREntry(true); }} />}
       {showPREntry && <PREntryScreen onClose={() => setShowPREntry(false)} onSave={savePR} />}
+      {showPlan && <TrainingPlanScreen onClose={() => setShowPlan(false)} userMaxes={userMaxes} />}
 
       <Modal visible={showDeviceModal} transparent animationType="slide">
         <View style={s.modalOverlay}>
@@ -1638,7 +1951,7 @@ export default function TrainingScreen() {
             <Text style={{ fontSize:10,fontWeight:'700',letterSpacing:1.2,textTransform:'uppercase',color:theme.orange,marginBottom:4 }}>Training</Text>
             <Text style={{ fontSize:26,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.6,marginBottom:16 }}>{greeting}</Text>
 
-            {/* ── WOCHE — volle Breite, 7 Tage ── */}
+            {/* Week Grid */}
             <View style={{ backgroundColor:theme.card,borderRadius:18,borderWidth:1,borderColor:theme.border,padding:14,marginBottom:14 }}>
               <Text style={{ fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.6,marginBottom:10 }}>
                 Diese Woche · {weekDays.filter(Boolean).length} Trainings
@@ -1656,18 +1969,9 @@ export default function TrainingScreen() {
                         borderColor: isToday2 ? theme.orange : 'rgba(255,255,255,0.08)',
                         alignItems:'center',justifyContent:'center',
                       }}>
-                        {done
-                          ? <IconCheck color="#fff" size={12} />
-                          : isToday2
-                            ? <View style={{ width:7,height:7,borderRadius:4,backgroundColor:theme.orange }} />
-                            : null
-                        }
+                        {done ? <IconCheck color="#fff" size={12} /> : isToday2 ? <View style={{ width:7,height:7,borderRadius:4,backgroundColor:theme.orange }} /> : null}
                       </View>
-                      <Text style={{
-                        fontSize:9,
-                        fontWeight: isToday2 ? '800' : '600',
-                        color: isToday2 ? theme.orange : done ? 'rgba(245,240,238,0.4)' : 'rgba(245,240,238,0.18)',
-                      }}>{lbl}</Text>
+                      <Text style={{ fontSize:9, fontWeight: isToday2 ? '800' : '600', color: isToday2 ? theme.orange : done ? 'rgba(245,240,238,0.4)' : 'rgba(245,240,238,0.18)' }}>{lbl}</Text>
                     </View>
                   );
                 })}
@@ -1675,7 +1979,7 @@ export default function TrainingScreen() {
             </View>
           </View>
 
-          {/* ── EMPFEHLUNG / HAUPTCARD ── */}
+          {/* ── MAIN CARD ── */}
           <View style={{ marginHorizontal:16,marginBottom:12,backgroundColor:theme.card,borderRadius:22,borderWidth:1.5,borderColor:theme.orangeBorder,padding:18 }}>
             <View style={{ flexDirection:'row',alignItems:'center',gap:6,marginBottom:14 }}>
               <View style={{ width:5,height:5,borderRadius:3,backgroundColor:theme.orange }} />
@@ -1683,8 +1987,6 @@ export default function TrainingScreen() {
                 {neverTrainedGym ? 'Starte dein erstes Training' : kraftRecommended ? 'Heute empfohlen' : 'Bereit für mehr?'}
               </Text>
             </View>
-
-            {/* Icon + Titel */}
             <View style={{ flexDirection:'row',alignItems:'center',gap:13,marginBottom:13 }}>
               <View style={{ width:50,height:50,borderRadius:25,backgroundColor:theme.orangeLight,borderWidth:1,borderColor:theme.orangeBorder,alignItems:'center',justifyContent:'center',flexShrink:0 }}>
                 <IconDumbbell color={theme.orange} size={26} />
@@ -1701,8 +2003,6 @@ export default function TrainingScreen() {
                 )}
               </View>
             </View>
-
-            {/* Bereit-Chips */}
             {readyMuscles.length > 0 && (
               <View style={{ flexDirection:'row',gap:6,marginBottom:16,flexWrap:'wrap' }}>
                 {readyMuscles.map(mg => (
@@ -1712,8 +2012,6 @@ export default function TrainingScreen() {
                 ))}
               </View>
             )}
-
-            {/* Start Button */}
             <TouchableOpacity
               style={{ backgroundColor:theme.orange,borderRadius:14,padding:14,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:9 }}
               onPress={startWithRecommendationFromHome} activeOpacity={0.85}>
@@ -1722,7 +2020,7 @@ export default function TrainingScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* ── SCHNELL-ACTIONS ── */}
+          {/* ── QUICK ACTIONS ── */}
           <View style={{ flexDirection:'row',gap:8,marginHorizontal:16,marginBottom:10 }}>
             <TouchableOpacity style={{ flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,alignItems:'center',gap:7 }}
               onPress={() => setScreen('routineScreen')} activeOpacity={0.85}>
@@ -1734,13 +2032,17 @@ export default function TrainingScreen() {
               <IconPencil color={theme.textSecondary} size={22} />
               <Text style={{ fontSize:12,fontWeight:'600',color:theme.textSecondary }}>Freies Training</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={{ flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,alignItems:'center',gap:7 }}
+              onPress={() => setShowPlan(true)} activeOpacity={0.85}>
+              <IconCalendar color={theme.textSecondary} size={22} />
+              <Text style={{ fontSize:12,fontWeight:'600',color:theme.textSecondary }}>Plan</Text>
+            </TouchableOpacity>
           </View>
 
-          {/* ── PRs ── */}
+          {/* PRs */}
           <TouchableOpacity
             style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:'rgba(255,215,0,0.2)',flexDirection:'row',alignItems:'center',gap:13 }}
-            onPress={() => prCount === 0 ? setShowPREntry(true) : setShowPRScreen(true)}
-            activeOpacity={0.85}>
+            onPress={() => prCount === 0 ? setShowPREntry(true) : setShowPRScreen(true)} activeOpacity={0.85}>
             <View style={{ width:44,height:44,borderRadius:22,backgroundColor:'rgba(255,215,0,0.1)',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
               <IconTrophy color="#FFD700" size={22} />
             </View>
@@ -1753,7 +2055,7 @@ export default function TrainingScreen() {
             <IconChevronRight color="rgba(255,215,0,0.4)" size={18} />
           </TouchableOpacity>
 
-          {/* ── VERLAUF ── */}
+          {/* Verlauf */}
           <TouchableOpacity
             style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:theme.orangeBorder,flexDirection:'row',alignItems:'center',gap:13 }}
             onPress={() => setShowHistory(true)} activeOpacity={0.85}>
@@ -1767,7 +2069,7 @@ export default function TrainingScreen() {
             <IconChevronRight color={theme.orange} size={18} />
           </TouchableOpacity>
 
-          {/* ── GERÄT ── */}
+          {/* Device */}
           {connectedDevice ? (
             <View style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,flexDirection:'row',alignItems:'center',gap:13,borderWidth:1,borderColor:theme.border }}>
               <View style={{ width:44,height:44,borderRadius:22,backgroundColor:theme.greenLight,alignItems:'center',justifyContent:'center' }}>
@@ -1975,10 +2277,6 @@ const s = StyleSheet.create({
   runTimerCard:      { backgroundColor:theme.card,borderRadius:24,padding:28,alignItems:'center',gap:10,marginBottom:14,borderLeftWidth:3,borderLeftColor:theme.green,borderWidth:1,borderColor:theme.border },
   runTimerLabel:     { fontSize:10,color:theme.textSecondary,textTransform:'uppercase',letterSpacing:2 },
   runTimerDisplay:   { fontSize:60,fontWeight:'300',color:theme.textPrimary,letterSpacing:-2 },
-  runControlBtn:     { paddingHorizontal:28,paddingVertical:12,borderRadius:20,marginTop:6 },
-  runStartBtn:       { backgroundColor:theme.greenLight },
-  runPauseBtn:       { backgroundColor:'rgba(255,69,58,0.12)' },
-  runControlBtnText: { fontSize:15,fontWeight:'600' },
   runStatsGrid:      { flexDirection:'row',gap:8,marginBottom:14 },
   runStatCard:       { flex:1,backgroundColor:theme.card,borderRadius:14,padding:12,alignItems:'center',borderWidth:1,borderColor:theme.border },
   runStatVal:        { fontSize:16,fontWeight:'600' },
