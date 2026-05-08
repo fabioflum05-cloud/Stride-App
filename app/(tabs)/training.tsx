@@ -226,7 +226,7 @@ function calcWorkoutScore(workout: Workout, userMaxes: UserMaxes): number {
 function generateTrainingPlan(goal: string, userMaxes: UserMaxes): { day: string; name: string; focus: string; exercises: { name: string; sets: number; reps: string; weight: number }[] }[] {
   const hasPRs = Object.keys(userMaxes).length > 0;
   const intensity = goal === 'kraft' ? 0.85 : goal === 'ausdauer' ? 0.6 : 0.72;
-  const repsRange = goal === 'kraft' ? '3–5' : goal === 'ausdauer' ? '15–20' : '8–12';
+  const repsRange = goal === 'kraft' ? '4' : goal === 'ausdauer' ? '15' : '10';
   const setsCount = goal === 'kraft' ? 5 : goal === 'ausdauer' ? 3 : 4;
 
   function w(name: string) {
@@ -1161,39 +1161,78 @@ function buildPlan(config: PlanConfig, userMaxes: UserMaxes): PlanDay[] {
     return Math.round((max * intensity) / 2.5) * 2.5;
   }
 
-  // Group exercises by muscle group
-  const byMuscle: Record<string, string[]> = {};
-  for (const ex of exercises) {
-    const found = DEFAULT_EXERCISES.find(d => d.name === ex);
-    const mg = found?.muscleGroup ?? 'Ganzkörper';
-    if (!byMuscle[mg]) byMuscle[mg] = [];
-    byMuscle[mg].push(ex);
-  }
+  // Muskelgruppen in Push / Pull / Beine / Ganzkörper einteilen
+  const PUSH_MUSCLES = ['Brust', 'Schultern', 'Trizeps'];
+  const PULL_MUSCLES = ['Rücken', 'Bizeps'];
+  const LEG_MUSCLES  = ['Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden'];
+  const CORE_MUSCLES = ['Core'];
 
-  const muscleGroups = Object.keys(byMuscle);
+  const pushEx  = exercises.filter(e => PUSH_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
+  const pullEx  = exercises.filter(e => PULL_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
+  const legEx   = exercises.filter(e => LEG_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
+  const coreEx  = exercises.filter(e => CORE_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
+  const otherEx = exercises.filter(e => ![...PUSH_MUSCLES,...PULL_MUSCLES,...LEG_MUSCLES,...CORE_MUSCLES].includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
+
   const numDays = trainingDays.length;
 
-  // Split muscle groups across training days
-  const splitPerDay: { muscles: string[]; exs: string[] }[] = Array.from({ length: numDays }, () => ({ muscles: [], exs: [] }));
-  muscleGroups.forEach((mg, i) => {
-    const dayIdx = i % numDays;
-    splitPerDay[dayIdx].muscles.push(mg);
-    splitPerDay[dayIdx].exs.push(...byMuscle[mg]);
-  });
+  // Split-Strategie je nach Anzahl Trainingstage
+  let splits: { name: string; focus: string; exs: string[] }[] = [];
 
-  // Build full week
-  const plan: PlanDay[] = Array.from({ length: 7 }, (_, i) => {
+  if (numDays <= 2) {
+    // 2 Tage: Oberkörper / Unterkörper
+    splits = [
+      { name: 'Oberkörper', focus: 'Brust · Rücken · Schultern · Arme', exs: [...pushEx, ...pullEx, ...coreEx] },
+      { name: 'Unterkörper', focus: 'Beine · Gluteus · Waden', exs: [...legEx, ...otherEx] },
+    ];
+  } else if (numDays === 3) {
+    // 3 Tage: Push / Pull / Legs
+    splits = [
+      { name: 'Push', focus: 'Brust · Schultern · Trizeps', exs: [...pushEx] },
+      { name: 'Pull', focus: 'Rücken · Bizeps', exs: [...pullEx] },
+      { name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exs: [...legEx, ...coreEx, ...otherEx] },
+    ];
+  } else if (numDays === 4) {
+    // 4 Tage: Upper A / Lower A / Upper B / Lower B
+    const upperA = [...pushEx.slice(0, Math.ceil(pushEx.length / 2)), ...pullEx.slice(0, Math.ceil(pullEx.length / 2))];
+    const upperB = [...pushEx.slice(Math.ceil(pushEx.length / 2)), ...pullEx.slice(Math.ceil(pullEx.length / 2)), ...coreEx];
+    const lowerA = [...legEx.slice(0, Math.ceil(legEx.length / 2)), ...otherEx];
+    const lowerB = [...legEx.slice(Math.ceil(legEx.length / 2))];
+    splits = [
+      { name: 'Upper A', focus: 'Brust · Rücken', exs: upperA },
+      { name: 'Lower A', focus: 'Quadrizeps · Hamstrings', exs: lowerA.length > 0 ? lowerA : legEx },
+      { name: 'Upper B', focus: 'Schultern · Arme · Core', exs: upperB.length > 0 ? upperB : [...pushEx, ...pullEx] },
+      { name: 'Lower B', focus: 'Gluteus · Waden', exs: lowerB.length > 0 ? lowerB : legEx },
+    ];
+  } else {
+    // 5+ Tage: Push / Pull / Beine / Schultern & Arme / Ganzkörper
+    splits = [
+      { name: 'Push', focus: 'Brust · Trizeps', exs: [...exercises.filter(e => DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup === 'Brust'), ...exercises.filter(e => DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup === 'Trizeps')] },
+      { name: 'Pull', focus: 'Rücken · Bizeps', exs: [...pullEx] },
+      { name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exs: [...legEx] },
+      { name: 'Schultern & Core', focus: 'Schultern · Core', exs: [...exercises.filter(e => DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup === 'Schultern'), ...coreEx] },
+      { name: 'Ganzkörper', focus: 'Alle Gruppen', exs: [...otherEx, ...exercises.slice(0, 4)] },
+    ].slice(0, numDays);
+  }
+
+  // Leere Splits mit Ganzkörper auffüllen
+  splits = splits.map(sp => ({
+    ...sp,
+    exs: sp.exs.length > 0 ? sp.exs : exercises.slice(0, Math.min(4, exercises.length)),
+  }));
+
+  // Plan auf die gewählten Wochentage mappen
+  return Array.from({ length: 7 }, (_, i) => {
     const trainingIdx = trainingDays.indexOf(i);
     if (trainingIdx === -1) {
       return { dayIdx: i, dayLabel: DAY_NAMES[i], name: 'Pause', focus: 'Regeneration', exercises: [] };
     }
-    const { muscles, exs } = splitPerDay[trainingIdx];
+    const split = splits[trainingIdx % splits.length];
     return {
       dayIdx: i,
       dayLabel: DAY_NAMES[i],
-      name: muscles.slice(0, 2).join(' & ') || 'Training',
-      focus: muscles.join(' · ') || 'Ganzkörper',
-      exercises: exs.map(ex => ({
+      name: split.name,
+      focus: split.focus,
+      exercises: split.exs.map(ex => ({
         name: ex,
         sets: setsCount,
         reps: repsRange,
@@ -1201,8 +1240,6 @@ function buildPlan(config: PlanConfig, userMaxes: UserMaxes): PlanDay[] {
       })),
     };
   });
-
-  return plan;
 }
 
 function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
