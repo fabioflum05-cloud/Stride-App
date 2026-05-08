@@ -62,37 +62,72 @@ export default function SleepScreen() {
   }
 
   async function save() {
-    const bedH = parseInt(bedHour); const bedM = parseInt(bedMinute);
-    const wakeH = parseInt(wakeHour); const wakeM = parseInt(wakeMinute);
-    let schlafMin = (wakeH * 60 + wakeM) - (bedH * 60 + bedM);
-    if (schlafMin < 0) schlafMin += 24 * 60;
-    const tiefZeit = parseFloat(deepZeit || '0');
-    const remMin = parseFloat(remZeit || '0');
-    const hrvVal = parseInt(hrv || '0');
-    const pulsVal = parseInt(tiefsterPuls || '50');
-    const avgPulsVal = parseInt(avgPuls || '55');
-    const score = calculateSleepScore({ schlafMin, tiefZeit, remZeit: remMin, hrv: hrvVal, tiefsterPuls: pulsVal, avgPuls: avgPulsVal });
+  const bedH = parseInt(bedHour); const bedM = parseInt(bedMinute);
+  const wakeH = parseInt(wakeHour); const wakeM = parseInt(wakeMinute);
+  let schlafMin = (wakeH * 60 + wakeM) - (bedH * 60 + bedM);
+  if (schlafMin < 0) schlafMin += 24 * 60;
 
-    const data = {
-      bedHour, bedMinute, wakeHour, wakeMinute,
-      schlafStunden: Math.round(schlafMin / 60 * 10) / 10,
-      schlafMin, tiefsterPuls: pulsVal, avgPuls: avgPulsVal,
-      hrv: hrvVal, remZeit: parseFloat(remZeit || '0') / 60, deepZeit: parseFloat(deepZeit || '0') / 60,
-      sleepScore: score, date: new Date().toISOString(),
-    };
+  const tiefZeit = parseFloat(deepZeit || '0');
+  const remMin = parseFloat(remZeit || '0');
+  const hrvVal = parseInt(hrv || '0');
+  const pulsVal = parseInt(tiefsterPuls || '50');
+  const avgPulsVal = parseInt(avgPuls || '55');
+  const score = calculateSleepScore({ schlafMin, tiefZeit, remZeit: remMin, hrv: hrvVal, tiefsterPuls: pulsVal, avgPuls: avgPulsVal });
 
-    await AsyncStorage.setItem('lastSleep', JSON.stringify(data));
-    const rawHistory = await AsyncStorage.getItem('sleepHistory');
-    const history = rawHistory ? JSON.parse(rawHistory) : [];
-    const today = new Date().toDateString();
-    const filtered = history.filter((h: any) => new Date(h.date).toDateString() !== today);
-    filtered.push(data);
-    await AsyncStorage.setItem('sleepHistory', JSON.stringify(filtered));
-    setLastScore(score);
-    setSaved(true);
-    router.push('/score-reveal' as any);
+  // Einschlaf- und Aufwachzeit als ISO-Strings berechnen
+  const now = new Date();
+  const bedtime = new Date(now);
+  bedtime.setHours(bedH, bedM, 0, 0);
+  if (bedH >= 18) bedtime.setDate(bedtime.getDate() - 1); // gestern Abend eingeschlafen
+  const wakeTime = new Date(now);
+  wakeTime.setHours(wakeH, wakeM, 0, 0);
+
+  // Leichtschlaf = Gesamtschlaf - Tief - REM
+  const lightMin = Math.max(0, schlafMin - tiefZeit - remMin);
+
+  const data = {
+    bedHour, bedMinute, wakeHour, wakeMinute,
+    schlafStunden: Math.round(schlafMin / 60 * 10) / 10,
+    schlafMin,
+    tiefsterPuls: pulsVal,
+    avgPuls: avgPulsVal,
+    hrv: hrvVal,
+    remZeit: remMin / 60,
+    deepZeit: tiefZeit / 60,
+    sleepScore: score,
+    date: new Date().toISOString(),
+    // NEU – für Health Screen Detail Card
+    deep: tiefZeit,           // Minuten Tiefschlaf
+    rem: remMin,              // Minuten REM
+    light: lightMin,          // Minuten Leichtschlaf (berechnet)
+    bedtime: bedtime.toISOString(),
+    wakeTime: wakeTime.toISOString(),
+    restingHR: pulsVal,       // tiefster Puls = Ruhepuls
+  };
+
+  await AsyncStorage.setItem('lastSleep', JSON.stringify(data));
+
+  // sleepHistory updaten
+  const rawHistory = await AsyncStorage.getItem('sleepHistory');
+  const history = rawHistory ? JSON.parse(rawHistory) : [];
+  const today = new Date().toDateString();
+  const filtered = history.filter((h: any) => new Date(h.date).toDateString() !== today);
+  filtered.push(data);
+  await AsyncStorage.setItem('sleepHistory', JSON.stringify(filtered));
+
+  // NEU – hrvHistory updaten (HRV kommt aus Sleep-Log)
+  if (hrvVal > 0) {
+    const rawHRV = await AsyncStorage.getItem('hrvHistory');
+    const hrvHistory = rawHRV ? JSON.parse(rawHRV) : [];
+    const filteredHRV = hrvHistory.filter((h: any) => new Date(h.date).toDateString() !== today);
+    filteredHRV.push({ date: new Date().toISOString(), value: hrvVal });
+    await AsyncStorage.setItem('hrvHistory', JSON.stringify(filteredHRV));
   }
 
+  setLastScore(score);
+  setSaved(true);
+  router.push('/score-reveal' as any);
+}
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.bg }}

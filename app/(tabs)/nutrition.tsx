@@ -14,8 +14,10 @@ import { theme } from '../../constants/theme';
 type Macros = { kcal: number; protein: number; carbs: number; fat: number; };
 type Micros = {
   fiber?: number; sugar?: number; salt?: number; saturatedFat?: number;
-  vitaminA?: number; vitaminC?: number; vitaminD?: number; vitaminB12?: number;
-  calcium?: number; iron?: number; magnesium?: number; zinc?: number; potassium?: number;
+  vitaminA?: number; vitaminB6?: number; vitaminC?: number; vitaminD?: number;
+  vitaminB12?: number; vitaminE?: number; folate?: number;
+  calcium?: number; iron?: number; magnesium?: number; zinc?: number;
+  potassium?: number; phosphorus?: number; sodium?: number;
 };
 type FoodEntry = {
   id: string; time: string; label: string; amount: number; unit: string;
@@ -35,8 +37,6 @@ function getTimeStr() {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
-// ─── USDA Nutrient Lookup ─────────────────────────────────────
-// Nutrient IDs: https://fdc.nal.usda.gov/fdc-app.html
 const USDA_NUTRIENT_IDS: Record<string, number> = {
   vitaminA: 1106, vitaminC: 1162, vitaminD: 1114, vitaminB12: 1178,
   vitaminB6: 1175, vitaminE: 1109, folate: 1177,
@@ -47,7 +47,6 @@ const USDA_NUTRIENT_IDS: Record<string, number> = {
 
 async function lookupUSDAMicros(productName: string): Promise<Partial<Micros>> {
   try {
-    // Search for the food
     const searchRes = await fetch(
       `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(productName)}&dataType=Foundation,SR%20Legacy&pageSize=1&api_key=${USDA_API_KEY}`
     );
@@ -55,26 +54,18 @@ async function lookupUSDAMicros(productName: string): Promise<Partial<Micros>> {
     const searchData = await searchRes.json();
     const food = searchData.foods?.[0];
     if (!food) return {};
-
-    // Extract nutrients
     const micros: Partial<Micros> = {};
     const nutrients: any[] = food.foodNutrients || [];
-
     for (const [key, id] of Object.entries(USDA_NUTRIENT_IDS)) {
       const nutrient = nutrients.find((n: any) => n.nutrientId === id);
-      if (nutrient?.value > 0) {
-        (micros as any)[key] = Math.round(nutrient.value * 10) / 10;
-      }
+      if (nutrient?.value > 0) (micros as any)[key] = Math.round(nutrient.value * 10) / 10;
     }
     return micros;
-  } catch {
-    return {};
-  }
+  } catch { return {}; }
 }
 
 async function estimateMicrosFromIngredients(
-  productName: string,
-  ingredients: string,
+  productName: string, ingredients: string,
   macros: { kcal: number; protein: number; carbs: number; fat: number }
 ): Promise<Partial<Micros>> {
   try {
@@ -83,9 +74,9 @@ async function estimateMicrosFromIngredients(
 ${ingredientsText}
 Makros pro 100g: ${macros.kcal}kcal, ${macros.protein}g Protein, ${macros.carbs}g KH, ${macros.fat}g Fett
 
-Schätze die Mikronährstoffe pro 100g für dieses typische Lebensmittel. Antworte NUR mit diesem JSON ohne Backticks oder Text:
-{"vitaminA":0,"vitaminC":0,"vitaminD":0,"vitaminB12":0,"calcium":0,"iron":0,"magnesium":0,"zinc":0,"potassium":0}`;
-
+Schätze die Mikronährstoffe pro 100g. Antworte NUR mit diesem JSON ohne Backticks oder Text:
+{"vitaminA":0,"vitaminB6":0,"vitaminB12":0,"vitaminC":0,"vitaminD":0,"vitaminE":0,"folate":0,"calcium":0,"iron":0,"magnesium":0,"zinc":0,"potassium":0,"phosphorus":0,"sodium":0}`;
+console.log('Gemini URL check:', GEMINI_API_KEY ? 'Key vorhanden' : 'Key FEHLT');
     const res = await fetch(GEMINI_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -95,7 +86,6 @@ Schätze die Mikronährstoffe pro 100g für dieses typische Lebensmittel. Antwor
       })
     });
     const data = await res.json();
-    console.log('Gemini raw:', JSON.stringify(data).substring(0, 200));
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean = text.replace(/```json|```/g, '').trim();
     const p = JSON.parse(clean);
@@ -130,15 +120,15 @@ function sumMicros(entries: FoodEntry[]): Micros {
   });
   return total;
 }
+
 function MacroBar({ label, value, goal, color }: { label: string; value: number; goal: number; color: string }) {
   const pct = Math.min(1, goal > 0 ? value / goal : 0);
   const over = value > goal;
-  const display = `${Math.round(value)} / ${goal}g`;
   return (
     <View style={{ marginBottom: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
         <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{label}</Text>
-        <Text style={{ color: over ? theme.red : theme.textPrimary, fontSize: 12, fontWeight: '600' }}>{display}</Text>
+        <Text style={{ color: over ? theme.red : theme.textPrimary, fontSize: 12, fontWeight: '600' }}>{`${Math.round(value)} / ${goal}g`}</Text>
       </View>
       <View style={{ height: 6, backgroundColor: theme.cardSecondary, borderRadius: 3, overflow: 'hidden' }}>
         <View style={{ height: 6, width: `${pct * 100}%` as any, backgroundColor: over ? theme.red : color, borderRadius: 3 }} />
@@ -147,25 +137,21 @@ function MacroBar({ label, value, goal, color }: { label: string; value: number;
   );
 }
 
-// ─── Micro Chip ───────────────────────────────────────────────
 function MicroChip({ label, value, unit, color }: { label: string; value: number; unit: string; color: string }) {
-  const display = `${value}${unit}`;
   return (
     <View style={{ backgroundColor: theme.cardSecondary, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
-      <Text style={{ color, fontSize: 11, fontWeight: '600' }}>{display}</Text>
+      <Text style={{ color, fontSize: 11, fontWeight: '600' }}>{`${value}${unit}`}</Text>
       <Text style={{ color: theme.textTertiary, fontSize: 9, textAlign: 'center' }}>{label}</Text>
     </View>
   );
 }
 
-// ─── Barcode Scanner ──────────────────────────────────────────
 function BarcodeScanner({ onResult, onClose }: {
   onResult: (food: Partial<FoodEntry>) => void; onClose: () => void;
 }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
-
   const scannedRef = useRef(false);
 
   async function handleBarcode({ data }: { data: string }) {
@@ -197,32 +183,29 @@ function BarcodeScanner({ onResult, onClose }: {
       };
       const kcal = v('energy-kcal') || Math.round(v('energy') / 4.184);
       const name = [p.brands, p.product_name, p.product_name_de, p.product_name_en].filter(Boolean).join(' – ') || 'Unbekannt';
-      console.log('Product name:', name, '| Ingredients:', p.ingredients_text?.substring(0, 100));
 
       let micros: Micros = {
         fiber: v('fiber') || undefined, sugar: v('sugars') || undefined,
         salt: v('salt') || undefined, saturatedFat: v('saturated-fat') || undefined,
         calcium: v('calcium') || undefined, iron: v('iron') || undefined,
         magnesium: v('magnesium') || undefined, zinc: v('zinc') || undefined,
-        potassium: v('potassium') || undefined, vitaminC: v('vitamin-c') || undefined,
-        vitaminD: v('vitamin-d') || undefined, vitaminA: v('vitamin-a') || undefined,
-        vitaminB12: v('vitamin-b12') || undefined,
+        potassium: v('potassium') || undefined, sodium: v('sodium') || undefined,
+        phosphorus: v('phosphorus') || undefined,
+        vitaminC: v('vitamin-c') || undefined, vitaminD: v('vitamin-d') || undefined,
+        vitaminA: v('vitamin-a') || undefined, vitaminB12: v('vitamin-b12') || undefined,
+        vitaminB6: v('vitamin-b6') || undefined, vitaminE: v('vitamin-e') || undefined,
+        folate: v('folate') || v('folic-acid') || undefined,
       };
 
-      // Always try USDA for the brand name
       const usdaMicros = await lookupUSDAMicros(p.brands || name);
-      console.log('USDA micros:', JSON.stringify(usdaMicros));
       micros = { ...usdaMicros, ...micros };
 
-      // If still no vitamins/minerals, use Gemini to estimate from name + macros
       const stillNoMicros = !micros.vitaminC && !micros.calcium && !micros.iron;
       if (stillNoMicros) {
-        const searchTerm = p.ingredients_text || '';
         const geminiMicros = await estimateMicrosFromIngredients(
-          name, searchTerm,
+          name, p.ingredients_text || '',
           { kcal, protein: v('proteins'), carbs: v('carbohydrates'), fat: v('fat') }
         );
-        console.log('Gemini micros:', JSON.stringify(geminiMicros));
         micros = { ...geminiMicros, ...micros };
       }
 
@@ -272,7 +255,6 @@ function BarcodeScanner({ onResult, onClose }: {
   );
 }
 
-// ─── AI Analysis ──────────────────────────────────────────────
 async function analyzeWithAI(base64Image: string): Promise<Partial<FoodEntry> | null> {
   try {
     const res = await fetch(GEMINI_URL, {
@@ -282,14 +264,15 @@ async function analyzeWithAI(base64Image: string): Promise<Partial<FoodEntry> | 
         contents: [{
           parts: [
             { inline_data: { mime_type: 'image/jpeg', data: base64Image } },
-            { text: 'Analysiere diese Mahlzeit. Antworte NUR mit einem JSON-Objekt ohne Backticks: {"label":"Name","amount":300,"unit":"g","kcal":450,"protein":35,"carbs":40,"fat":12,"fiber":4,"sugar":8,"salt":1.2,"saturatedFat":3,"vitaminC":15,"vitaminD":2,"calcium":80,"iron":2.5,"magnesium":35,"zinc":2,"potassium":400}' }
+            { text: 'Analysiere diese Mahlzeit. Antworte NUR mit JSON ohne Backticks:\n{"label":"Name","amount":300,"unit":"g","kcal":450,"protein":35,"carbs":40,"fat":12,"fiber":4,"sugar":8,"salt":1.2,"saturatedFat":3,"vitaminC":15,"vitaminD":2,"calcium":80,"iron":2.5,"magnesium":35,"zinc":2,"potassium":400}' }
           ]
         }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 400 }
+        generationConfig: { temperature: 0.1, maxOutputTokens: 800 }
       })
     });
     const data = await res.json();
-    console.log('Gemini:', JSON.stringify(data).substring(0, 200));
+    console.log('Gemini raw:', JSON.stringify(data).substring(0, 500));
+    console.log('Gemini raw response:', JSON.stringify(data).substring(0, 500));
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean = text.replace(/```json|```/g, '').trim();
     const p = JSON.parse(clean);
@@ -302,6 +285,10 @@ async function analyzeWithAI(base64Image: string): Promise<Partial<FoodEntry> | 
         vitaminD: p.vitaminD || undefined, calcium: p.calcium || undefined,
         iron: p.iron || undefined, magnesium: p.magnesium || undefined,
         zinc: p.zinc || undefined, potassium: p.potassium || undefined,
+        phosphorus: p.phosphorus || undefined, sodium: p.sodium || undefined,
+        vitaminA: p.vitaminA || undefined, vitaminB6: p.vitaminB6 || undefined,
+        vitaminB12: p.vitaminB12 || undefined, vitaminE: p.vitaminE || undefined,
+        folate: p.folate || undefined,
       },
     };
   } catch (e) {
@@ -310,7 +297,6 @@ async function analyzeWithAI(base64Image: string): Promise<Partial<FoodEntry> | 
   }
 }
 
-// ─── Micros Display ───────────────────────────────────────────
 function MicrosDisplay({ micros, source }: { micros?: Micros; source?: string }) {
   if (!micros) return null;
   const basis = [
@@ -319,55 +305,35 @@ function MicrosDisplay({ micros, source }: { micros?: Micros; source?: string })
     { l: 'Salz', v: micros.salt, u: 'g', c: theme.red },
     { l: 'Ges. Fett', v: micros.saturatedFat, u: 'g', c: theme.pink },
   ].filter(m => m.v !== undefined && m.v > 0);
-
   const vitamine = [
     { l: 'Vit.A', v: micros.vitaminA, u: 'μg', c: theme.purple },
+    { l: 'Vit.B6', v: micros.vitaminB6, u: 'mg', c: theme.purple },
+    { l: 'Vit.B12', v: micros.vitaminB12, u: 'μg', c: theme.purple },
     { l: 'Vit.C', v: micros.vitaminC, u: 'mg', c: theme.purple },
     { l: 'Vit.D', v: micros.vitaminD, u: 'μg', c: theme.purple },
-    { l: 'B12', v: micros.vitaminB12, u: 'μg', c: theme.purple },
+    { l: 'Vit.E', v: micros.vitaminE, u: 'mg', c: theme.purple },
+    { l: 'Folsäure', v: micros.folate, u: 'μg', c: theme.purple },
   ].filter(m => m.v !== undefined && m.v > 0);
-
   const mineralien = [
     { l: 'Calcium', v: micros.calcium, u: 'mg', c: theme.orange },
     { l: 'Eisen', v: micros.iron, u: 'mg', c: theme.orange },
     { l: 'Magnesium', v: micros.magnesium, u: 'mg', c: theme.orange },
     { l: 'Zink', v: micros.zinc, u: 'mg', c: theme.orange },
     { l: 'Kalium', v: micros.potassium, u: 'mg', c: theme.orange },
+    { l: 'Phosphor', v: micros.phosphorus, u: 'mg', c: theme.orange },
+    { l: 'Natrium', v: micros.sodium, u: 'mg', c: theme.orange },
   ].filter(m => m.v !== undefined && m.v > 0);
-
   if (basis.length === 0 && vitamine.length === 0 && mineralien.length === 0) return null;
-
   return (
     <View style={{ gap: 8 }}>
-      {basis.length > 0 && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {basis.map(m => <MicroChip key={m.l} label={m.l} value={m.v!} unit={m.u} color={m.c} />)}
-        </View>
-      )}
-      {vitamine.length > 0 && (
-        <View style={{ gap: 4 }}>
-          <Text style={{ color: theme.textTertiary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1 }}>Vitamine</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {vitamine.map(m => <MicroChip key={m.l} label={m.l} value={m.v!} unit={m.u} color={m.c} />)}
-          </View>
-        </View>
-      )}
-      {mineralien.length > 0 && (
-        <View style={{ gap: 4 }}>
-          <Text style={{ color: theme.textTertiary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1 }}>Mineralien</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-            {mineralien.map(m => <MicroChip key={m.l} label={m.l} value={m.v!} unit={m.u} color={m.c} />)}
-          </View>
-        </View>
-      )}
-      {source === 'ai' && (
-        <Text style={{ color: theme.textTertiary, fontSize: 10 }}>KI-Schätzung – Werte können abweichen</Text>
-      )}
+      {basis.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{basis.map(m => <MicroChip key={m.l} label={m.l} value={m.v!} unit={m.u} color={m.c} />)}</View>}
+      {vitamine.length > 0 && <View style={{ gap: 4 }}><Text style={{ color: theme.textTertiary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1 }}>Vitamine</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{vitamine.map(m => <MicroChip key={m.l} label={m.l} value={m.v!} unit={m.u} color={m.c} />)}</View></View>}
+      {mineralien.length > 0 && <View style={{ gap: 4 }}><Text style={{ color: theme.textTertiary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1 }}>Mineralien</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{mineralien.map(m => <MicroChip key={m.l} label={m.l} value={m.v!} unit={m.u} color={m.c} />)}</View></View>}
+      {source === 'ai' && <Text style={{ color: theme.textTertiary, fontSize: 10 }}>KI-Schätzung – Werte können abweichen</Text>}
     </View>
   );
 }
 
-// ─── Add Entry Modal ──────────────────────────────────────────
 function AddEntryModal({ prefill, onSave, onClose }: {
   prefill?: Partial<FoodEntry>; onSave: (e: FoodEntry) => void; onClose: () => void;
 }) {
@@ -405,18 +371,13 @@ function AddEntryModal({ prefill, onSave, onClose }: {
         carbs: scale(prefill.macros?.carbs || 0),
         fat: scale(prefill.macros?.fat || 0),
       } : {
-        kcal: parseFloat(kcal) || 0,
-        protein: parseFloat(protein) || 0,
-        carbs: parseFloat(carbs) || 0,
-        fat: parseFloat(fat) || 0,
+        kcal: parseFloat(kcal) || 0, protein: parseFloat(protein) || 0,
+        carbs: parseFloat(carbs) || 0, fat: parseFloat(fat) || 0,
       },
       micros: prefill?.micros || (fiber || sugar || salt || vitC || calcium ? {
-        fiber: parseFloat(fiber) || undefined,
-        sugar: parseFloat(sugar) || undefined,
-        salt: parseFloat(salt) || undefined,
-        vitaminC: parseFloat(vitC) || undefined,
-        calcium: parseFloat(calcium) || undefined,
-        iron: parseFloat(iron) || undefined,
+        fiber: parseFloat(fiber) || undefined, sugar: parseFloat(sugar) || undefined,
+        salt: parseFloat(salt) || undefined, vitaminC: parseFloat(vitC) || undefined,
+        calcium: parseFloat(calcium) || undefined, iron: parseFloat(iron) || undefined,
         magnesium: parseFloat(magnesium) || undefined,
       } : undefined),
     };
@@ -429,18 +390,13 @@ function AddEntryModal({ prefill, onSave, onClose }: {
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end' }}>
       <ScrollView style={s.modal} contentContainerStyle={{ padding: 24, gap: 12 }} keyboardShouldPersistTaps="handled">
         <Text style={s.modalTitle}>{srcLabel}</Text>
-
         <Text style={s.label}>Name</Text>
         <TextInput style={s.input} value={label} onChangeText={setLabel} placeholder="z.B. Haferflocken" placeholderTextColor={theme.textTertiary} />
-
         <Text style={s.label}>{`Menge (${prefill?.unit || 'g'})`}</Text>
         <TextInput style={s.input} value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="100" placeholderTextColor={theme.textTertiary} />
-
         {prefill ? (
           <View style={{ backgroundColor: theme.blueLight, borderRadius: 14, padding: 14, gap: 10 }}>
-            <Text style={{ color: theme.blue, fontSize: 11, fontWeight: '600', textTransform: 'uppercase' }}>
-              {`Nährstoffe für ${amount || 100}${prefill.unit || 'g'}`}
-            </Text>
+            <Text style={{ color: theme.blue, fontSize: 11, fontWeight: '600', textTransform: 'uppercase' }}>{`Nährstoffe für ${amount || 100}${prefill.unit || 'g'}`}</Text>
             <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
               {[
                 { l: 'kcal', v: scale(prefill.macros?.kcal || 0), c: theme.orange },
@@ -459,29 +415,15 @@ function AddEntryModal({ prefill, onSave, onClose }: {
         ) : (
           <View style={{ gap: 8 }}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.label}>kcal</Text>
-                <TextInput style={s.input} value={kcal} onChangeText={setKcal} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.textTertiary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.label}>Protein (g)</Text>
-                <TextInput style={s.input} value={protein} onChangeText={setProtein} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} />
-              </View>
+              <View style={{ flex: 1 }}><Text style={s.label}>kcal</Text><TextInput style={s.input} value={kcal} onChangeText={setKcal} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+              <View style={{ flex: 1 }}><Text style={s.label}>Protein (g)</Text><TextInput style={s.input} value={protein} onChangeText={setProtein} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.label}>Kohlenhydrate (g)</Text>
-                <TextInput style={s.input} value={carbs} onChangeText={setCarbs} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.label}>Fett (g)</Text>
-                <TextInput style={s.input} value={fat} onChangeText={setFat} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} />
-              </View>
+              <View style={{ flex: 1 }}><Text style={s.label}>Kohlenhydrate (g)</Text><TextInput style={s.input} value={carbs} onChangeText={setCarbs} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+              <View style={{ flex: 1 }}><Text style={s.label}>Fett (g)</Text><TextInput style={s.input} value={fat} onChangeText={setFat} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
             </View>
             <TouchableOpacity onPress={() => setShowMicros(v => !v)} style={{ paddingVertical: 8 }}>
-              <Text style={{ color: theme.blue, fontSize: 13, fontWeight: '500' }}>
-                {showMicros ? 'Micros ausblenden ▲' : 'Micros hinzufügen ▼'}
-              </Text>
+              <Text style={{ color: theme.blue, fontSize: 13, fontWeight: '500' }}>{showMicros ? 'Micros ausblenden ▲' : 'Micros hinzufügen ▼'}</Text>
             </TouchableOpacity>
             {showMicros && (
               <View style={{ gap: 8 }}>
@@ -502,7 +444,6 @@ function AddEntryModal({ prefill, onSave, onClose }: {
             )}
           </View>
         )}
-
         <TouchableOpacity style={s.btn} onPress={save}><Text style={s.btnText}>Hinzufügen</Text></TouchableOpacity>
         <TouchableOpacity style={s.cancelBtn} onPress={onClose}><Text style={s.cancelText}>Abbrechen</Text></TouchableOpacity>
         <View style={{ height: 20 }} />
@@ -511,7 +452,6 @@ function AddEntryModal({ prefill, onSave, onClose }: {
   );
 }
 
-// ─── Goals Modal ──────────────────────────────────────────────
 function GoalsModal({ goals, onSave, onClose }: { goals: Macros; onSave: (g: Macros) => void; onClose: () => void; }) {
   const [kcal, setKcal] = useState(String(goals.kcal));
   const [protein, setProtein] = useState(String(goals.protein));
@@ -543,7 +483,6 @@ function GoalsModal({ goals, onSave, onClose }: { goals: Macros; onSave: (g: Mac
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────
 export default function NutritionScreen() {
   const [dayLog, setDayLog] = useState<DayLog>({ date: getTodayKey(), entries: [], goal: DEFAULT_GOAL });
   const [showScanner, setShowScanner] = useState(false);
@@ -594,10 +533,12 @@ export default function NutritionScreen() {
   }
 
   async function handlePhoto(fromCamera: boolean) {
+    console.log('handlePhoto called', fromCamera);
     const result = fromCamera
       ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.7 })
       : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, base64: true, quality: 0.7 });
     if (result.canceled || !result.assets[0].base64) return;
+    console.log('result:', result.canceled, result.assets?.[0]?.base64 ? 'has base64' : 'no base64');
     setAiLoading(true);
     const food = await analyzeWithAI(result.assets[0].base64);
     setAiLoading(false);
@@ -631,19 +572,61 @@ export default function NutritionScreen() {
     />
   );
 
+  const MICROS_TABLE = [
+    { section: 'Basis', items: [
+      { l: 'Ballaststoffe', v: microTotals.fiber, u: 'g', c: theme.green, ref: 30 },
+      { l: 'Zucker', v: microTotals.sugar, u: 'g', c: theme.orange, ref: 50 },
+      { l: 'Salz', v: microTotals.salt, u: 'g', c: theme.red, ref: 6 },
+      { l: 'Ges. Fettsäuren', v: microTotals.saturatedFat, u: 'g', c: theme.pink, ref: 20 },
+    ]},
+    { section: 'Vitamine', items: [
+      { l: 'Vitamin A', v: microTotals.vitaminA, u: 'μg', c: theme.purple, ref: 800 },
+      { l: 'Vitamin B6', v: microTotals.vitaminB6, u: 'mg', c: theme.purple, ref: 1.4 },
+      { l: 'Vitamin B12', v: microTotals.vitaminB12, u: 'μg', c: theme.purple, ref: 2.4 },
+      { l: 'Vitamin C', v: microTotals.vitaminC, u: 'mg', c: theme.purple, ref: 80 },
+      { l: 'Vitamin D', v: microTotals.vitaminD, u: 'μg', c: theme.purple, ref: 20 },
+      { l: 'Vitamin E', v: microTotals.vitaminE, u: 'mg', c: theme.purple, ref: 12 },
+      { l: 'Folsäure', v: microTotals.folate, u: 'μg', c: theme.purple, ref: 200 },
+    ]},
+    { section: 'Mineralien', items: [
+      { l: 'Calcium', v: microTotals.calcium, u: 'mg', c: theme.blue, ref: 1000 },
+      { l: 'Eisen', v: microTotals.iron, u: 'mg', c: theme.blue, ref: 14 },
+      { l: 'Magnesium', v: microTotals.magnesium, u: 'mg', c: theme.blue, ref: 375 },
+      { l: 'Zink', v: microTotals.zinc, u: 'mg', c: theme.blue, ref: 10 },
+      { l: 'Kalium', v: microTotals.potassium, u: 'mg', c: theme.blue, ref: 2000 },
+      { l: 'Phosphor', v: microTotals.phosphorus, u: 'mg', c: theme.blue, ref: 700 },
+      { l: 'Natrium', v: microTotals.sodium, u: 'mg', c: theme.blue, ref: 2300 },
+    ]},
+  ];
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <ScrollView style={{ flex: 1, paddingHorizontal: 20 }} showsVerticalScrollIndicator={false}>
         <Animated.View style={{ opacity: fadeAnim }}>
           <Text style={s.headerLabel}>Ernährung</Text>
-
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 }}>
             <Text style={s.title}>Heute</Text>
             <TouchableOpacity onPress={() => setShowGoals(true)} style={{ backgroundColor: theme.blueLight, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 }}>
               <Text style={{ color: theme.blue, fontSize: 12, fontWeight: '600' }}>Ziele</Text>
             </TouchableOpacity>
           </View>
-
+{/* Action Buttons */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+            {[
+              { emoji: '📷', label: 'Barcode', sub: 'Verpacktes', color: theme.blue, onPress: () => setShowScanner(true), disabled: false },
+              { emoji: '📸', label: 'Kamera', sub: 'KI-Analyse', color: '#7C3AED', onPress: () => handlePhoto(true), disabled: aiLoading },
+              { emoji: '🖼️', label: 'Galerie', sub: 'KI-Analyse', color: theme.green, onPress: () => handlePhoto(false), disabled: aiLoading },
+              { emoji: '✏️', label: 'Manuell', sub: 'Eingabe', color: theme.orange, onPress: () => { setPrefill(undefined); setShowAddModal(true); }, disabled: false },
+            ].map(btn => (
+              <TouchableOpacity key={btn.label}
+                style={{ flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 12, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: btn.color, ...theme.shadow }}
+                onPress={btn.onPress} disabled={btn.disabled} activeOpacity={0.7}>
+                {btn.disabled && aiLoading ? <ActivityIndicator size="small" color={btn.color} /> : <Text style={{ fontSize: 22 }}>{btn.emoji}</Text>}
+                <Text style={{ color: btn.color, fontSize: 11, fontWeight: '600' }}>{btn.label}</Text>
+                <Text style={{ color: theme.textTertiary, fontSize: 9 }}>{btn.sub}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
           {/* Kalorie Card */}
           <View style={{ backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 12, ...theme.shadow }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -666,71 +649,43 @@ export default function NutritionScreen() {
           </View>
 
           {/* Macro Bars */}
-          <View style={{ backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 16, ...theme.shadow }}>
+          <View style={{ backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 12, ...theme.shadow }}>
             <MacroBar label="Protein" value={totals.protein} goal={dayLog.goal.protein} color={theme.blue} />
             <MacroBar label="Kohlenhydrate" value={totals.carbs} goal={dayLog.goal.carbs} color={theme.orange} />
             <MacroBar label="Fett" value={totals.fat} goal={dayLog.goal.fat} color={theme.pink} />
           </View>
 
           {/* Micros Table */}
-          {Object.values(microTotals).some(v => v && v > 0) && (
-            <View style={{ backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 16, ...theme.shadow }}>
-              <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 12 }}>Mikronährstoffe</Text>
-              {[
-                { section: 'Basis', items: [
-                  { l: 'Ballaststoffe', v: microTotals.fiber, u: 'g', c: theme.green },
-                  { l: 'Zucker', v: microTotals.sugar, u: 'g', c: theme.orange },
-                  { l: 'Salz', v: microTotals.salt, u: 'g', c: theme.red },
-                  { l: 'Ges. Fettsäuren', v: microTotals.saturatedFat, u: 'g', c: theme.pink },
-                ]},
-                { section: 'Vitamine', items: [
-                  { l: 'Vitamin A', v: microTotals.vitaminA, u: 'μg', c: theme.purple },
-                  { l: 'Vitamin C', v: microTotals.vitaminC, u: 'mg', c: theme.purple },
-                  { l: 'Vitamin D', v: microTotals.vitaminD, u: 'μg', c: theme.purple },
-                  { l: 'Vitamin B12', v: microTotals.vitaminB12, u: 'μg', c: theme.purple },
-                ]},
-                { section: 'Mineralien', items: [
-                  { l: 'Calcium', v: microTotals.calcium, u: 'mg', c: theme.blue },
-                  { l: 'Eisen', v: microTotals.iron, u: 'mg', c: theme.blue },
-                  { l: 'Magnesium', v: microTotals.magnesium, u: 'mg', c: theme.blue },
-                  { l: 'Zink', v: microTotals.zinc, u: 'mg', c: theme.blue },
-                  { l: 'Kalium', v: microTotals.potassium, u: 'mg', c: theme.blue },
-                ]},
-              ].map(({ section, items }) => {
-                const visible = items.filter(i => i.v !== undefined && i.v > 0);
-                if (visible.length === 0) return null;
-                return (
-                  <View key={section} style={{ marginBottom: 10 }}>
-                    <Text style={{ color: theme.textTertiary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>{section}</Text>
-                    {visible.map(item => (
-                      <View key={item.l} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight }}>
+          <View style={{ backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 16, ...theme.shadow }}>
+            <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 12 }}>Mikronährstoffe</Text>
+            {MICROS_TABLE.map(({ section, items }) => (
+              <View key={section} style={{ marginBottom: 12 }}>
+                <Text style={{ color: theme.textTertiary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>{section}</Text>
+                {items.map(item => {
+                  const val = item.v || 0;
+                  const pct = Math.min(1, val / item.ref);
+                  const pctDisplay = Math.round(pct * 100);
+                  const color = pct >= 1 ? theme.green : pct >= 0.5 ? theme.blue : pct > 0 ? theme.orange : theme.textTertiary;
+                  return (
+                    <View key={item.l} style={{ marginBottom: 10 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
                         <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{item.l}</Text>
-                        <Text style={{ color: item.c, fontSize: 12, fontWeight: '600' }}>{`${Math.round((item.v!) * 10) / 10}${item.u}`}</Text>
+                        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                          <Text style={{ color: theme.textTertiary, fontSize: 11 }}>{`${Math.round(val * 10) / 10}${item.u} / ${item.ref}${item.u}`}</Text>
+                          <Text style={{ color, fontSize: 11, fontWeight: '700', minWidth: 36, textAlign: 'right' }}>{`${pctDisplay}%`}</Text>
+                        </View>
                       </View>
-                    ))}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          {/* Action Buttons */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-            {[
-              { emoji: '📷', label: 'Barcode', sub: 'Verpacktes', color: theme.blue, onPress: () => setShowScanner(true), disabled: false },
-              { emoji: '📸', label: 'Kamera', sub: 'KI-Analyse', color: '#7C3AED', onPress: () => handlePhoto(true), disabled: aiLoading },
-              { emoji: '🖼️', label: 'Galerie', sub: 'KI-Analyse', color: theme.green, onPress: () => handlePhoto(false), disabled: aiLoading },
-              { emoji: '✏️', label: 'Manuell', sub: 'Eingabe', color: theme.orange, onPress: () => { setPrefill(undefined); setShowAddModal(true); }, disabled: false },
-            ].map(btn => (
-              <TouchableOpacity key={btn.label}
-                style={{ flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 12, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: btn.color, ...theme.shadow }}
-                onPress={btn.onPress} disabled={btn.disabled} activeOpacity={0.7}>
-                {btn.disabled && aiLoading ? <ActivityIndicator size="small" color={btn.color} /> : <Text style={{ fontSize: 22 }}>{btn.emoji}</Text>}
-                <Text style={{ color: btn.color, fontSize: 11, fontWeight: '600' }}>{btn.label}</Text>
-                <Text style={{ color: theme.textTertiary, fontSize: 9 }}>{btn.sub}</Text>
-              </TouchableOpacity>
+                      <View style={{ height: 5, backgroundColor: theme.cardSecondary, borderRadius: 3, overflow: 'hidden' }}>
+                        <View style={{ height: 5, width: `${pct * 100}%` as any, backgroundColor: color, borderRadius: 3 }} />
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
             ))}
           </View>
+
+          
 
           {/* Meal Groups */}
           {Object.entries(mealGroups).map(([meal, entries]) => {
@@ -744,25 +699,19 @@ export default function NutritionScreen() {
                 {entries.map(entry => {
                   const isExpanded = expandedId === entry.id;
                   const srcIcon = entry.source === 'barcode' ? '📷' : entry.source === 'ai' ? '🤖' : '✏️';
-                  const amountStr = `${entry.amount}${entry.unit}`;
-                  const macroStr = `P:${Math.round(entry.macros.protein)}g K:${Math.round(entry.macros.carbs)}g F:${Math.round(entry.macros.fat)}g`;
-                  const kcalStr = `${Math.round(entry.macros.kcal)} kcal`;
                   return (
                     <View key={entry.id} style={{ backgroundColor: theme.card, borderRadius: 12, padding: 12, marginBottom: 6, ...theme.shadow }}>
-                      <TouchableOpacity
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
-                        onPress={() => setExpandedId(isExpanded ? null : entry.id)}
-                        activeOpacity={0.7}>
+                      <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }} onPress={() => setExpandedId(isExpanded ? null : entry.id)} activeOpacity={0.7}>
                         <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: theme.cardSecondary, alignItems: 'center', justifyContent: 'center' }}>
                           <Text style={{ fontSize: 14 }}>{srcIcon}</Text>
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: '500' }}>{entry.label}</Text>
-                          <Text style={{ color: theme.textSecondary, fontSize: 10 }}>{`${amountStr} · ${entry.time}`}</Text>
+                          <Text style={{ color: theme.textSecondary, fontSize: 10 }}>{`${entry.amount}${entry.unit} · ${entry.time}`}</Text>
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
-                          <Text style={{ color: theme.orange, fontSize: 13, fontWeight: '600' }}>{kcalStr}</Text>
-                          <Text style={{ color: theme.textTertiary, fontSize: 9 }}>{macroStr}</Text>
+                          <Text style={{ color: theme.orange, fontSize: 13, fontWeight: '600' }}>{`${Math.round(entry.macros.kcal)} kcal`}</Text>
+                          <Text style={{ color: theme.textTertiary, fontSize: 9 }}>{`P:${Math.round(entry.macros.protein)}g K:${Math.round(entry.macros.carbs)}g F:${Math.round(entry.macros.fat)}g`}</Text>
                         </View>
                         <Text style={{ color: theme.textTertiary, fontSize: 12, marginLeft: 4 }}>{isExpanded ? '▲' : '▼'}</Text>
                         <TouchableOpacity onPress={() => deleteEntry(entry.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>

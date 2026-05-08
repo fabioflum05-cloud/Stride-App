@@ -206,7 +206,7 @@ export default function HomeScreen() {
       { Icon: IconCalendar, label: 'Trainingsplan verwalten', bg: theme.greenLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/training-plan' as any), 250); } },
     ]},
     { title: 'Gesundheit & Daten', items: [
-      { Icon: IconWatch, label: 'Geräte & Wearables', bg: theme.tealLight, onPress: () => {} },
+      { Icon: IconWatch, label: 'Geräte & Wearables', bg: theme.tealLight, onPress: () => { closeMenu(); setTimeout(() => router.push('/devices' as any), 250); } },
       { Icon: IconHeart, label: 'Gesundheitsdaten', bg: theme.pinkLight, onPress: () => {} },
       { Icon: IconUpload, label: 'Daten exportieren', bg: theme.orangeLight, onPress: () => {}, badge: 'Neu' },
     ]},
