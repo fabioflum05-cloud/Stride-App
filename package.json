@@ -18,10 +18,7 @@
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",
     "expo": "~54.0.33",
-<<<<<<< HEAD
-=======
-    "expo-auth-session": "~7.0.11",
->>>>>>> da8621cf628d1fae5db7cfa6f971ac7cf2e407db
+"expo-auth-session": "~7.0.11",
     "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.13",
     "expo-font": "~14.0.11",
