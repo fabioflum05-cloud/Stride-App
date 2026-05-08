@@ -1,79 +1,126 @@
+import { GEMINI_API_KEY, USDA_API_KEY } from '@/constants/keys';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import {
-    ActivityIndicator, Alert, Animated, KeyboardAvoidingView,
-    Modal, Platform, ScrollView, StyleSheet, Text,
-    TextInput, TouchableOpacity, View,
+  ActivityIndicator, Alert, Animated, KeyboardAvoidingView,
+  Modal, Platform, ScrollView, StyleSheet, Text,
+  TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { theme } from '../../constants/theme';
 
-// ─── Types ────────────────────────────────────────────────────
-type Macros = { kcal: number; protein: number; carbs: number; fat: number; fiber?: number; };
-type Micros = { salt?: number; sugar?: number; saturatedFat?: number; fiber?: number; };
+type Macros = { kcal: number; protein: number; carbs: number; fat: number; };
+type Micros = {
+  fiber?: number; sugar?: number; salt?: number; saturatedFat?: number;
+  vitaminA?: number; vitaminB6?: number; vitaminC?: number; vitaminD?: number;
+  vitaminB12?: number; vitaminE?: number; folate?: number;
+  calcium?: number; iron?: number; magnesium?: number; zinc?: number;
+  potassium?: number; phosphorus?: number; sodium?: number;
+};
 type FoodEntry = {
   id: string; time: string; label: string; amount: number; unit: string;
   macros: Macros; micros?: Micros; source: 'barcode' | 'ai' | 'manual';
 };
 type DayLog = { date: string; entries: FoodEntry[]; goal: Macros; };
 
-// ─── Constants ────────────────────────────────────────────────
 const DEFAULT_GOAL: Macros = { kcal: 2500, protein: 160, carbs: 280, fat: 80 };
-const OPEN_FOOD_FACTS = 'https://world.openfoodfacts.org/api/v0/product';
-const GEMINI_API_KEY = 'AIzaSyCLGmhg7YDEh2K8ndgJdDWiDrndc84-UvU'; // neuen Key von aistudio.google.com eintragen
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 function getTodayKey() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
-
 function getTimeStr() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
+const USDA_NUTRIENT_IDS: Record<string, number> = {
+  vitaminA: 1106, vitaminC: 1162, vitaminD: 1114, vitaminB12: 1178,
+  vitaminB6: 1175, vitaminE: 1109, folate: 1177,
+  calcium: 1087, iron: 1089, magnesium: 1090, zinc: 1095,
+  potassium: 1092, sodium: 1093, phosphorus: 1091,
+  fiber: 1079, sugar: 2000, saturatedFat: 1258,
+};
+
+async function lookupUSDAMicros(productName: string): Promise<Partial<Micros>> {
+  try {
+    const searchRes = await fetch(
+      `https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(productName)}&dataType=Foundation,SR%20Legacy&pageSize=1&api_key=${USDA_API_KEY}`
+    );
+    if (!searchRes.ok) return {};
+    const searchData = await searchRes.json();
+    const food = searchData.foods?.[0];
+    if (!food) return {};
+    const micros: Partial<Micros> = {};
+    const nutrients: any[] = food.foodNutrients || [];
+    for (const [key, id] of Object.entries(USDA_NUTRIENT_IDS)) {
+      const nutrient = nutrients.find((n: any) => n.nutrientId === id);
+      if (nutrient?.value > 0) (micros as any)[key] = Math.round(nutrient.value * 10) / 10;
+    }
+    return micros;
+  } catch { return {}; }
+}
+
+async function estimateMicrosFromIngredients(
+  productName: string, ingredients: string,
+  macros: { kcal: number; protein: number; carbs: number; fat: number }
+): Promise<Partial<Micros>> {
+  try {
+    const ingredientsText = ingredients ? `Zutaten: ${ingredients.substring(0, 500)}` : '';
+    const prompt = `Produkt: ${productName}
+${ingredientsText}
+Makros pro 100g: ${macros.kcal}kcal, ${macros.protein}g Protein, ${macros.carbs}g KH, ${macros.fat}g Fett
+
+Schätze die Mikronährstoffe pro 100g. Antworte NUR mit diesem JSON ohne Backticks oder Text:
+{"vitaminA":0,"vitaminB6":0,"vitaminB12":0,"vitaminC":0,"vitaminD":0,"vitaminE":0,"folate":0,"calcium":0,"iron":0,"magnesium":0,"zinc":0,"potassium":0,"phosphorus":0,"sodium":0}`;
+console.log('Gemini URL check:', GEMINI_API_KEY ? 'Key vorhanden' : 'Key FEHLT');
+    const res = await fetch(GEMINI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 200 }
+      })
+    });
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const clean = text.replace(/```json|```/g, '').trim();
+    const p = JSON.parse(clean);
+    const result: Partial<Micros> = {};
+    for (const [k, val] of Object.entries(p)) {
+      if (typeof val === 'number' && val > 0) (result as any)[k] = val;
+    }
+    return result;
+  } catch (e) {
+    console.log('Gemini micros error:', String(e));
+    return {};
+  }
+}
+
 function sumMacros(entries: FoodEntry[]): Macros {
-  return entries.reduce((sum, e) => ({
-    kcal: sum.kcal + e.macros.kcal,
-    protein: sum.protein + e.macros.protein,
-    carbs: sum.carbs + e.macros.carbs,
-    fat: sum.fat + e.macros.fat,
+  return entries.reduce((s, e) => ({
+    kcal: s.kcal + e.macros.kcal,
+    protein: s.protein + e.macros.protein,
+    carbs: s.carbs + e.macros.carbs,
+    fat: s.fat + e.macros.fat,
   }), { kcal: 0, protein: 0, carbs: 0, fat: 0 });
 }
 
-// ─── Macro Ring ───────────────────────────────────────────────
-function MacroRing({ value, goal, color, label, unit = 'g' }: {
-  value: number; goal: number; color: string; label: string; unit?: string;
-}) {
-  const pct = Math.min(1, goal > 0 ? value / goal : 0);
-  const size = 72; const stroke = 6; const r = (size - stroke) / 2;
-  const circ = 2 * Math.PI * r;
-  const dash = circ * pct;
-
-  return (
-    <View style={{ alignItems: 'center', gap: 4 }}>
-      <View style={{ width: size, height: size }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={theme.cardSecondary} strokeWidth={stroke} />
-          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
-            strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
-            transform={`rotate(-90 ${size/2} ${size/2})`} />
-        </svg>
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '700' }}>{Math.round(value)}</Text>
-          <Text style={{ color: theme.textTertiary, fontSize: 8 }}>{unit}</Text>
-        </View>
-      </View>
-      <Text style={{ color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8 }}>{label}</Text>
-      <Text style={{ color: theme.textTertiary, fontSize: 9 }}>/ {goal}{unit}</Text>
-    </View>
-  );
+function sumMicros(entries: FoodEntry[]): Micros {
+  const total: Micros = {};
+  entries.forEach(e => {
+    if (!e.micros) return;
+    (Object.keys(e.micros) as (keyof Micros)[]).forEach(key => {
+      const val = e.micros![key];
+      if (val !== undefined) total[key] = (total[key] || 0) + val;
+    });
+  });
+  return total;
 }
 
-// ─── Progress Bar ─────────────────────────────────────────────
 function MacroBar({ label, value, goal, color }: { label: string; value: number; goal: number; color: string }) {
   const pct = Math.min(1, goal > 0 ? value / goal : 0);
   const over = value > goal;
@@ -81,9 +128,7 @@ function MacroBar({ label, value, goal, color }: { label: string; value: number;
     <View style={{ marginBottom: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
         <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{label}</Text>
-        <Text style={{ color: over ? theme.red : theme.textPrimary, fontSize: 12, fontWeight: '600' }}>
-          {Math.round(value)} / {goal}g {over ? '⚠️' : ''}
-        </Text>
+        <Text style={{ color: over ? theme.red : theme.textPrimary, fontSize: 12, fontWeight: '600' }}>{`${Math.round(value)} / ${goal}g`}</Text>
       </View>
       <View style={{ height: 6, backgroundColor: theme.cardSecondary, borderRadius: 3, overflow: 'hidden' }}>
         <View style={{ height: 6, width: `${pct * 100}%` as any, backgroundColor: over ? theme.red : color, borderRadius: 3 }} />
@@ -92,91 +137,124 @@ function MacroBar({ label, value, goal, color }: { label: string; value: number;
   );
 }
 
-// ─── Barcode Scanner ──────────────────────────────────────────
+function MicroChip({ label, value, unit, color }: { label: string; value: number; unit: string; color: string }) {
+  return (
+    <View style={{ backgroundColor: theme.cardSecondary, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+      <Text style={{ color, fontSize: 11, fontWeight: '600' }}>{`${value}${unit}`}</Text>
+      <Text style={{ color: theme.textTertiary, fontSize: 9, textAlign: 'center' }}>{label}</Text>
+    </View>
+  );
+}
+
 function BarcodeScanner({ onResult, onClose }: {
   onResult: (food: Partial<FoodEntry>) => void; onClose: () => void;
 }) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
+  const scannedRef = useRef(false);
 
   async function handleBarcode({ data }: { data: string }) {
-    if (scanned) return;
+    if (scannedRef.current) return;
+    scannedRef.current = true;
     setScanned(true);
     setLoading(true);
     try {
-      const res = await fetch(`${OPEN_FOOD_FACTS}/${data}.json`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(
+        `https://world.openfoodfacts.org/api/v2/product/${data}?fields=product_name,nutriments,brands,ingredients_text`,
+        { headers: { 'User-Agent': 'StrideApp/1.0' }, signal: controller.signal }
+      );
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (json.status !== 1 || !json.product) {
-        Alert.alert('Produkt nicht gefunden', 'Versuche es manuell einzugeben.', [
-          { text: 'OK', onPress: () => { setScanned(false); setLoading(false); } }
+        Alert.alert('Produkt nicht gefunden', 'Manuell eingeben.', [
+          { text: 'OK', onPress: () => { scannedRef.current = false; setScanned(false); setLoading(false); } }
         ]);
         return;
       }
       const p = json.product;
       const n = p.nutriments || {};
-      const per100 = (key: string) => parseFloat(n[`${key}_100g`] || n[key] || '0');
+      const v = (key: string) => {
+        const val = n[`${key}_100g`] ?? n[`${key}_value`] ?? n[key];
+        return val !== undefined ? Math.round(parseFloat(String(val)) * 10) / 10 : 0;
+      };
+      const kcal = v('energy-kcal') || Math.round(v('energy') / 4.184);
+      const name = [p.brands, p.product_name, p.product_name_de, p.product_name_en].filter(Boolean).join(' – ') || 'Unbekannt';
+
+      let micros: Micros = {
+        fiber: v('fiber') || undefined, sugar: v('sugars') || undefined,
+        salt: v('salt') || undefined, saturatedFat: v('saturated-fat') || undefined,
+        calcium: v('calcium') || undefined, iron: v('iron') || undefined,
+        magnesium: v('magnesium') || undefined, zinc: v('zinc') || undefined,
+        potassium: v('potassium') || undefined, sodium: v('sodium') || undefined,
+        phosphorus: v('phosphorus') || undefined,
+        vitaminC: v('vitamin-c') || undefined, vitaminD: v('vitamin-d') || undefined,
+        vitaminA: v('vitamin-a') || undefined, vitaminB12: v('vitamin-b12') || undefined,
+        vitaminB6: v('vitamin-b6') || undefined, vitaminE: v('vitamin-e') || undefined,
+        folate: v('folate') || v('folic-acid') || undefined,
+      };
+
+      const usdaMicros = await lookupUSDAMicros(p.brands || name);
+      micros = { ...usdaMicros, ...micros };
+
+      const stillNoMicros = !micros.vitaminC && !micros.calcium && !micros.iron;
+      if (stillNoMicros) {
+        const geminiMicros = await estimateMicrosFromIngredients(
+          name, p.ingredients_text || '',
+          { kcal, protein: v('proteins'), carbs: v('carbohydrates'), fat: v('fat') }
+        );
+        micros = { ...geminiMicros, ...micros };
+      }
+
       onResult({
-        label: p.product_name || p.abbreviated_product_name || 'Unbekannt',
-        macros: {
-          kcal: per100('energy-kcal'),
-          protein: per100('proteins'),
-          carbs: per100('carbohydrates'),
-          fat: per100('fat'),
-        },
-        micros: {
-          fiber: per100('fiber'),
-          sugar: per100('sugars'),
-          salt: per100('salt'),
-          saturatedFat: per100('saturated-fat'),
-        },
-        unit: 'g',
-        source: 'barcode',
+        label: name, unit: 'g', source: 'barcode',
+        macros: { kcal, protein: v('proteins'), carbs: v('carbohydrates'), fat: v('fat') },
+        micros,
       });
-    } catch {
-      Alert.alert('Fehler', 'Netzwerkfehler – prüfe deine Verbindung.', [
-        { text: 'OK', onPress: () => { setScanned(false); setLoading(false); } }
+    } catch (e: any) {
+      const msg = e?.name === 'AbortError' ? 'Zeitüberschreitung – prüfe deine Verbindung.' : 'Netzwerkfehler – prüfe deine Verbindung.';
+      Alert.alert('Fehler', msg, [
+        { text: 'OK', onPress: () => { scannedRef.current = false; setScanned(false); setLoading(false); } }
       ]);
     }
     setLoading(false);
   }
 
-  if (!permission) return <View style={styles.scannerContainer}><ActivityIndicator color={theme.blue} /></View>;
+  if (!permission) return <View style={s.center}><ActivityIndicator color={theme.blue} /></View>;
   if (!permission.granted) return (
-    <View style={styles.scannerContainer}>
-      <Text style={{ color: theme.textSecondary, textAlign: 'center', marginBottom: 16 }}>Kamera-Zugriff benötigt</Text>
-      <TouchableOpacity style={styles.saveBtn} onPress={requestPermission}>
-        <Text style={styles.saveBtnText}>Erlauben</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-        <Text style={styles.cancelBtnText}>Abbrechen</Text>
-      </TouchableOpacity>
+    <View style={s.center}>
+      <Text style={{ color: theme.textSecondary, marginBottom: 16, textAlign: 'center' }}>Kamera-Zugriff benötigt</Text>
+      <TouchableOpacity style={s.btn} onPress={requestPermission}><Text style={s.btnText}>Erlauben</Text></TouchableOpacity>
+      <TouchableOpacity style={s.cancelBtn} onPress={onClose}><Text style={s.cancelText}>Abbrechen</Text></TouchableOpacity>
     </View>
   );
 
   return (
-    <View style={styles.scannerContainer}>
-      <CameraView style={styles.camera} facing="back" onBarcodeScanned={scanned ? undefined : handleBarcode}
-        barcodeScannerSettings={{ barcodeTypes: ['ean8', 'ean13', 'upc_a', 'upc_e', 'qr'] }}>
-        <View style={styles.scanOverlay}>
-          <View style={styles.scanFrame} />
-          <Text style={styles.scanHint}>Barcode in den Rahmen halten</Text>
-        </View>
-      </CameraView>
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <CameraView style={{ flex: 1 }} facing="back" onBarcodeScanned={scanned ? undefined : handleBarcode}
+        barcodeScannerSettings={{ barcodeTypes: ['ean8', 'ean13', 'upc_a', 'upc_e'] }} />
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: 250, height: 150, borderWidth: 2, borderColor: '#fff', borderRadius: 12 }} />
+        <Text style={{ color: '#fff', fontSize: 14, marginTop: 16, fontWeight: '500' }}>Barcode in den Rahmen halten</Text>
+      </View>
       {loading && (
-        <View style={styles.scanLoading}>
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator size="large" color={theme.blue} />
           <Text style={{ color: '#fff', marginTop: 8 }}>Produkt wird geladen...</Text>
         </View>
       )}
-      <TouchableOpacity style={styles.scanCloseBtn} onPress={onClose}>
-        <Text style={styles.scanCloseBtnText}>× Schliessen</Text>
+      <TouchableOpacity
+        style={{ position: 'absolute', top: 60, right: 20, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 }}
+        onPress={onClose}>
+        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Schliessen</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-// ─── AI Photo Analysis ────────────────────────────────────────
 async function analyzeWithAI(base64Image: string): Promise<Partial<FoodEntry> | null> {
   try {
     const res = await fetch(GEMINI_URL, {
@@ -186,219 +264,252 @@ async function analyzeWithAI(base64Image: string): Promise<Partial<FoodEntry> | 
         contents: [{
           parts: [
             { inline_data: { mime_type: 'image/jpeg', data: base64Image } },
-            { text: `Analysiere diese Mahlzeit und schätze die Makronährstoffe. Antworte NUR mit einem JSON-Objekt, keine Backticks, kein Text davor oder danach: {"label":"Name","amount":300,"unit":"g","kcal":450,"protein":35,"carbs":40,"fat":12}` }
+            { text: 'Analysiere diese Mahlzeit. Antworte NUR mit JSON ohne Backticks:\n{"label":"Name","amount":300,"unit":"g","kcal":450,"protein":35,"carbs":40,"fat":12,"fiber":4,"sugar":8,"salt":1.2,"saturatedFat":3,"vitaminC":15,"vitaminD":2,"calcium":80,"iron":2.5,"magnesium":35,"zinc":2,"potassium":400}' }
           ]
         }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 300 }
+        generationConfig: { temperature: 0.1, maxOutputTokens: 800 }
       })
     });
     const data = await res.json();
+    console.log('Gemini raw:', JSON.stringify(data).substring(0, 500));
+    console.log('Gemini raw response:', JSON.stringify(data).substring(0, 500));
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
+    const p = JSON.parse(clean);
     return {
-      label: parsed.label || 'KI-Analyse',
-      amount: parsed.amount || 100,
-      unit: parsed.unit || 'g',
-      macros: {
-        kcal: parsed.kcal || 0,
-        protein: parsed.protein || 0,
-        carbs: parsed.carbs || 0,
-        fat: parsed.fat || 0,
+      label: p.label || 'KI-Analyse', amount: p.amount || 100, unit: p.unit || 'g', source: 'ai',
+      macros: { kcal: p.kcal || 0, protein: p.protein || 0, carbs: p.carbs || 0, fat: p.fat || 0 },
+      micros: {
+        fiber: p.fiber || undefined, sugar: p.sugar || undefined, salt: p.salt || undefined,
+        saturatedFat: p.saturatedFat || undefined, vitaminC: p.vitaminC || undefined,
+        vitaminD: p.vitaminD || undefined, calcium: p.calcium || undefined,
+        iron: p.iron || undefined, magnesium: p.magnesium || undefined,
+        zinc: p.zinc || undefined, potassium: p.potassium || undefined,
+        phosphorus: p.phosphorus || undefined, sodium: p.sodium || undefined,
+        vitaminA: p.vitaminA || undefined, vitaminB6: p.vitaminB6 || undefined,
+        vitaminB12: p.vitaminB12 || undefined, vitaminE: p.vitaminE || undefined,
+        folate: p.folate || undefined,
       },
-      source: 'ai',
     };
-  } catch { return null; }
+  } catch (e) {
+    console.log('AI error:', String(e));
+    return null;
+  }
 }
 
-// ─── Add Entry Modal ──────────────────────────────────────────
+function MicrosDisplay({ micros, source }: { micros?: Micros; source?: string }) {
+  if (!micros) return null;
+  const basis = [
+    { l: 'Ballaststoffe', v: micros.fiber, u: 'g', c: theme.green },
+    { l: 'Zucker', v: micros.sugar, u: 'g', c: theme.orange },
+    { l: 'Salz', v: micros.salt, u: 'g', c: theme.red },
+    { l: 'Ges. Fett', v: micros.saturatedFat, u: 'g', c: theme.pink },
+  ].filter(m => m.v !== undefined && m.v > 0);
+  const vitamine = [
+    { l: 'Vit.A', v: micros.vitaminA, u: 'μg', c: theme.purple },
+    { l: 'Vit.B6', v: micros.vitaminB6, u: 'mg', c: theme.purple },
+    { l: 'Vit.B12', v: micros.vitaminB12, u: 'μg', c: theme.purple },
+    { l: 'Vit.C', v: micros.vitaminC, u: 'mg', c: theme.purple },
+    { l: 'Vit.D', v: micros.vitaminD, u: 'μg', c: theme.purple },
+    { l: 'Vit.E', v: micros.vitaminE, u: 'mg', c: theme.purple },
+    { l: 'Folsäure', v: micros.folate, u: 'μg', c: theme.purple },
+  ].filter(m => m.v !== undefined && m.v > 0);
+  const mineralien = [
+    { l: 'Calcium', v: micros.calcium, u: 'mg', c: theme.orange },
+    { l: 'Eisen', v: micros.iron, u: 'mg', c: theme.orange },
+    { l: 'Magnesium', v: micros.magnesium, u: 'mg', c: theme.orange },
+    { l: 'Zink', v: micros.zinc, u: 'mg', c: theme.orange },
+    { l: 'Kalium', v: micros.potassium, u: 'mg', c: theme.orange },
+    { l: 'Phosphor', v: micros.phosphorus, u: 'mg', c: theme.orange },
+    { l: 'Natrium', v: micros.sodium, u: 'mg', c: theme.orange },
+  ].filter(m => m.v !== undefined && m.v > 0);
+  if (basis.length === 0 && vitamine.length === 0 && mineralien.length === 0) return null;
+  return (
+    <View style={{ gap: 8 }}>
+      {basis.length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{basis.map(m => <MicroChip key={m.l} label={m.l} value={m.v!} unit={m.u} color={m.c} />)}</View>}
+      {vitamine.length > 0 && <View style={{ gap: 4 }}><Text style={{ color: theme.textTertiary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1 }}>Vitamine</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{vitamine.map(m => <MicroChip key={m.l} label={m.l} value={m.v!} unit={m.u} color={m.c} />)}</View></View>}
+      {mineralien.length > 0 && <View style={{ gap: 4 }}><Text style={{ color: theme.textTertiary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1 }}>Mineralien</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>{mineralien.map(m => <MicroChip key={m.l} label={m.l} value={m.v!} unit={m.u} color={m.c} />)}</View></View>}
+      {source === 'ai' && <Text style={{ color: theme.textTertiary, fontSize: 10 }}>KI-Schätzung – Werte können abweichen</Text>}
+    </View>
+  );
+}
+
 function AddEntryModal({ prefill, onSave, onClose }: {
-  prefill?: Partial<FoodEntry>; onSave: (entry: FoodEntry) => void; onClose: () => void;
+  prefill?: Partial<FoodEntry>; onSave: (e: FoodEntry) => void; onClose: () => void;
 }) {
   const [label, setLabel] = useState(prefill?.label || '');
-  const [amount, setAmount] = useState(String(prefill?.amount || '100'));
-  const [kcal, setKcal] = useState(String(prefill?.macros?.kcal || ''));
+  const [amount, setAmount] = useState(String(prefill?.amount || 100));
+  const [kcal, setKcal] = useState(String(Math.round(prefill?.macros?.kcal || 0) || ''));
   const [protein, setProtein] = useState(String(prefill?.macros?.protein || ''));
   const [carbs, setCarbs] = useState(String(prefill?.macros?.carbs || ''));
   const [fat, setFat] = useState(String(prefill?.macros?.fat || ''));
-  const baseAmount = prefill?.amount || 100;
+  const [fiber, setFiber] = useState('');
+  const [sugar, setSugar] = useState('');
+  const [salt, setSalt] = useState('');
+  const [vitC, setVitC] = useState('');
+  const [calcium, setCalcium] = useState('');
+  const [iron, setIron] = useState('');
+  const [magnesium, setMagnesium] = useState('');
+  const [showMicros, setShowMicros] = useState(false);
+  const base = prefill?.amount || 100;
 
-  // Scale macros when amount changes
-  function scale(base: number): number {
+  function scale(v: number) {
     const a = parseFloat(amount) || 100;
-    return Math.round((base / baseAmount) * a * 10) / 10;
+    return Math.round((v / base) * a * 10) / 10;
   }
 
   function save() {
     if (!label.trim()) { Alert.alert('Name fehlt'); return; }
     const amt = parseFloat(amount) || 100;
-    // If prefill exists, scale; otherwise use entered values
     const entry: FoodEntry = {
-      id: Date.now().toString(),
-      time: getTimeStr(),
-      label: label.trim(),
-      amount: amt,
-      unit: prefill?.unit || 'g',
+      id: Date.now().toString(), time: getTimeStr(),
+      label: label.trim(), amount: amt, unit: prefill?.unit || 'g',
       source: prefill?.source || 'manual',
-      macros: {
-        kcal: prefill ? scale(prefill.macros?.kcal || 0) : parseFloat(kcal) || 0,
-        protein: prefill ? scale(prefill.macros?.protein || 0) : parseFloat(protein) || 0,
-        carbs: prefill ? scale(prefill.macros?.carbs || 0) : parseFloat(carbs) || 0,
-        fat: prefill ? scale(prefill.macros?.fat || 0) : parseFloat(fat) || 0,
+      macros: prefill ? {
+        kcal: scale(prefill.macros?.kcal || 0),
+        protein: scale(prefill.macros?.protein || 0),
+        carbs: scale(prefill.macros?.carbs || 0),
+        fat: scale(prefill.macros?.fat || 0),
+      } : {
+        kcal: parseFloat(kcal) || 0, protein: parseFloat(protein) || 0,
+        carbs: parseFloat(carbs) || 0, fat: parseFloat(fat) || 0,
       },
-      micros: prefill?.micros,
+      micros: prefill?.micros || (fiber || sugar || salt || vitC || calcium ? {
+        fiber: parseFloat(fiber) || undefined, sugar: parseFloat(sugar) || undefined,
+        salt: parseFloat(salt) || undefined, vitaminC: parseFloat(vitC) || undefined,
+        calcium: parseFloat(calcium) || undefined, iron: parseFloat(iron) || undefined,
+        magnesium: parseFloat(magnesium) || undefined,
+      } : undefined),
     };
     onSave(entry);
   }
 
+  const srcLabel = prefill?.source === 'barcode' ? '📷 Barcode' : prefill?.source === 'ai' ? '🤖 KI-Analyse' : '✏️ Manuell';
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end' }}>
-      <ScrollView style={styles.addModal} contentContainerStyle={{ padding: 24, gap: 12 }} keyboardShouldPersistTaps="handled">
-        <Text style={styles.modalTitle}>
-          {prefill?.source === 'barcode' ? '🔍 Barcode' : prefill?.source === 'ai' ? '🤖 KI-Analyse' : '✏️ Manuell'} – {prefill?.label || 'Eintrag'}
-        </Text>
-
-        <Text style={styles.inputLabel}>Name</Text>
-        <TextInput style={styles.input} value={label} onChangeText={setLabel} placeholder="z.B. Haferflocken" placeholderTextColor={theme.textTertiary} />
-
-        <Text style={styles.inputLabel}>Menge ({prefill?.unit || 'g'})</Text>
-        <TextInput style={styles.input} value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="100" placeholderTextColor={theme.textTertiary} />
-
+      <ScrollView style={s.modal} contentContainerStyle={{ padding: 24, gap: 12 }} keyboardShouldPersistTaps="handled">
+        <Text style={s.modalTitle}>{srcLabel}</Text>
+        <Text style={s.label}>Name</Text>
+        <TextInput style={s.input} value={label} onChangeText={setLabel} placeholder="z.B. Haferflocken" placeholderTextColor={theme.textTertiary} />
+        <Text style={s.label}>{`Menge (${prefill?.unit || 'g'})`}</Text>
+        <TextInput style={s.input} value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="100" placeholderTextColor={theme.textTertiary} />
         {prefill ? (
-          // Show scaled preview
-          <View style={[styles.previewCard, { backgroundColor: theme.blueLight }]}>
-            <Text style={{ color: theme.blue, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontWeight: '600' }}>
-              Nährstoffe für {amount || 100}{prefill.unit || 'g'}
-            </Text>
-            <View style={styles.macroPreviewRow}>
+          <View style={{ backgroundColor: theme.blueLight, borderRadius: 14, padding: 14, gap: 10 }}>
+            <Text style={{ color: theme.blue, fontSize: 11, fontWeight: '600', textTransform: 'uppercase' }}>{`Nährstoffe für ${amount || 100}${prefill.unit || 'g'}`}</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
               {[
-                { l: 'kcal', v: scale(prefill.macros?.kcal || 0), c: theme.orange, u: '' },
-                { l: 'Protein', v: scale(prefill.macros?.protein || 0), c: theme.blue, u: 'g' },
-                { l: 'Kohlenhydrate', v: scale(prefill.macros?.carbs || 0), c: theme.green, u: 'g' },
-                { l: 'Fett', v: scale(prefill.macros?.fat || 0), c: theme.pink, u: 'g' },
+                { l: 'kcal', v: scale(prefill.macros?.kcal || 0), c: theme.orange },
+                { l: 'Protein', v: scale(prefill.macros?.protein || 0), c: theme.blue },
+                { l: 'Kohlenhydrate', v: scale(prefill.macros?.carbs || 0), c: theme.green },
+                { l: 'Fett', v: scale(prefill.macros?.fat || 0), c: theme.pink },
               ].map(m => (
                 <View key={m.l} style={{ alignItems: 'center' }}>
-                  <Text style={{ color: m.c, fontSize: 18, fontWeight: '700' }}>{m.v}{m.u}</Text>
+                  <Text style={{ color: m.c, fontSize: 18, fontWeight: '700' }}>{String(m.v)}</Text>
                   <Text style={{ color: theme.textSecondary, fontSize: 9, textTransform: 'uppercase' }}>{m.l}</Text>
                 </View>
               ))}
             </View>
-            {prefill.source === 'ai' && (
-              <Text style={{ color: theme.blue, fontSize: 10, marginTop: 8, opacity: 0.7 }}>
-                ⚠️ KI-Schätzung – Werte können ±20% abweichen
-              </Text>
-            )}
+            <MicrosDisplay micros={prefill.micros} source={prefill.source} />
           </View>
         ) : (
-          // Manual input
           <View style={{ gap: 8 }}>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>kcal</Text>
-                <TextInput style={styles.input} value={kcal} onChangeText={setKcal} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.textTertiary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Protein (g)</Text>
-                <TextInput style={styles.input} value={protein} onChangeText={setProtein} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} />
-              </View>
+              <View style={{ flex: 1 }}><Text style={s.label}>kcal</Text><TextInput style={s.input} value={kcal} onChangeText={setKcal} keyboardType="numeric" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+              <View style={{ flex: 1 }}><Text style={s.label}>Protein (g)</Text><TextInput style={s.input} value={protein} onChangeText={setProtein} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Kohlenhydrate (g)</Text>
-                <TextInput style={styles.input} value={carbs} onChangeText={setCarbs} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.inputLabel}>Fett (g)</Text>
-                <TextInput style={styles.input} value={fat} onChangeText={setFat} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} />
-              </View>
+              <View style={{ flex: 1 }}><Text style={s.label}>Kohlenhydrate (g)</Text><TextInput style={s.input} value={carbs} onChangeText={setCarbs} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+              <View style={{ flex: 1 }}><Text style={s.label}>Fett (g)</Text><TextInput style={s.input} value={fat} onChangeText={setFat} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
             </View>
+            <TouchableOpacity onPress={() => setShowMicros(v => !v)} style={{ paddingVertical: 8 }}>
+              <Text style={{ color: theme.blue, fontSize: 13, fontWeight: '500' }}>{showMicros ? 'Micros ausblenden ▲' : 'Micros hinzufügen ▼'}</Text>
+            </TouchableOpacity>
+            {showMicros && (
+              <View style={{ gap: 8 }}>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}><Text style={s.label}>Ballaststoffe (g)</Text><TextInput style={s.input} value={fiber} onChangeText={setFiber} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+                  <View style={{ flex: 1 }}><Text style={s.label}>Zucker (g)</Text><TextInput style={s.input} value={sugar} onChangeText={setSugar} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}><Text style={s.label}>Salz (g)</Text><TextInput style={s.input} value={salt} onChangeText={setSalt} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+                  <View style={{ flex: 1 }}><Text style={s.label}>Vit. C (mg)</Text><TextInput style={s.input} value={vitC} onChangeText={setVitC} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}><Text style={s.label}>Calcium (mg)</Text><TextInput style={s.input} value={calcium} onChangeText={setCalcium} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+                  <View style={{ flex: 1 }}><Text style={s.label}>Eisen (mg)</Text><TextInput style={s.input} value={iron} onChangeText={setIron} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+                </View>
+                <View style={{ flex: 1 }}><Text style={s.label}>Magnesium (mg)</Text><TextInput style={s.input} value={magnesium} onChangeText={setMagnesium} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} /></View>
+              </View>
+            )}
           </View>
         )}
-
-        <TouchableOpacity style={styles.saveBtn} onPress={save}>
-          <Text style={styles.saveBtnText}>Hinzufügen ✓</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-          <Text style={styles.cancelBtnText}>Abbrechen</Text>
-        </TouchableOpacity>
+        <TouchableOpacity style={s.btn} onPress={save}><Text style={s.btnText}>Hinzufügen</Text></TouchableOpacity>
+        <TouchableOpacity style={s.cancelBtn} onPress={onClose}><Text style={s.cancelText}>Abbrechen</Text></TouchableOpacity>
         <View style={{ height: 20 }} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-// ─── Goals Modal ──────────────────────────────────────────────
-function GoalsModal({ goals, onSave, onClose }: {
-  goals: Macros; onSave: (g: Macros) => void; onClose: () => void;
-}) {
+function GoalsModal({ goals, onSave, onClose }: { goals: Macros; onSave: (g: Macros) => void; onClose: () => void; }) {
   const [kcal, setKcal] = useState(String(goals.kcal));
   const [protein, setProtein] = useState(String(goals.protein));
   const [carbs, setCarbs] = useState(String(goals.carbs));
   const [fat, setFat] = useState(String(goals.fat));
-
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'flex-end' }}>
-      <View style={styles.addModal}>
+      <View style={s.modal}>
         <View style={{ padding: 24, gap: 12 }}>
-          <Text style={styles.modalTitle}>Tagesziele</Text>
+          <Text style={s.modalTitle}>Tagesziele</Text>
           {[
-            { l: 'Kalorien (kcal)', v: kcal, s: setKcal },
-            { l: 'Protein (g)', v: protein, s: setProtein },
-            { l: 'Kohlenhydrate (g)', v: carbs, s: setCarbs },
-            { l: 'Fett (g)', v: fat, s: setFat },
+            { l: 'Kalorien (kcal)', v: kcal, set: setKcal },
+            { l: 'Protein (g)', v: protein, set: setProtein },
+            { l: 'Kohlenhydrate (g)', v: carbs, set: setCarbs },
+            { l: 'Fett (g)', v: fat, set: setFat },
           ].map(f => (
             <View key={f.l}>
-              <Text style={styles.inputLabel}>{f.l}</Text>
-              <TextInput style={styles.input} value={f.v} onChangeText={f.s} keyboardType="numeric" placeholderTextColor={theme.textTertiary} />
+              <Text style={s.label}>{f.l}</Text>
+              <TextInput style={s.input} value={f.v} onChangeText={f.set} keyboardType="numeric" placeholderTextColor={theme.textTertiary} />
             </View>
           ))}
-          <TouchableOpacity style={styles.saveBtn} onPress={() => onSave({ kcal: parseFloat(kcal)||2500, protein: parseFloat(protein)||160, carbs: parseFloat(carbs)||280, fat: parseFloat(fat)||80 })}>
-            <Text style={styles.saveBtnText}>Speichern</Text>
+          <TouchableOpacity style={s.btn} onPress={() => onSave({ kcal: parseFloat(kcal)||2500, protein: parseFloat(protein)||160, carbs: parseFloat(carbs)||280, fat: parseFloat(fat)||80 })}>
+            <Text style={s.btnText}>Speichern</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.cancelBtn} onPress={onClose}>
-            <Text style={styles.cancelBtnText}>Abbrechen</Text>
-          </TouchableOpacity>
+          <TouchableOpacity style={s.cancelBtn} onPress={onClose}><Text style={s.cancelText}>Abbrechen</Text></TouchableOpacity>
         </View>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────
 export default function NutritionScreen() {
   const [dayLog, setDayLog] = useState<DayLog>({ date: getTodayKey(), entries: [], goal: DEFAULT_GOAL });
   const [showScanner, setShowScanner] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showGoals, setShowGoals] = useState(false);
-  const [prefillEntry, setPrefillEntry] = useState<Partial<FoodEntry> | undefined>();
+  const [prefill, setPrefill] = useState<Partial<FoodEntry> | undefined>();
   const [aiLoading, setAiLoading] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(useCallback(() => {
-    loadDay();
+    load();
     Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
   }, []));
 
-  async function loadDay() {
+  async function load() {
     const key = getTodayKey();
     const raw = await AsyncStorage.getItem(`nutrition_${key}`);
     const rawGoal = await AsyncStorage.getItem('nutritionGoal');
-    const goal = rawGoal ? JSON.parse(rawGoal) : DEFAULT_GOAL;
-
-    // Try to get goal from profile
+    let goal = rawGoal ? JSON.parse(rawGoal) : DEFAULT_GOAL;
     const rawProfile = await AsyncStorage.getItem('profile');
     if (rawProfile) {
-      const profile = JSON.parse(rawProfile);
-      const bw = parseFloat(profile.weight || '70');
-      if (profile.goal === 'Masse aufbauen') {
-        goal.protein = Math.round(bw * 2.2);
-        goal.kcal = Math.round(bw * 40);
-      } else if (profile.goal === 'Fett verlieren') {
-        goal.protein = Math.round(bw * 2.0);
-        goal.kcal = Math.round(bw * 28);
-      }
+      const prof = JSON.parse(rawProfile);
+      const bw = parseFloat(prof.weight || '70');
+      if (prof.goal === 'Masse aufbauen') { goal.protein = Math.round(bw * 2.2); goal.kcal = Math.round(bw * 40); }
+      else if (prof.goal === 'Fett verlieren') { goal.protein = Math.round(bw * 2.0); goal.kcal = Math.round(bw * 28); }
     }
-
     if (raw) setDayLog({ ...JSON.parse(raw), goal });
     else setDayLog({ date: key, entries: [], goal });
   }
@@ -411,43 +522,28 @@ export default function NutritionScreen() {
 
   async function addEntry(entry: FoodEntry) {
     await saveDay([...dayLog.entries, entry]);
-    setPrefillEntry(undefined);
-    setShowAddModal(false);
-    setShowScanner(false);
+    setPrefill(undefined); setShowAddModal(false); setShowScanner(false);
   }
 
   async function deleteEntry(id: string) {
-    Alert.alert('Eintrag löschen?', '', [
+    Alert.alert('Löschen?', '', [
       { text: 'Abbrechen', style: 'cancel' },
       { text: 'Löschen', style: 'destructive', onPress: async () => await saveDay(dayLog.entries.filter(e => e.id !== id)) }
     ]);
   }
 
-  async function handleAIPhoto() {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      base64: true, quality: 0.7,
-    });
+  async function handlePhoto(fromCamera: boolean) {
+    console.log('handlePhoto called', fromCamera);
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.7 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, base64: true, quality: 0.7 });
     if (result.canceled || !result.assets[0].base64) return;
+    console.log('result:', result.canceled, result.assets?.[0]?.base64 ? 'has base64' : 'no base64');
     setAiLoading(true);
     const food = await analyzeWithAI(result.assets[0].base64);
     setAiLoading(false);
-    if (!food) { Alert.alert('Analyse fehlgeschlagen', 'Versuche ein klareres Bild.'); return; }
-    setPrefillEntry(food);
-    setShowAddModal(true);
-  }
-
-  async function handleAICamera() {
-    const result = await ImagePicker.launchCameraAsync({
-      base64: true, quality: 0.7,
-    });
-    if (result.canceled || !result.assets[0].base64) return;
-    setAiLoading(true);
-    const food = await analyzeWithAI(result.assets[0].base64);
-    setAiLoading(false);
-    if (!food) { Alert.alert('Analyse fehlgeschlagen', 'Versuche ein klareres Bild.'); return; }
-    setPrefillEntry(food);
-    setShowAddModal(true);
+    if (!food) { Alert.alert('Analyse fehlgeschlagen', 'Versuche ein klareres Bild oder gib manuell ein.'); return; }
+    setPrefill(food); setShowAddModal(true);
   }
 
   async function saveGoals(g: Macros) {
@@ -457,52 +553,94 @@ export default function NutritionScreen() {
   }
 
   const totals = sumMacros(dayLog.entries);
+  const microTotals = sumMicros(dayLog.entries);
   const kcalLeft = dayLog.goal.kcal - totals.kcal;
   const kcalPct = Math.min(1, totals.kcal / dayLog.goal.kcal);
 
-  const mealGroups = dayLog.entries.reduce((groups, entry) => {
+  const mealGroups: Record<string, FoodEntry[]> = {};
+  dayLog.entries.forEach(entry => {
     const hour = parseInt(entry.time.split(':')[0]);
     const meal = hour < 10 ? 'Frühstück' : hour < 14 ? 'Mittagessen' : hour < 18 ? 'Snack' : 'Abendessen';
-    if (!groups[meal]) groups[meal] = [];
-    groups[meal].push(entry);
-    return groups;
-  }, {} as Record<string, FoodEntry[]>);
+    if (!mealGroups[meal]) mealGroups[meal] = [];
+    mealGroups[meal].push(entry);
+  });
 
   if (showScanner) return (
     <BarcodeScanner
-      onResult={food => { setPrefillEntry(food); setShowScanner(false); setShowAddModal(true); }}
+      onResult={food => { setPrefill(food); setShowScanner(false); setShowAddModal(true); }}
       onClose={() => setShowScanner(false)}
     />
   );
 
+  const MICROS_TABLE = [
+    { section: 'Basis', items: [
+      { l: 'Ballaststoffe', v: microTotals.fiber, u: 'g', c: theme.green, ref: 30 },
+      { l: 'Zucker', v: microTotals.sugar, u: 'g', c: theme.orange, ref: 50 },
+      { l: 'Salz', v: microTotals.salt, u: 'g', c: theme.red, ref: 6 },
+      { l: 'Ges. Fettsäuren', v: microTotals.saturatedFat, u: 'g', c: theme.pink, ref: 20 },
+    ]},
+    { section: 'Vitamine', items: [
+      { l: 'Vitamin A', v: microTotals.vitaminA, u: 'μg', c: theme.purple, ref: 800 },
+      { l: 'Vitamin B6', v: microTotals.vitaminB6, u: 'mg', c: theme.purple, ref: 1.4 },
+      { l: 'Vitamin B12', v: microTotals.vitaminB12, u: 'μg', c: theme.purple, ref: 2.4 },
+      { l: 'Vitamin C', v: microTotals.vitaminC, u: 'mg', c: theme.purple, ref: 80 },
+      { l: 'Vitamin D', v: microTotals.vitaminD, u: 'μg', c: theme.purple, ref: 20 },
+      { l: 'Vitamin E', v: microTotals.vitaminE, u: 'mg', c: theme.purple, ref: 12 },
+      { l: 'Folsäure', v: microTotals.folate, u: 'μg', c: theme.purple, ref: 200 },
+    ]},
+    { section: 'Mineralien', items: [
+      { l: 'Calcium', v: microTotals.calcium, u: 'mg', c: theme.blue, ref: 1000 },
+      { l: 'Eisen', v: microTotals.iron, u: 'mg', c: theme.blue, ref: 14 },
+      { l: 'Magnesium', v: microTotals.magnesium, u: 'mg', c: theme.blue, ref: 375 },
+      { l: 'Zink', v: microTotals.zinc, u: 'mg', c: theme.blue, ref: 10 },
+      { l: 'Kalium', v: microTotals.potassium, u: 'mg', c: theme.blue, ref: 2000 },
+      { l: 'Phosphor', v: microTotals.phosphorus, u: 'mg', c: theme.blue, ref: 700 },
+      { l: 'Natrium', v: microTotals.sodium, u: 'mg', c: theme.blue, ref: 2300 },
+    ]},
+  ];
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView style={{ flex: 1, paddingHorizontal: 20 }} showsVerticalScrollIndicator={false}>
         <Animated.View style={{ opacity: fadeAnim }}>
-          <Text style={styles.headerLabel}>Ernährung</Text>
+          <Text style={s.headerLabel}>Ernährung</Text>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 }}>
-            <Text style={styles.title}>Heute</Text>
-            <TouchableOpacity onPress={() => setShowGoals(true)} style={styles.goalBtn}>
-              <Text style={styles.goalBtnText}>🎯 Ziele</Text>
+            <Text style={s.title}>Heute</Text>
+            <TouchableOpacity onPress={() => setShowGoals(true)} style={{ backgroundColor: theme.blueLight, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 }}>
+              <Text style={{ color: theme.blue, fontSize: 12, fontWeight: '600' }}>Ziele</Text>
             </TouchableOpacity>
           </View>
-
-          {/* Kalorie Summary Card */}
-          <View style={styles.kcalCard}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+{/* Action Buttons */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+            {[
+              { emoji: '📷', label: 'Barcode', sub: 'Verpacktes', color: theme.blue, onPress: () => setShowScanner(true), disabled: false },
+              { emoji: '📸', label: 'Kamera', sub: 'KI-Analyse', color: '#7C3AED', onPress: () => handlePhoto(true), disabled: aiLoading },
+              { emoji: '🖼️', label: 'Galerie', sub: 'KI-Analyse', color: theme.green, onPress: () => handlePhoto(false), disabled: aiLoading },
+              { emoji: '✏️', label: 'Manuell', sub: 'Eingabe', color: theme.orange, onPress: () => { setPrefill(undefined); setShowAddModal(true); }, disabled: false },
+            ].map(btn => (
+              <TouchableOpacity key={btn.label}
+                style={{ flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 12, alignItems: 'center', gap: 4, borderWidth: 1, borderColor: btn.color, ...theme.shadow }}
+                onPress={btn.onPress} disabled={btn.disabled} activeOpacity={0.7}>
+                {btn.disabled && aiLoading ? <ActivityIndicator size="small" color={btn.color} /> : <Text style={{ fontSize: 22 }}>{btn.emoji}</Text>}
+                <Text style={{ color: btn.color, fontSize: 11, fontWeight: '600' }}>{btn.label}</Text>
+                <Text style={{ color: theme.textTertiary, fontSize: 9 }}>{btn.sub}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {/* Kalorie Card */}
+          <View style={{ backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 12, ...theme.shadow }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
               <View>
-                <Text style={styles.kcalVal}>{Math.round(totals.kcal)}</Text>
-                <Text style={styles.kcalLabel}>kcal gegessen</Text>
+                <Text style={{ color: theme.textPrimary, fontSize: 24, fontWeight: '700' }}>{String(Math.round(totals.kcal))}</Text>
+                <Text style={{ color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase' }}>kcal gegessen</Text>
               </View>
               <View style={{ alignItems: 'center' }}>
-                <Text style={[styles.kcalVal, { color: kcalLeft >= 0 ? theme.green : theme.red }]}>
-                  {Math.abs(Math.round(kcalLeft))}
-                </Text>
-                <Text style={styles.kcalLabel}>{kcalLeft >= 0 ? 'kcal übrig' : 'kcal darüber'}</Text>
+                <Text style={{ color: kcalLeft >= 0 ? theme.green : theme.red, fontSize: 24, fontWeight: '700' }}>{String(Math.abs(Math.round(kcalLeft)))}</Text>
+                <Text style={{ color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase' }}>{kcalLeft >= 0 ? 'kcal übrig' : 'kcal drüber'}</Text>
               </View>
               <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.kcalVal}>{dayLog.goal.kcal}</Text>
-                <Text style={styles.kcalLabel}>kcal Ziel</Text>
+                <Text style={{ color: theme.textPrimary, fontSize: 24, fontWeight: '700' }}>{String(dayLog.goal.kcal)}</Text>
+                <Text style={{ color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase' }}>kcal Ziel</Text>
               </View>
             </View>
             <View style={{ height: 8, backgroundColor: theme.cardSecondary, borderRadius: 4, overflow: 'hidden' }}>
@@ -511,90 +649,104 @@ export default function NutritionScreen() {
           </View>
 
           {/* Macro Bars */}
-          <View style={styles.macroCard}>
+          <View style={{ backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 12, ...theme.shadow }}>
             <MacroBar label="Protein" value={totals.protein} goal={dayLog.goal.protein} color={theme.blue} />
             <MacroBar label="Kohlenhydrate" value={totals.carbs} goal={dayLog.goal.carbs} color={theme.orange} />
             <MacroBar label="Fett" value={totals.fat} goal={dayLog.goal.fat} color={theme.pink} />
           </View>
 
-          {/* Action Buttons */}
-          <View style={styles.actionGrid}>
-            <TouchableOpacity style={[styles.actionBtn, { borderColor: theme.blue }]} onPress={() => setShowScanner(true)}>
-              <Text style={styles.actionEmoji}>📷</Text>
-              <Text style={[styles.actionLabel, { color: theme.blue }]}>Barcode</Text>
-              <Text style={styles.actionSub}>Verpacktes</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtn, { borderColor: '#7C3AED' }]} onPress={handleAICamera} disabled={aiLoading}>
-              {aiLoading ? <ActivityIndicator color="#7C3AED" /> : <Text style={styles.actionEmoji}>🤖</Text>}
-              <Text style={[styles.actionLabel, { color: '#7C3AED' }]}>KI-Foto</Text>
-              <Text style={styles.actionSub}>Mahlzeit</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtn, { borderColor: theme.green }]} onPress={handleAIPhoto} disabled={aiLoading}>
-              <Text style={styles.actionEmoji}>🖼️</Text>
-              <Text style={[styles.actionLabel, { color: theme.green }]}>Galerie</Text>
-              <Text style={styles.actionSub}>KI-Analyse</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.actionBtn, { borderColor: theme.orange }]} onPress={() => { setPrefillEntry(undefined); setShowAddModal(true); }}>
-              <Text style={styles.actionEmoji}>✏️</Text>
-              <Text style={[styles.actionLabel, { color: theme.orange }]}>Manuell</Text>
-              <Text style={styles.actionSub}>Eingabe</Text>
-            </TouchableOpacity>
+          {/* Micros Table */}
+          <View style={{ backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 16, ...theme.shadow }}>
+            <Text style={{ color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 12 }}>Mikronährstoffe</Text>
+            {MICROS_TABLE.map(({ section, items }) => (
+              <View key={section} style={{ marginBottom: 12 }}>
+                <Text style={{ color: theme.textTertiary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>{section}</Text>
+                {items.map(item => {
+                  const val = item.v || 0;
+                  const pct = Math.min(1, val / item.ref);
+                  const pctDisplay = Math.round(pct * 100);
+                  const color = pct >= 1 ? theme.green : pct >= 0.5 ? theme.blue : pct > 0 ? theme.orange : theme.textTertiary;
+                  return (
+                    <View key={item.l} style={{ marginBottom: 10 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <Text style={{ color: theme.textSecondary, fontSize: 12 }}>{item.l}</Text>
+                        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                          <Text style={{ color: theme.textTertiary, fontSize: 11 }}>{`${Math.round(val * 10) / 10}${item.u} / ${item.ref}${item.u}`}</Text>
+                          <Text style={{ color, fontSize: 11, fontWeight: '700', minWidth: 36, textAlign: 'right' }}>{`${pctDisplay}%`}</Text>
+                        </View>
+                      </View>
+                      <View style={{ height: 5, backgroundColor: theme.cardSecondary, borderRadius: 3, overflow: 'hidden' }}>
+                        <View style={{ height: 5, width: `${pct * 100}%` as any, backgroundColor: color, borderRadius: 3 }} />
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
           </View>
 
+          
+
           {/* Meal Groups */}
-          {Object.entries(mealGroups).map(([meal, entries]) => (
-            <View key={meal} style={{ marginBottom: 16 }}>
-              <View style={styles.mealHeader}>
-                <Text style={styles.mealTitle}>{meal}</Text>
-                <Text style={styles.mealKcal}>{Math.round(sumMacros(entries).kcal)} kcal</Text>
-              </View>
-              {entries.map(entry => (
-                <View key={entry.id} style={styles.entryRow}>
-                  <View style={[styles.sourceIcon, {
-                    backgroundColor: entry.source === 'barcode' ? theme.blueLight : entry.source === 'ai' ? '#7C3AED20' : theme.orangeLight
-                  }]}>
-                    <Text style={{ fontSize: 12 }}>
-                      {entry.source === 'barcode' ? '📷' : entry.source === 'ai' ? '🤖' : '✏️'}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.entryLabel}>{entry.label}</Text>
-                    <Text style={styles.entrySub}>{entry.amount}{entry.unit} · {entry.time}</Text>
-                  </View>
-                  <View style={{ alignItems: 'flex-end', gap: 2 }}>
-                    <Text style={[styles.entryKcal, { color: theme.orange }]}>{Math.round(entry.macros.kcal)} kcal</Text>
-                    <Text style={styles.entryMacros}>
-                      P:{Math.round(entry.macros.protein)}g K:{Math.round(entry.macros.carbs)}g F:{Math.round(entry.macros.fat)}g
-                    </Text>
-                  </View>
-                  <TouchableOpacity onPress={() => deleteEntry(entry.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Text style={{ color: theme.textTertiary, fontSize: 20, marginLeft: 8 }}>×</Text>
-                  </TouchableOpacity>
+          {Object.entries(mealGroups).map(([meal, entries]) => {
+            const mealTotals = sumMacros(entries);
+            return (
+              <View key={meal} style={{ marginBottom: 16 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text style={{ color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: '600' }}>{meal}</Text>
+                  <Text style={{ color: theme.textSecondary, fontSize: 11 }}>{`${Math.round(mealTotals.kcal)} kcal`}</Text>
                 </View>
-              ))}
-            </View>
-          ))}
+                {entries.map(entry => {
+                  const isExpanded = expandedId === entry.id;
+                  const srcIcon = entry.source === 'barcode' ? '📷' : entry.source === 'ai' ? '🤖' : '✏️';
+                  return (
+                    <View key={entry.id} style={{ backgroundColor: theme.card, borderRadius: 12, padding: 12, marginBottom: 6, ...theme.shadow }}>
+                      <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }} onPress={() => setExpandedId(isExpanded ? null : entry.id)} activeOpacity={0.7}>
+                        <View style={{ width: 32, height: 32, borderRadius: 10, backgroundColor: theme.cardSecondary, alignItems: 'center', justifyContent: 'center' }}>
+                          <Text style={{ fontSize: 14 }}>{srcIcon}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: theme.textPrimary, fontSize: 13, fontWeight: '500' }}>{entry.label}</Text>
+                          <Text style={{ color: theme.textSecondary, fontSize: 10 }}>{`${entry.amount}${entry.unit} · ${entry.time}`}</Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={{ color: theme.orange, fontSize: 13, fontWeight: '600' }}>{`${Math.round(entry.macros.kcal)} kcal`}</Text>
+                          <Text style={{ color: theme.textTertiary, fontSize: 9 }}>{`P:${Math.round(entry.macros.protein)}g K:${Math.round(entry.macros.carbs)}g F:${Math.round(entry.macros.fat)}g`}</Text>
+                        </View>
+                        <Text style={{ color: theme.textTertiary, fontSize: 12, marginLeft: 4 }}>{isExpanded ? '▲' : '▼'}</Text>
+                        <TouchableOpacity onPress={() => deleteEntry(entry.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Text style={{ color: theme.textTertiary, fontSize: 20, marginLeft: 4 }}>×</Text>
+                        </TouchableOpacity>
+                      </TouchableOpacity>
+                      {isExpanded && entry.micros && (
+                        <View style={{ marginTop: 10, paddingTop: 10, borderTopWidth: 0.5, borderTopColor: theme.borderLight }}>
+                          <MicrosDisplay micros={entry.micros} source={entry.source} />
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            );
+          })}
 
           {dayLog.entries.length === 0 && (
-            <View style={styles.empty}>
+            <View style={{ alignItems: 'center', paddingVertical: 40, gap: 8 }}>
               <Text style={{ fontSize: 48 }}>🥗</Text>
-              <Text style={styles.emptyTitle}>Noch nichts geloggt</Text>
-              <Text style={styles.emptySub}>Scanne einen Barcode, mache ein Foto oder gib manuell ein</Text>
+              <Text style={{ color: theme.textPrimary, fontSize: 18, fontWeight: '600' }}>Noch nichts geloggt</Text>
+              <Text style={{ color: theme.textSecondary, fontSize: 13, textAlign: 'center' }}>Scanne einen Barcode, mache ein Foto oder gib manuell ein</Text>
             </View>
           )}
-
           <View style={{ height: 100 }} />
         </Animated.View>
       </ScrollView>
 
-      {/* Add Entry Modal */}
       <Modal visible={showAddModal} transparent animationType="slide">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }}>
-          <AddEntryModal prefill={prefillEntry} onSave={addEntry} onClose={() => { setShowAddModal(false); setPrefillEntry(undefined); }} />
+          <AddEntryModal prefill={prefill} onSave={addEntry} onClose={() => { setShowAddModal(false); setPrefill(undefined); }} />
         </View>
       </Modal>
 
-      {/* Goals Modal */}
       <Modal visible={showGoals} transparent animationType="slide">
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' }}>
           <GoalsModal goals={dayLog.goal} onSave={saveGoals} onClose={() => setShowGoals(false)} />
@@ -604,59 +756,16 @@ export default function NutritionScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+const s = StyleSheet.create({
+  center: { flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', padding: 24 },
   headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
   title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600' },
-  goalBtn: { backgroundColor: theme.blueLight, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 },
-  goalBtnText: { color: theme.blue, fontSize: 12, fontWeight: '600' },
-
-  kcalCard: { backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 12, ...theme.shadow },
-  kcalVal: { color: theme.textPrimary, fontSize: 24, fontWeight: '700' },
-  kcalLabel: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8 },
-
-  macroCard: { backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 16, ...theme.shadow },
-
-  actionGrid: { flexDirection: 'row', gap: 8, marginBottom: 20 },
-  actionBtn: { flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 12, alignItems: 'center', gap: 4, borderWidth: 1, ...theme.shadow },
-  actionEmoji: { fontSize: 22 },
-  actionLabel: { fontSize: 11, fontWeight: '600' },
-  actionSub: { color: theme.textTertiary, fontSize: 9 },
-
-  mealHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  mealTitle: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: '600' },
-  mealKcal: { color: theme.textSecondary, fontSize: 11 },
-
-  entryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.card, borderRadius: 12, padding: 12, marginBottom: 6, ...theme.shadow },
-  sourceIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  entryLabel: { color: theme.textPrimary, fontSize: 13, fontWeight: '500' },
-  entrySub: { color: theme.textSecondary, fontSize: 10, marginTop: 2 },
-  entryKcal: { fontSize: 13, fontWeight: '600' },
-  entryMacros: { color: theme.textTertiary, fontSize: 9 },
-
-  empty: { alignItems: 'center', paddingVertical: 40, gap: 8 },
-  emptyTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: '600' },
-  emptySub: { color: theme.textSecondary, fontSize: 13, textAlign: 'center' },
-
-  // Scanner
-  scannerContainer: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
-  camera: { flex: 1, width: '100%' },
-  scanOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 20 },
-  scanFrame: { width: 250, height: 150, borderWidth: 2, borderColor: '#fff', borderRadius: 12, backgroundColor: 'transparent' },
-  scanHint: { color: '#fff', fontSize: 14, fontWeight: '500' },
-  scanLoading: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center' },
-  scanCloseBtn: { position: 'absolute', top: 60, right: 20, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  scanCloseBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-
-  // Modals
-  addModal: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' },
+  modal: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '90%' },
   modalTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: '600' },
-  inputLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 },
+  label: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6 },
   input: { backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 14, color: theme.textPrimary, fontSize: 15 },
-  previewCard: { borderRadius: 14, padding: 14 },
-  macroPreviewRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center' },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  btn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center' },
+  btnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   cancelBtn: { padding: 14, alignItems: 'center' },
-  cancelBtnText: { color: theme.textSecondary, fontSize: 14 },
+  cancelText: { color: theme.textSecondary, fontSize: 14 },
 });
