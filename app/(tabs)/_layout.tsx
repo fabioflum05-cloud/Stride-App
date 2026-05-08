@@ -33,29 +33,6 @@ function TrainingIcon({ color }: { color: string }) {
   );
 }
 
-
-function HistoryIcon({ color }: { color: string }) {
-  return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M3 3V21M3 17L9 11L13 15L21 7"
-        stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
-}
-
-function FriendsIcon({ color }: { color: string }) {
-  return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Circle cx={9} cy={7} r={3} stroke={color} strokeWidth={1.5} />
-      <Path d="M3 20C3 17 5.5 15 9 15C12.5 15 15 17 15 20"
-        stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Circle cx={17} cy={7} r={2} stroke={color} strokeWidth={1.5} />
-      <Path d="M19 14C19 12.3 18 11 16.5 11"
-        stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-    </Svg>
-  );
-}
-
 function NutritionIcon({ color }: { color: string }) {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -103,14 +80,15 @@ function TimerIcon({ color }: { color: string }) {
   );
 }
 
+// ─── 4 Main Tabs ─────────────────────────────────────────────
 const MAIN_TABS = [
   { route: '/', label: 'Home', Icon: HomeIcon },
-  { route: '/health', label: 'Health', Icon: HealthIcon },
   { route: '/training', label: 'Training', Icon: TrainingIcon },
-  { route: '/history', label: 'Verlauf', Icon: HistoryIcon },
   { route: '/nutrition', label: 'Food', Icon: NutritionIcon },
-  { route: '/friends', label: 'Freunde', Icon: FriendsIcon },
+  { route: '/health', label: 'Health', Icon: HealthIcon },
 ];
+
+const MAIN_ROUTES = ['/', '/training', '/nutrition', '/health'];
 
 const TRAINING_TABS = [
   { route: '/training', label: 'Workout', Icon: TrainingIcon },
@@ -123,24 +101,27 @@ const TRAINING_TABS = [
 function MainTabBar({ pathname }: { pathname: string }) {
   function getIndex() {
     if (pathname === '/') return 0;
-    if (pathname.includes('/health') || pathname.includes('/sleep') || pathname.includes('/checkin') || pathname.includes('/battery') || pathname.includes('/habits') || pathname.includes('/weight')) return 1;
-    if (pathname.includes('/training') || pathname.includes('/body') || pathname.includes('/ranking') || pathname.includes('/workout-timer') || pathname.includes('/prs')) return 2;
-    if (pathname.includes('/history')) return 3;
-    if (pathname.includes('/nutrition')) return 4;
-    if (pathname.includes('/friends')) return 5;
+    if (pathname.includes('/training') || pathname.includes('/body') ||
+        pathname.includes('/ranking') || pathname.includes('/workout-timer') ||
+        pathname.includes('/prs')) return 1;
+    if (pathname.includes('/nutrition')) return 2;
+    if (pathname.includes('/health') || pathname.includes('/sleep') ||
+        pathname.includes('/checkin') || pathname.includes('/battery') ||
+        pathname.includes('/habits') || pathname.includes('/weight')) return 3;
     return 0;
   }
 
   const currentIndex = getIndex();
 
   return (
-    <View style={[styles.wrapper, { backgroundColor: currentIndex === 2 ? '#1A1614' : 'transparent' }]} pointerEvents="box-none">
+    <View style={[styles.wrapper, { backgroundColor: currentIndex === 1 ? '#1A1614' : 'transparent' }]} pointerEvents="box-none">
       <View style={[styles.container, {
-  backgroundColor: currentIndex === 2 ? '#231F1C' : '#fff',
-  borderColor: currentIndex === 2 ? 'rgba(232,87,42,0.25)' : 'rgba(0,0,0,0.08)',
-}]}>
+        backgroundColor: currentIndex === 1 ? '#231F1C' : theme.card,
+        borderColor: currentIndex === 1 ? 'rgba(232,87,42,0.25)' : 'rgba(0,0,0,0.08)',
+      }]}>
         {MAIN_TABS.map(({ route, label, Icon }, index) => {
           const active = index === currentIndex;
+          const isTrainingTab = index === 1;
           return (
             <TouchableOpacity
               key={route}
@@ -149,25 +130,25 @@ function MainTabBar({ pathname }: { pathname: string }) {
               activeOpacity={0.6}
             >
               <View style={styles.dotWrap}>
-                {active && <View style={styles.dotActive} />}
+                {active && <View style={[styles.dotActive, isTrainingTab && { backgroundColor: theme.orange }]} />}
               </View>
-              {index === 2 ? (
-  <View style={{
-    backgroundColor: active ? '#E8572A' : 'rgba(232,87,42,0.12)',
-    borderRadius: 14,
-    width: 48,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  }}>
-    <Icon color={active ? '#fff' : '#E8572A'} />
-  </View>
-) : (
-  <Icon color={active ? theme.blue : theme.textTertiary} />
-)}
-<Text style={[styles.label, active && (index === 2 ? { color: '#E8572A' } : styles.labelActive)]}>
-  {label}
-</Text>
+              {isTrainingTab ? (
+                <View style={{
+                  backgroundColor: active ? '#E8572A' : 'rgba(232,87,42,0.12)',
+                  borderRadius: 14, width: 48, height: 36,
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Icon color={active ? '#fff' : '#E8572A'} />
+                </View>
+              ) : (
+                <Icon color={active ? theme.blue : theme.textTertiary} />
+              )}
+              <Text style={[
+                styles.label,
+                active && (isTrainingTab ? { color: '#E8572A' } : styles.labelActive),
+              ]}>
+                {label}
+              </Text>
             </TouchableOpacity>
           );
         })}
@@ -181,10 +162,10 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
 
   return (
     <View style={[styles.wrapper, { backgroundColor: '#1A1614' }]} pointerEvents="box-none">
-      <View style={[styles.container, { 
-  backgroundColor: '#231F1C',
-  borderColor: 'rgba(232,87,42,0.25)',
-}]}>
+      <View style={[styles.container, {
+        backgroundColor: '#231F1C',
+        borderColor: 'rgba(232,87,42,0.25)',
+      }]}>
         {TRAINING_TABS.map(({ route, label, Icon, isStop }: any) => {
           const active = !isStop && pathname.includes(route);
           return (
@@ -208,8 +189,6 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
     </View>
   );
 }
-
-const MAIN_ROUTES = ['/', '/health', '/training', '/history', '/nutrition', '/friends'];
 
 function AnimatedScreen() {
   const pathname = usePathname();
@@ -247,7 +226,8 @@ export default function TabLayout() {
         const w = JSON.parse(raw);
         const today = new Date();
         const date = new Date(w.date);
-        const todayMatch = date.getDate() === today.getDate() &&
+        const todayMatch =
+          date.getDate() === today.getDate() &&
           date.getMonth() === today.getMonth() &&
           date.getFullYear() === today.getFullYear();
         setIsTraining(todayMatch);
@@ -273,29 +253,26 @@ export default function TabLayout() {
     .minDistance(10)
     .onEnd((e) => {
       if (e.velocityX > 200 || e.translationX > 50) {
-        if (currentIdx > 0) {
-          router.push(MAIN_ROUTES[currentIdx - 1] as any);
-        } else {
-          router.back();
-        }
+        if (currentIdx > 0) router.push(MAIN_ROUTES[currentIdx - 1] as any);
+        else router.back();
         return;
       }
       if (e.velocityX < -200 || e.translationX < -50) {
         const next = MAIN_ROUTES[Math.min(currentIdx + 1, MAIN_ROUTES.length - 1)];
-        if (next !== MAIN_ROUTES[currentIdx]) {
-          router.push(next as any);
-        }
+        if (next !== MAIN_ROUTES[currentIdx]) router.push(next as any);
       }
     });
+
+  const bgColor = currentIdx === 1 ? '#1A1614' : '#fff';
 
   return (
     <GestureDetector gesture={swipe}>
       <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: currentIdx === 2 ? '#1A1614' : '#fff' }}
+        style={{ flex: 1, backgroundColor: bgColor }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
-        <View style={{ flex: 1, overflow: 'hidden', backgroundColor: currentIdx === 2 ? '#1A1614' : '#fff' }}>
+        <View style={{ flex: 1, overflow: 'hidden', backgroundColor: bgColor }}>
           <View style={{ flex: 1, paddingBottom: 100 }}>
             <AnimatedScreen />
           </View>
@@ -310,15 +287,18 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  wrapper: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 14, paddingBottom: 22, backgroundColor: 'transparent' },
+  wrapper: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    paddingHorizontal: 14, paddingBottom: 22, backgroundColor: 'transparent',
+  },
   container: {
-    flexDirection: 'row', backgroundColor: theme.card, borderRadius: 26,
-    borderWidth: 0.5, borderColor: theme.border, paddingVertical: 10,
-    paddingHorizontal: 4, alignItems: 'center', justifyContent: 'space-around',
+    flexDirection: 'row', borderRadius: 26,
+    borderWidth: 0.5, borderColor: theme.border,
+    paddingVertical: 10, paddingHorizontal: 4,
+    alignItems: 'center', justifyContent: 'space-around',
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08, shadowRadius: 16, elevation: 8,
   },
-  trainingContainer: { borderColor: theme.orange + '40', backgroundColor: theme.card },
   tab: { flex: 1, alignItems: 'center', gap: 3 },
   dotWrap: { height: 6, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   dotActive: { width: 4, height: 4, borderRadius: 2, backgroundColor: theme.blue },
