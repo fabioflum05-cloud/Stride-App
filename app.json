@@ -35,9 +35,8 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-<<<<<<< HEAD
+
     
-=======
     "plugins": [
       "expo-router",
       [
@@ -54,7 +53,6 @@
       ],
       "react-native-health"
     ],
->>>>>>> da8621cf628d1fae5db7cfa6f971ac7cf2e407db
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

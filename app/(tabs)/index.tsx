@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-=======
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
@@ -461,4 +460,4 @@ const styles = StyleSheet.create({
   menuCloseBtn: { position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: 15, backgroundColor: theme.cardSecondary, alignItems: 'center', justifyContent: 'center' },
   menuFooterText: { color: theme.textTertiary, fontSize: 11, textAlign: 'center', marginTop: 16 },
 });
->>>>>>> da8621cf628d1fae5db7cfa6f971ac7cf2e407db
+
