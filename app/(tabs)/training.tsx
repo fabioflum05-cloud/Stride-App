@@ -937,6 +937,7 @@ function HistoryScreen({ onClose, prHistory, onDelete }: {
 }) {
   const [filter, setFilter] = useState<'alle'|'kraft'|'judo'|'lauf'|'sonstiges'>('alle');
   const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [allExercises, setAllExercises] = useState(DEFAULT_EXERCISES);
   const [runs, setRuns] = useState<RunData[]>([]);
   const [selectedItem, setSelectedItem] = useState<any>(null);
 
@@ -1119,11 +1120,146 @@ function HistoryScreen({ onClose, prHistory, onDelete }: {
 }
 
 // ─── Trainingsplan Screen ─────────────────────────────────────
-function TrainingPlanScreen({ onClose, userMaxes }: { onClose: () => void; userMaxes: UserMaxes }) {
-  const [goal, setGoal] = useState<string>('');
-  const [showPlan, setShowPlan] = useState(false);
-  const plan = showPlan ? generateTrainingPlan(goal, userMaxes) : [];
+const PLAN_STORE_KEY = 'trainingPlanConfig';
+const PLAN_WEEK_KEY = 'trainingPlanWeek'; // ISO week number when plan was last generated
+
+function getISOWeek(date: Date): string {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  return `${d.getFullYear()}-W${String(1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)).padStart(2, '0')}`;
+}
+
+const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+const FULL_DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+
+type PlanConfig = {
+  exercises: string[];
+  trainingDays: number[]; // 0=Mo ... 6=So
+  goal: string;
+  generatedWeek: string;
+};
+
+type PlanDay = {
+  dayIdx: number;
+  dayLabel: string;
+  name: string;
+  focus: string;
+  exercises: { name: string; sets: number; reps: string; weight: number }[];
+};
+
+function buildPlan(config: PlanConfig, userMaxes: UserMaxes): PlanDay[] {
+  const { exercises, trainingDays, goal } = config;
+  const intensity = goal === 'kraft' ? 0.85 : goal === 'ausdauer' ? 0.6 : 0.72;
+  const repsRange = goal === 'kraft' ? '3–5' : goal === 'ausdauer' ? '15–20' : '8–12';
+  const setsCount = goal === 'kraft' ? 5 : goal === 'ausdauer' ? 3 : 4;
+
+  function w(name: string) {
+    const max = userMaxes[name] || 0;
+    if (!max) return 0;
+    return Math.round((max * intensity) / 2.5) * 2.5;
+  }
+
+  // Group exercises by muscle group
+  const byMuscle: Record<string, string[]> = {};
+  for (const ex of exercises) {
+    const found = DEFAULT_EXERCISES.find(d => d.name === ex);
+    const mg = found?.muscleGroup ?? 'Ganzkörper';
+    if (!byMuscle[mg]) byMuscle[mg] = [];
+    byMuscle[mg].push(ex);
+  }
+
+  const muscleGroups = Object.keys(byMuscle);
+  const numDays = trainingDays.length;
+
+  // Split muscle groups across training days
+  const splitPerDay: { muscles: string[]; exs: string[] }[] = Array.from({ length: numDays }, () => ({ muscles: [], exs: [] }));
+  muscleGroups.forEach((mg, i) => {
+    const dayIdx = i % numDays;
+    splitPerDay[dayIdx].muscles.push(mg);
+    splitPerDay[dayIdx].exs.push(...byMuscle[mg]);
+  });
+
+  // Build full week
+  const plan: PlanDay[] = Array.from({ length: 7 }, (_, i) => {
+    const trainingIdx = trainingDays.indexOf(i);
+    if (trainingIdx === -1) {
+      return { dayIdx: i, dayLabel: DAY_NAMES[i], name: 'Pause', focus: 'Regeneration', exercises: [] };
+    }
+    const { muscles, exs } = splitPerDay[trainingIdx];
+    return {
+      dayIdx: i,
+      dayLabel: DAY_NAMES[i],
+      name: muscles.slice(0, 2).join(' & ') || 'Training',
+      focus: muscles.join(' · ') || 'Ganzkörper',
+      exercises: exs.map(ex => ({
+        name: ex,
+        sets: setsCount,
+        reps: repsRange,
+        weight: w(ex),
+      })),
+    };
+  });
+
+  return plan;
+}
+
+function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
+  onClose: () => void;
+  userMaxes: UserMaxes;
+  allExercises: typeof DEFAULT_EXERCISES;
+}) {
   const hasPRs = Object.keys(userMaxes).length > 0;
+  const currentWeek = getISOWeek(new Date());
+  const isMonday = new Date().getDay() === 1;
+
+  // Steps: 'loading' | 'exercises' | 'days' | 'plan'
+  const [step, setStep] = useState<'loading' | 'exercises' | 'days' | 'plan'>('loading');
+  const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
+  const [selectedDays, setSelectedDays] = useState<number[]>([]);
+  const [goal, setGoal] = useState('hypertrophie');
+  const [plan, setPlan] = useState<PlanDay[]>([]);
+  const [config, setConfig] = useState<PlanConfig | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem(PLAN_STORE_KEY).then(raw => {
+      if (!raw) { setStep('exercises'); return; }
+      const saved: PlanConfig = JSON.parse(raw);
+      // Re-ask every Monday
+      if (isMonday && saved.generatedWeek !== currentWeek) {
+        setSelectedExercises(saved.exercises);
+        setSelectedDays(saved.trainingDays);
+        setGoal(saved.goal);
+        setStep('exercises');
+      } else {
+        setConfig(saved);
+        setPlan(buildPlan(saved, userMaxes));
+        setStep('plan');
+      }
+    });
+  }, []);
+
+  async function savePlan() {
+    const cfg: PlanConfig = { exercises: selectedExercises, trainingDays: selectedDays, goal, generatedWeek: currentWeek };
+    await AsyncStorage.setItem(PLAN_STORE_KEY, JSON.stringify(cfg));
+    setConfig(cfg);
+    setPlan(buildPlan(cfg, userMaxes));
+    setStep('plan');
+  }
+
+  async function resetPlan() {
+    await AsyncStorage.removeItem(PLAN_STORE_KEY);
+    setSelectedExercises([]); setSelectedDays([]); setGoal('hypertrophie');
+    setStep('exercises');
+  }
+
+  function toggleExercise(name: string) {
+    setSelectedExercises(prev => prev.includes(name) ? prev.filter(e => e !== name) : [...prev, name]);
+  }
+  function toggleDay(i: number) {
+    setSelectedDays(prev => prev.includes(i) ? prev.filter(d => d !== i) : [...prev, i].sort());
+  }
 
   const goals = [
     { key: 'hypertrophie', label: 'Muskelaufbau', emoji: '💪', desc: '8–12 Wdh., 72% 1RM' },
@@ -1134,71 +1270,191 @@ function TrainingPlanScreen({ onClose, userMaxes }: { onClose: () => void; userM
   return (
     <Modal visible animationType="slide">
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
+
+        {/* Header */}
         <View style={hist.header}>
           <View>
-            <Text style={hist.eyebrow}>KI-Empfehlung</Text>
-            <Text style={hist.title}>Trainingsplan</Text>
+            <Text style={hist.eyebrow}>
+              {step === 'exercises' ? 'Schritt 1/3' : step === 'days' ? 'Schritt 2/3' : 'Dein Plan'}
+            </Text>
+            <Text style={hist.title}>
+              {step === 'exercises' ? 'Übungen wählen' : step === 'days' ? 'Trainingstage' : 'Trainingsplan'}
+            </Text>
           </View>
-          <TouchableOpacity style={hist.closeBtn} onPress={onClose}><IconClose color={theme.textPrimary} size={16} /></TouchableOpacity>
+          <TouchableOpacity style={hist.closeBtn} onPress={onClose}>
+            <IconClose color={theme.textPrimary} size={16} />
+          </TouchableOpacity>
         </View>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
-          {!hasPRs && (
-            <View style={{ backgroundColor: 'rgba(232,87,42,0.1)', borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: theme.orangeBorder }}>
-              <Text style={{ color: theme.orange, fontSize: 13, fontWeight: '600', marginBottom: 4 }}>⚠️ Keine PRs vorhanden</Text>
-              <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Trag zuerst deine PRs ein für präzisere Gewichtsempfehlungen.</Text>
-            </View>
-          )}
-          <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 14 }}>Wähle dein Ziel – der Plan wird automatisch anhand deiner PRs berechnet.</Text>
-          <View style={{ gap: 10, marginBottom: 20 }}>
-            {goals.map(g => (
-              <TouchableOpacity key={g.key}
-                style={{ backgroundColor: goal === g.key ? theme.orangeLight : theme.card, borderRadius: 16, padding: 16, borderWidth: 1.5, borderColor: goal === g.key ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 14 }}
-                onPress={() => { setGoal(g.key); setShowPlan(false); }} activeOpacity={0.85}>
-                <Text style={{ fontSize: 28 }}>{g.emoji}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginBottom: 2 }}>{g.label}</Text>
-                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>{g.desc}</Text>
-                </View>
-                {goal === g.key && <IconCheck color={theme.orange} size={18} />}
-              </TouchableOpacity>
+
+        {/* Progress Bar */}
+        {step !== 'plan' && step !== 'loading' && (
+          <View style={{ flexDirection: 'row', gap: 4, paddingHorizontal: 16, paddingVertical: 10 }}>
+            {['exercises', 'days', 'goal'].map((s, i) => (
+              <View key={s} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: ['exercises','days','goal'].indexOf(step) >= i ? theme.orange : theme.cardSecondary }} />
             ))}
           </View>
-          {goal !== '' && !showPlan && (
-            <TouchableOpacity style={{ backgroundColor: theme.orange, borderRadius: 14, padding: 15, alignItems: 'center', marginBottom: 20 }} onPress={() => setShowPlan(true)} activeOpacity={0.85}>
-              <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Plan generieren</Text>
-            </TouchableOpacity>
-          )}
-          {showPlan && plan.map((day, i) => (
-            <View key={i} style={{ backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: theme.border }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: day.exercises.length > 0 ? 12 : 0 }}>
-                <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: day.exercises.length > 0 ? theme.orangeLight : theme.cardSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: day.exercises.length > 0 ? theme.orangeBorder : theme.border }}>
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: day.exercises.length > 0 ? theme.orange : theme.textTertiary }}>{day.day}</Text>
-                </View>
+        )}
+
+        {/* ── Step 1: Übungen ── */}
+        {step === 'exercises' && (
+          <>
+            {!hasPRs && (
+              <View style={{ backgroundColor: 'rgba(232,87,42,0.1)', margin: 16, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: theme.orange + '40' }}>
+                <Text style={{ color: theme.orange, fontSize: 13, fontWeight: '600', marginBottom: 2 }}>⚠️ Keine PRs vorhanden</Text>
+                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Für Gewichtsempfehlungen trag zuerst PRs ein.</Text>
+              </View>
+            )}
+            <Text style={{ color: theme.textSecondary, fontSize: 12, paddingHorizontal: 16, marginBottom: 8, marginTop: hasPRs ? 12 : 0 }}>
+              Welche Übungen sollen im Plan berücksichtigt werden? ({selectedExercises.length} gewählt)
+            </Text>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}>
+              {MUSCLE_GROUPS.map(mg => {
+                const exs = allExercises.filter(e => e.muscleGroup === mg);
+                if (exs.length === 0) return null;
+                return (
+                  <View key={mg} style={{ marginBottom: 16 }}>
+                    <Text style={{ color: MUSCLE_COLORS[mg], fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>{mg}</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {exs.map(ex => {
+                        const active = selectedExercises.includes(ex.name);
+                        return (
+                          <TouchableOpacity key={ex.name}
+                            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: active ? theme.orangeLight : theme.card, borderWidth: 1.5, borderColor: active ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                            onPress={() => toggleExercise(ex.name)} activeOpacity={0.8}>
+                            {active && <Text style={{ fontSize: 10, color: theme.orange }}>✓</Text>}
+                            <Text style={{ fontSize: 13, color: active ? theme.orange : theme.textPrimary, fontWeight: active ? '600' : '400' }}>{ex.name}</Text>
+                            {userMaxes[ex.name] && <Text style={{ fontSize: 9, color: theme.green }}>PR</Text>}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, paddingBottom: 34, backgroundColor: theme.bg, borderTopWidth: 0.5, borderTopColor: theme.border }}>
+              <TouchableOpacity
+                style={{ backgroundColor: selectedExercises.length > 0 ? theme.orange : theme.cardSecondary, borderRadius: 14, padding: 15, alignItems: 'center' }}
+                onPress={() => selectedExercises.length > 0 && setStep('days')}
+                activeOpacity={0.85}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: selectedExercises.length > 0 ? '#fff' : theme.textTertiary }}>
+                  Weiter → {selectedExercises.length > 0 ? `${selectedExercises.length} Übungen` : ''}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
+        {/* ── Step 2: Trainingstage ── */}
+        {step === 'days' && (
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
+            <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 20 }}>
+              An welchen Tagen kannst du trainieren? ({selectedDays.length} Tage gewählt)
+            </Text>
+            <View style={{ gap: 8, marginBottom: 24 }}>
+              {DAY_NAMES.map((d, i) => {
+                const active = selectedDays.includes(i);
+                return (
+                  <TouchableOpacity key={i}
+                    style={{ backgroundColor: active ? theme.orangeLight : theme.card, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: active ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 14 }}
+                    onPress={() => toggleDay(i)} activeOpacity={0.85}>
+                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: active ? theme.orange : theme.cardSecondary, alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: active ? '#fff' : theme.textTertiary }}>{d}</Text>
+                    </View>
+                    <Text style={{ flex: 1, fontSize: 15, fontWeight: '600', color: active ? theme.textPrimary : theme.textSecondary }}>{FULL_DAY_NAMES[i]}</Text>
+                    {active && <IconCheck color={theme.orange} size={18} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={{ color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12, fontWeight: '600' }}>Ziel</Text>
+            <View style={{ gap: 8, marginBottom: 24 }}>
+              {goals.map(g => (
+                <TouchableOpacity key={g.key}
+                  style={{ backgroundColor: goal === g.key ? theme.orangeLight : theme.card, borderRadius: 14, padding: 14, borderWidth: 1.5, borderColor: goal === g.key ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                  onPress={() => setGoal(g.key)} activeOpacity={0.85}>
+                  <Text style={{ fontSize: 24 }}>{g.emoji}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textPrimary }}>{g.label}</Text>
+                    <Text style={{ fontSize: 11, color: theme.textSecondary }}>{g.desc}</Text>
+                  </View>
+                  {goal === g.key && <IconCheck color={theme.orange} size={16} />}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity style={{ flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 15, alignItems: 'center', borderWidth: 1, borderColor: theme.border }} onPress={() => setStep('exercises')} activeOpacity={0.85}>
+                <Text style={{ fontSize: 15, fontWeight: '600', color: theme.textSecondary }}>← Zurück</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 2, backgroundColor: selectedDays.length > 0 ? theme.orange : theme.cardSecondary, borderRadius: 14, padding: 15, alignItems: 'center' }}
+                onPress={() => selectedDays.length > 0 && savePlan()} activeOpacity={0.85}>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: selectedDays.length > 0 ? '#fff' : theme.textTertiary }}>Plan erstellen ✓</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        )}
+
+        {/* ── Step 3: Plan anzeigen ── */}
+        {step === 'plan' && (
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
+            {isMonday && (
+              <View style={{ backgroundColor: theme.blueLight, borderRadius: 14, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: theme.blue + '40', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Text style={{ fontSize: 20 }}>📅</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: theme.textPrimary }}>{day.name}</Text>
-                  <Text style={{ fontSize: 11, color: theme.textSecondary }}>{day.focus}</Text>
+                  <Text style={{ color: theme.blue, fontSize: 13, fontWeight: '600' }}>Neue Woche!</Text>
+                  <Text style={{ color: theme.textSecondary, fontSize: 11 }}>Der Plan wurde für diese Woche aktualisiert.</Text>
                 </View>
               </View>
-              {day.exercises.map((ex, ei) => (
-                <View key={ei} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: theme.border }}>
-                  <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>{ex.name}</Text>
-                  <Text style={{ fontSize: 12, color: theme.textSecondary }}>{ex.sets}×{ex.reps}</Text>
-                  {ex.weight > 0 && (
-                    <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orangeBorder }}>
-                      <Text style={{ fontSize: 11, fontWeight: '700', color: theme.orange }}>{ex.weight} kg</Text>
+            )}
+
+            {plan.map((day, i) => (
+              <View key={i} style={{ backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1.5, borderColor: day.exercises.length > 0 ? theme.orange + '40' : theme.border }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: day.exercises.length > 0 ? 12 : 0 }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: day.exercises.length > 0 ? theme.orangeLight : theme.cardSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: day.exercises.length > 0 ? theme.orange + '40' : theme.border }}>
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: day.exercises.length > 0 ? theme.orange : theme.textTertiary }}>{day.dayLabel}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: theme.textPrimary }}>{day.name}</Text>
+                    <Text style={{ fontSize: 11, color: theme.textSecondary }}>{day.focus}</Text>
+                  </View>
+                  {day.exercises.length > 0 && (
+                    <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orange + '40' }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: theme.orange }}>{day.exercises.length} Üb.</Text>
                     </View>
                   )}
                 </View>
-              ))}
+                {day.exercises.map((ex, ei) => (
+                  <View key={ei} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: theme.border }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: MUSCLE_COLORS[DEFAULT_EXERCISES.find(d => d.name === ex.name)?.muscleGroup ?? ''] ?? theme.orange }} />
+                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>{ex.name}</Text>
+                    <Text style={{ fontSize: 12, color: theme.textSecondary }}>{ex.sets}×{ex.reps}</Text>
+                    {ex.weight > 0 && (
+                      <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orange + '40' }}>
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: theme.orange }}>{ex.weight} kg</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </View>
+            ))}
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+              <TouchableOpacity style={{ flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: theme.border }} onPress={resetPlan} activeOpacity={0.85}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textSecondary }}>Plan neu erstellen</Text>
+              </TouchableOpacity>
             </View>
-          ))}
-          <View style={{ backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 12, marginTop: 8 }}>
-            <Text style={{ fontSize: 11, color: theme.textTertiary, textAlign: 'center', lineHeight: 16 }}>
-              Dies ist eine Empfehlung basierend auf deinen PRs. Du kannst sie jederzeit anpassen oder ignorieren.
-            </Text>
-          </View>
-          <View style={{ height: 80 }} />
-        </ScrollView>
+
+            <View style={{ backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 12, marginTop: 10 }}>
+              <Text style={{ fontSize: 11, color: theme.textTertiary, textAlign: 'center', lineHeight: 16 }}>
+                Empfehlung basierend auf deinen PRs und gewählten Übungen. Jeden Montag wird der Plan aktualisiert.
+              </Text>
+            </View>
+            <View style={{ height: 80 }} />
+          </ScrollView>
+        )}
       </View>
     </Modal>
   );
@@ -1756,6 +2012,7 @@ export default function TrainingScreen() {
   const [lastWorkoutData, setLastWorkoutData] = useState<Record<string,WorkoutSet[]>>({});
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [allExercises, setAllExercises] = useState(DEFAULT_EXERCISES);
   const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -1766,6 +2023,8 @@ export default function TrainingScreen() {
   }, []));
 
   async function loadAll() {
+    const rawEx = await AsyncStorage.getItem('userExercises');
+if (rawEx) setAllExercises(JSON.parse(rawEx));
     const rawW = await AsyncStorage.getItem('workouts');
     if (rawW) {
       const ws: Workout[] = JSON.parse(rawW);
@@ -1955,7 +2214,7 @@ export default function TrainingScreen() {
       {showHistory && <HistoryScreen onClose={() => { setShowHistory(false); loadAll(); }} prHistory={prHistory} onDelete={() => loadAll()} />}
       {showPRScreen && <PRScreen prHistory={prHistory} onClose={() => setShowPRScreen(false)} onAddPR={() => { setShowPRScreen(false); setShowPREntry(true); }} />}
       {showPREntry && <PREntryScreen onClose={() => setShowPREntry(false)} onSave={savePR} />}
-      {showPlan && <TrainingPlanScreen onClose={() => setShowPlan(false)} userMaxes={userMaxes} />}
+      {showPlan && <TrainingPlanScreen onClose={() => setShowPlan(false)} userMaxes={userMaxes} allExercises={allExercises} />}
 
       <Modal visible={showDeviceModal} transparent animationType="slide">
         <View style={s.modalOverlay}>
