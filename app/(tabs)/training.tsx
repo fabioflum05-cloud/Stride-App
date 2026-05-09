@@ -171,18 +171,6 @@ function formatDateLabel(iso: string) {
   if (isToday(iso)) return `Heute, ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}. ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
-function getStreak(workouts: Workout[]): number {
-  if (workouts.length === 0) return 0;
-  const sorted = [...workouts].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  let streak = 0;
-  let checkDate = new Date(); checkDate.setHours(0,0,0,0);
-  for (const w of sorted) {
-    const d = new Date(w.date); d.setHours(0,0,0,0);
-    const diff = Math.round((checkDate.getTime() - d.getTime()) / (1000*60*60*24));
-    if (diff === 0 || diff === 1) { streak++; checkDate = d; } else break;
-  }
-  return streak;
-}
 function getWeekTrainings(workouts: Workout[]): boolean[] {
   const result = [false,false,false,false,false,false,false];
   const now = new Date();
@@ -198,17 +186,14 @@ function getWeekTrainings(workouts: Workout[]): boolean[] {
   return result;
 }
 
-// ─── Trainingsscore berechnen ─────────────────────────────────
+// ─── Trainingsscore ───────────────────────────────────────────
 function calcWorkoutScore(workout: Workout, userMaxes: UserMaxes): number {
   if (!workout.exercises || workout.exercises.length === 0) return 0;
   let intensityScore = 0, volumeScore = 0, exerciseCount = 0;
   for (const ex of workout.exercises) {
     const max = userMaxes[ex.name] || 0;
     const best = getBest1RM(ex.sets);
-    if (max > 0 && best > 0) {
-      intensityScore += Math.min(1, best / max);
-      exerciseCount++;
-    }
+    if (max > 0 && best > 0) { intensityScore += Math.min(1, best / max); exerciseCount++; }
     for (const set of ex.sets) {
       const r = parseFloat(set.reps || '0'), w = parseFloat(set.weight || '0');
       if (r > 0 && w > 0) volumeScore += r * w;
@@ -217,16 +202,55 @@ function calcWorkoutScore(workout: Workout, userMaxes: UserMaxes): number {
   const avgIntensity = exerciseCount > 0 ? intensityScore / exerciseCount : 0.5;
   const volScore = Math.min(1, volumeScore / 10000);
   const durScore = Math.min(1, (workout.duration || 30) / 90);
-  const setCount = workout.exercises.reduce((s, ex) => s + ex.sets.length, 0);
-  const setsScore = Math.min(1, setCount / 20);
+  const setsScore = Math.min(1, workout.exercises.reduce((s, ex) => s + ex.sets.length, 0) / 20);
   return Math.round((avgIntensity * 0.4 + volScore * 0.3 + durScore * 0.15 + setsScore * 0.15) * 100);
 }
 
-// ─── Trainingsplan generieren ─────────────────────────────────
-function generateTrainingPlan(goal: string, userMaxes: UserMaxes): { day: string; name: string; focus: string; exercises: { name: string; sets: number; reps: string; weight: number }[] }[] {
-  const hasPRs = Object.keys(userMaxes).length > 0;
+// ─── Ernährungsempfehlung nach Training ───────────────────────
+function getNutritionAdvice(score: number, duration: number, bodyWeight: number): {
+  immediate: { protein: number; carbs: number; timing: string };
+  later: { protein: number; carbs: number; timing: string };
+} {
+  const w = bodyWeight || 75;
+  const intensity = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
+  if (intensity === 'high') {
+    return {
+      immediate: { protein: Math.round(w * 0.4), carbs: Math.round(w * 0.8), timing: 'Sofort (0–30 Min.)' },
+      later: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timing: '2–3 Stunden später' },
+    };
+  } else if (intensity === 'medium') {
+    return {
+      immediate: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timing: 'Sofort (0–45 Min.)' },
+      later: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timing: '3–4 Stunden später' },
+    };
+  } else {
+    return {
+      immediate: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timing: 'Innerhalb 1 Stunde' },
+      later: { protein: Math.round(w * 0.2), carbs: Math.round(w * 0.2), timing: '4–5 Stunden später' },
+    };
+  }
+}
+
+// ─── Plan ─────────────────────────────────────────────────────
+const PLAN_STORE_KEY = 'trainingPlanConfig';
+const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+const FULL_DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
+
+function getISOWeek(date: Date): string {
+  const d = new Date(date);
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const week1 = new Date(d.getFullYear(), 0, 4);
+  return `${d.getFullYear()}-W${String(1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)).padStart(2,'0')}`;
+}
+
+type PlanConfig = { exercises: string[]; trainingDays: number[]; goal: string; generatedWeek: string; };
+type PlanDay = { dayIdx: number; dayLabel: string; name: string; focus: string; exercises: { name: string; sets: number; reps: number; weight: number }[]; };
+
+function buildPlan(config: PlanConfig, userMaxes: UserMaxes, exerciseList: typeof DEFAULT_EXERCISES): PlanDay[] {
+  const { exercises, trainingDays, goal } = config;
   const intensity = goal === 'kraft' ? 0.85 : goal === 'ausdauer' ? 0.6 : 0.72;
-  const repsRange = goal === 'kraft' ? '4' : goal === 'ausdauer' ? '15' : '10';
+  const reps = goal === 'kraft' ? 4 : goal === 'ausdauer' ? 15 : 10;
   const setsCount = goal === 'kraft' ? 5 : goal === 'ausdauer' ? 3 : 4;
 
   function w(name: string) {
@@ -235,42 +259,72 @@ function generateTrainingPlan(goal: string, userMaxes: UserMaxes): { day: string
     return Math.round((max * intensity) / 2.5) * 2.5;
   }
 
-  return [
-    { day: 'Mo', name: 'Push', focus: 'Brust · Schultern · Trizeps', exercises: [
-      { name: 'Bankdrücken', sets: setsCount, reps: repsRange, weight: w('Bankdrücken') },
-      { name: 'Schulterdrücken', sets: setsCount - 1, reps: repsRange, weight: w('Schulterdrücken') },
-      { name: 'Trizepsdrücken', sets: 3, reps: repsRange, weight: w('Trizepsdrücken') },
-    ]},
-    { day: 'Di', name: 'Pull', focus: 'Rücken · Bizeps', exercises: [
-      { name: 'Klimmzüge', sets: setsCount, reps: repsRange, weight: w('Klimmzüge') },
-      { name: 'Rudern', sets: setsCount, reps: repsRange, weight: w('Rudern') },
-      { name: 'Curls', sets: 3, reps: repsRange, weight: w('Curls') },
-    ]},
-    { day: 'Mi', name: 'Pause', focus: 'Aktive Erholung', exercises: [] },
-    { day: 'Do', name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exercises: [
-      { name: 'Kniebeugen', sets: setsCount, reps: repsRange, weight: w('Kniebeugen') },
-      { name: 'Romanian Deadlift', sets: setsCount - 1, reps: repsRange, weight: w('Romanian Deadlift') },
-      { name: 'Hip Thrust', sets: 3, reps: repsRange, weight: w('Hip Thrust') },
-    ]},
-    { day: 'Fr', name: 'Upper', focus: 'Ganzkörper Kraft', exercises: [
-      { name: 'Deadlift', sets: setsCount, reps: repsRange, weight: w('Deadlift') },
-      { name: 'Schulterdrücken', sets: 3, reps: repsRange, weight: w('Schulterdrücken') },
-      { name: 'Seitheben', sets: 3, reps: repsRange, weight: w('Seitheben') },
-    ]},
-    { day: 'Sa', name: 'Optional', focus: 'Schwachstellen', exercises: [] },
-    { day: 'So', name: 'Ruhe', focus: 'Regeneration', exercises: [] },
-  ];
+  const PUSH = ['Brust', 'Schultern', 'Trizeps'];
+  const PULL = ['Rücken', 'Bizeps'];
+  const LEGS = ['Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden'];
+  const CORE = ['Core'];
+
+  function getMG(name: string) { return exerciseList.find(d => d.name === name)?.muscleGroup ?? ''; }
+
+  const pushEx  = exercises.filter(e => PUSH.includes(getMG(e)));
+  const pullEx  = exercises.filter(e => PULL.includes(getMG(e)));
+  const legEx   = exercises.filter(e => LEGS.includes(getMG(e)));
+  const coreEx  = exercises.filter(e => CORE.includes(getMG(e)));
+  const otherEx = exercises.filter(e => ![...PUSH,...PULL,...LEGS,...CORE].includes(getMG(e)));
+
+  const numDays = trainingDays.length;
+  let splits: { name: string; focus: string; exs: string[] }[] = [];
+
+  if (numDays <= 2) {
+    splits = [
+      { name: 'Oberkörper', focus: 'Brust · Rücken · Schultern · Arme', exs: [...pushEx, ...pullEx, ...coreEx] },
+      { name: 'Unterkörper', focus: 'Beine · Gluteus · Waden', exs: [...legEx, ...otherEx] },
+    ];
+  } else if (numDays === 3) {
+    splits = [
+      { name: 'Push', focus: 'Brust · Schultern · Trizeps', exs: pushEx },
+      { name: 'Pull', focus: 'Rücken · Bizeps', exs: pullEx },
+      { name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exs: [...legEx, ...coreEx, ...otherEx] },
+    ];
+  } else if (numDays === 4) {
+    splits = [
+      { name: 'Upper A', focus: 'Brust · Rücken', exs: [...pushEx.slice(0, Math.ceil(pushEx.length/2)), ...pullEx.slice(0, Math.ceil(pullEx.length/2))] },
+      { name: 'Lower A', focus: 'Quadrizeps · Hamstrings', exs: [...legEx.slice(0, Math.ceil(legEx.length/2)), ...otherEx] },
+      { name: 'Upper B', focus: 'Schultern · Arme · Core', exs: [...pushEx.slice(Math.ceil(pushEx.length/2)), ...pullEx.slice(Math.ceil(pullEx.length/2)), ...coreEx] },
+      { name: 'Lower B', focus: 'Gluteus · Waden', exs: legEx.slice(Math.ceil(legEx.length/2)) },
+    ];
+  } else {
+    splits = [
+      { name: 'Push', focus: 'Brust · Trizeps', exs: [...exercises.filter(e => getMG(e) === 'Brust'), ...exercises.filter(e => getMG(e) === 'Trizeps')] },
+      { name: 'Pull', focus: 'Rücken · Bizeps', exs: pullEx },
+      { name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exs: legEx },
+      { name: 'Schultern & Core', focus: 'Schultern · Core', exs: [...exercises.filter(e => getMG(e) === 'Schultern'), ...coreEx] },
+      { name: 'Ganzkörper', focus: 'Alle Gruppen', exs: [...otherEx, ...exercises.slice(0, 4)] },
+    ].slice(0, numDays);
+  }
+
+  splits = splits.map(sp => ({ ...sp, exs: sp.exs.length > 0 ? sp.exs : exercises.slice(0, Math.min(4, exercises.length)) }));
+
+  return Array.from({ length: 7 }, (_, i) => {
+    const trainingIdx = trainingDays.indexOf(i);
+    if (trainingIdx === -1) return { dayIdx: i, dayLabel: DAY_NAMES[i], name: 'Pause', focus: 'Regeneration', exercises: [] };
+    const split = splits[trainingIdx % splits.length];
+    return {
+      dayIdx: i, dayLabel: DAY_NAMES[i], name: split.name, focus: split.focus,
+      exercises: split.exs.map(ex => ({ name: ex, sets: setsCount, reps, weight: w(ex) })),
+    };
+  });
 }
 
-// ─── SVG Icons ────────────────────────────────────────────────
+// ─── Icons ────────────────────────────────────────────────────
 function IconDumbbell({ color, size = 20 }: { color: string; size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 28 28" fill="none">
-      <Rect x="2"  y="11"   width="4"  height="6"  rx="1.5" fill={color} />
-      <Rect x="22" y="11"   width="4"  height="6"  rx="1.5" fill={color} />
-      <Rect x="5"  y="9"    width="3"  height="10" rx="1.5" fill={color} />
-      <Rect x="20" y="9"    width="3"  height="10" rx="1.5" fill={color} />
-      <Rect x="8"  y="12.5" width="12" height="3"  rx="1.5" fill={color} />
+      <Rect x="2" y="11" width="4" height="6" rx="1.5" fill={color} />
+      <Rect x="22" y="11" width="4" height="6" rx="1.5" fill={color} />
+      <Rect x="5" y="9" width="3" height="10" rx="1.5" fill={color} />
+      <Rect x="20" y="9" width="3" height="10" rx="1.5" fill={color} />
+      <Rect x="8" y="12.5" width="12" height="3" rx="1.5" fill={color} />
     </Svg>
   );
 }
@@ -298,122 +352,55 @@ function IconHistory({ color, size = 20 }: { color: string; size?: number }) {
   );
 }
 function IconChevronRight({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M9 18L15 12L9 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M9 18L15 12L9 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" /></Svg>;
 }
 function IconChevronLeft({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M15 18L9 12L15 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M15 18L9 12L15 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" /></Svg>;
 }
 function IconClose({ color, size = 16 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M18 6L6 18M6 6L18 18" stroke={color} strokeWidth={2} strokeLinecap="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M18 6L6 18M6 6L18 18" stroke={color} strokeWidth={2} strokeLinecap="round" /></Svg>;
 }
 function IconTrophy({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M6 9H4C3.45 9 3 8.55 3 8V4C3 3.45 3.45 3 4 3H20C20.55 3 21 3.45 21 4V8C21 8.55 20.55 9 20 9H18M6 9C6 13 9 17 12 17C15 17 18 13 18 9M6 9H18M12 17V21M8 21H16" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M6 9H4C3.45 9 3 8.55 3 8V4C3 3.45 3.45 3 4 3H20C20.55 3 21 3.45 21 4V8C21 8.55 20.55 9 20 9H18M6 9C6 13 9 17 12 17C15 17 18 13 18 9M6 9H18M12 17V21M8 21H16" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
 function IconSync({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M21 2V8H15M3 22V16H9M21 13C20.6 17.4 16.8 21 12 21C7.6 21 4 18 3 14M3 11C3.4 6.6 7.2 3 12 3C16.4 3 20 6 21 10" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M21 2V8H15M3 22V16H9M21 13C20.6 17.4 16.8 21 12 21C7.6 21 4 18 3 14M3 11C3.4 6.6 7.2 3 12 3C16.4 3 20 6 21 10" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
 function IconPlus({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 5V19M5 12H19" stroke={color} strokeWidth={2} strokeLinecap="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M12 5V19M5 12H19" stroke={color} strokeWidth={2} strokeLinecap="round" /></Svg>;
 }
 function IconSearch({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={11} cy={11} r={7} stroke={color} strokeWidth={1.8} />
-      <Path d="M16.5 16.5L21 21" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Circle cx={11} cy={11} r={7} stroke={color} strokeWidth={1.8} /><Path d="M16.5 16.5L21 21" stroke={color} strokeWidth={1.8} strokeLinecap="round" /></Svg>;
 }
 function IconPlay({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M6 4L20 12L6 20V4Z" fill={color} />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M6 4L20 12L6 20V4Z" fill={color} /></Svg>;
 }
 function IconList({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M8 6H21M8 12H21M8 18H21M3 6H3.01M3 12H3.01M3 18H3.01" stroke={color} strokeWidth={2} strokeLinecap="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M8 6H21M8 12H21M8 18H21M3 6H3.01M3 12H3.01M3 18H3.01" stroke={color} strokeWidth={2} strokeLinecap="round" /></Svg>;
 }
 function IconPencil({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M11 4H4C3.45 4 3 4.45 3 5V20C3 20.55 3.45 21 4 21H19C19.55 21 20 20.55 20 19V12M18.5 2.5C19.33 1.67 20.67 1.67 21.5 2.5C22.33 3.33 22.33 4.67 21.5 5.5L12 15L8 16L9 12L18.5 2.5Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M11 4H4C3.45 4 3 4.45 3 5V20C3 20.55 3.45 21 4 21H19C19.55 21 20 20.55 20 19V12M18.5 2.5C19.33 1.67 20.67 1.67 21.5 2.5C22.33 3.33 22.33 4.67 21.5 5.5L12 15L8 16L9 12L18.5 2.5Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
 function IconArrowUp({ color, size = 16 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 19V5M5 12L12 5L19 12" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M12 19V5M5 12L12 5L19 12" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
 function IconArrowDown({ color, size = 16 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 5V19M5 12L12 19L19 12" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M12 5V19M5 12L12 19L19 12" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
 function IconCheck({ color, size = 14 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M20 6L9 17L4 12" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M20 6L9 17L4 12" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
 function IconChevronsRight({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M7 17L12 12L7 7M13 17L18 12L13 7" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M7 17L12 12L7 7M13 17L18 12L13 7" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
 function IconTrash({ color, size = 18 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M3 6H21M8 6V4H16V6M19 6L18 20H6L5 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M3 6H21M8 6V4H16V6M19 6L18 20H6L5 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
 function IconCalendar({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M8 2V5M16 2V5M3 8H21M5 4H19C20.1 4 21 4.9 21 6V20C21 21.1 20.1 22 19 22H5C3.9 22 3 21.1 3 20V6C3 4.9 3.9 4 5 4Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-    </Svg>
-  );
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M8 2V5M16 2V5M3 8H21M5 4H19C20.1 4 21 4.9 21 6V20C21 21.1 20.1 22 19 22H5C3.9 22 3 21.1 3 20V6C3 4.9 3.9 4 5 4Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" /></Svg>;
 }
 
-// ─── Swipe To Start ───────────────────────────────────────────
-// Uses its own PanResponder that captures horizontal swipes
-// and does NOT let them bubble up to the tab swipe handler.
+// ─── SwipeToStart ─────────────────────────────────────────────
 function SwipeToStart({ onStart }: { onStart: () => void }) {
   const THUMB_SIZE = 56;
   const [trackWidth, setTrackWidth] = useState(SW - 64);
@@ -426,9 +413,7 @@ function SwipeToStart({ onStart }: { onStart: () => void }) {
     onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 5,
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: () => { completed.current = false; },
-    onPanResponderMove: (_, gs) => {
-      translateX.setValue(Math.max(0, Math.min(gs.dx, MAX_DRAG)));
-    },
+    onPanResponderMove: (_, gs) => { translateX.setValue(Math.max(0, Math.min(gs.dx, MAX_DRAG))); },
     onPanResponderRelease: (_, gs) => {
       if (gs.dx > MAX_DRAG * 0.7 && !completed.current) {
         completed.current = true;
@@ -454,15 +439,12 @@ function SwipeToStart({ onStart }: { onStart: () => void }) {
   );
 }
 
-// ─── Persistent Workout Timer ──────────────────────────────────
-// Stores startedAt in AsyncStorage so it survives app restarts.
-// Stops automatically when workout ends.
+// ─── useWorkoutTimer ──────────────────────────────────────────
 function useWorkoutTimer(timerKey: string) {
   const [seconds, setSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const intervalRef = useRef<any>(null);
   const startAtRef = useRef<number | null>(null);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     AsyncStorage.getItem(timerKey).then(raw => {
@@ -476,12 +458,9 @@ function useWorkoutTimer(timerKey: string) {
         }
       } catch {}
     });
-
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'active' && startAtRef.current) {
+      if (next === 'active' && startAtRef.current)
         setSeconds(Math.floor((Date.now() - startAtRef.current) / 1000));
-      }
-      appStateRef.current = next;
     });
     return () => { sub.remove(); clearInterval(intervalRef.current); };
   }, [timerKey]);
@@ -489,8 +468,7 @@ function useWorkoutTimer(timerKey: string) {
   useEffect(() => {
     if (isRunning && startAtRef.current) {
       intervalRef.current = setInterval(() => {
-        if (startAtRef.current)
-          setSeconds(Math.floor((Date.now() - startAtRef.current) / 1000));
+        if (startAtRef.current) setSeconds(Math.floor((Date.now() - startAtRef.current) / 1000));
       }, 1000);
     } else {
       clearInterval(intervalRef.current);
@@ -507,7 +485,9 @@ function useWorkoutTimer(timerKey: string) {
 
   const stop = useCallback(async () => {
     clearInterval(intervalRef.current);
+    startAtRef.current = null;
     setIsRunning(false);
+    setSeconds(0);
     await AsyncStorage.removeItem(timerKey);
   }, [timerKey]);
 
@@ -519,14 +499,13 @@ function useWorkoutTimer(timerKey: string) {
   return { seconds, isRunning, startNow, stop, getDuration };
 }
 
-// ─── Persistent Rest Timer ─────────────────────────────────────
+// ─── useRestTimer ─────────────────────────────────────────────
 function useRestTimer() {
   const [seconds, setSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [targetSeconds, setTargetSeconds] = useState(90);
   const startAtRef = useRef<number | null>(null);
   const intervalRef = useRef<any>(null);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const STORE_KEY = 'restTimerData';
 
   useEffect(() => {
@@ -535,28 +514,18 @@ function useRestTimer() {
       try {
         const { startedAt, target } = JSON.parse(raw);
         if (startedAt && target) {
-          const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-          const remaining = Math.max(0, target - elapsed);
-          if (remaining > 0) {
-            startAtRef.current = startedAt;
-            setTargetSeconds(target);
-            setSeconds(remaining);
-            setIsRunning(true);
-          } else {
-            AsyncStorage.removeItem(STORE_KEY);
-          }
+          const remaining = Math.max(0, target - Math.floor((Date.now() - startedAt) / 1000));
+          if (remaining > 0) { startAtRef.current = startedAt; setTargetSeconds(target); setSeconds(remaining); setIsRunning(true); }
+          else AsyncStorage.removeItem(STORE_KEY);
         }
       } catch {}
     });
-
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       if (next === 'active' && startAtRef.current && isRunning) {
-        const elapsed = Math.floor((Date.now() - startAtRef.current) / 1000);
-        const remaining = Math.max(0, targetSeconds - elapsed);
+        const remaining = Math.max(0, targetSeconds - Math.floor((Date.now() - startAtRef.current) / 1000));
         setSeconds(remaining);
         if (remaining === 0) { setIsRunning(false); AsyncStorage.removeItem(STORE_KEY); }
       }
-      appStateRef.current = next;
     });
     return () => sub.remove();
   }, []);
@@ -565,31 +534,24 @@ function useRestTimer() {
     if (isRunning && startAtRef.current) {
       intervalRef.current = setInterval(() => {
         if (!startAtRef.current) return;
-        const elapsed = Math.floor((Date.now() - startAtRef.current) / 1000);
-        const remaining = Math.max(0, targetSeconds - elapsed);
+        const remaining = Math.max(0, targetSeconds - Math.floor((Date.now() - startAtRef.current) / 1000));
         setSeconds(remaining);
         if (remaining === 0) { setIsRunning(false); startAtRef.current = null; AsyncStorage.removeItem(STORE_KEY); clearInterval(intervalRef.current); }
       }, 1000);
-    } else {
-      clearInterval(intervalRef.current);
-    }
+    } else clearInterval(intervalRef.current);
     return () => clearInterval(intervalRef.current);
   }, [isRunning, targetSeconds]);
 
   function startFor(secs: number) {
     const now = Date.now();
-    startAtRef.current = now;
-    setTargetSeconds(secs);
-    setSeconds(secs);
-    setIsRunning(true);
+    startAtRef.current = now; setTargetSeconds(secs); setSeconds(secs); setIsRunning(true);
     AsyncStorage.setItem(STORE_KEY, JSON.stringify({ startedAt: now, target: secs }));
   }
   function stopRest() { setIsRunning(false); setSeconds(0); startAtRef.current = null; AsyncStorage.removeItem(STORE_KEY); }
-  const pct = targetSeconds > 0 ? Math.max(0, seconds / targetSeconds) : 0;
-  return { seconds, isRunning, startFor, stop: stopRest, pct };
+  return { seconds, isRunning, startFor, stop: stopRest, pct: targetSeconds > 0 ? Math.max(0, seconds / targetSeconds) : 0 };
 }
 
-// ─── Exercise Picker ──────────────────────────────────────────
+// ─── ExercisePicker ───────────────────────────────────────────
 function ExercisePicker({ allExercises, onSelect, onClose }: {
   allExercises: typeof DEFAULT_EXERCISES;
   onSelect: (name: string, muscleGroup: string) => void;
@@ -627,9 +589,7 @@ function ExercisePicker({ allExercises, onSelect, onClose }: {
             <TextInput style={s.input} value={customName} onChangeText={setCustomName} placeholder="Name" placeholderTextColor={theme.textTertiary} />
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginVertical: 8 }}>
               {MUSCLE_GROUPS.map(mg => (
-                <TouchableOpacity key={mg}
-                  style={[s.presetChip, customMuscle === mg && { backgroundColor: theme.orangeLight, borderColor: theme.orange, borderWidth: 1 }]}
-                  onPress={() => setCustomMuscle(mg)}>
+                <TouchableOpacity key={mg} style={[s.presetChip, customMuscle === mg && { backgroundColor: theme.orangeLight, borderColor: theme.orange, borderWidth: 1 }]} onPress={() => setCustomMuscle(mg)}>
                   <Text style={[s.presetChipText, customMuscle === mg && { color: theme.orange }]}>{mg}</Text>
                 </TouchableOpacity>
               ))}
@@ -637,9 +597,7 @@ function ExercisePicker({ allExercises, onSelect, onClose }: {
             <TouchableOpacity style={s.saveBtn} onPress={() => { if (customName.trim()) onSelect(customName.trim(), customMuscle); }}>
               <Text style={s.saveBtnText}>Hinzufügen</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.cancelBtn} onPress={onClose}>
-              <Text style={s.cancelBtnText}>Abbrechen</Text>
-            </TouchableOpacity>
+            <TouchableOpacity style={s.cancelBtn} onPress={onClose}><Text style={s.cancelBtnText}>Abbrechen</Text></TouchableOpacity>
           </View>
         </ScrollView>
       </View>
@@ -647,11 +605,8 @@ function ExercisePicker({ allExercises, onSelect, onClose }: {
   );
 }
 
-// ─── PR Entry Screen ──────────────────────────────────────────
-function PREntryScreen({ onClose, onSave }: {
-  onClose: () => void;
-  onSave: (exerciseName: string, weight: number, reps: number) => void;
-}) {
+// ─── PREntryScreen ────────────────────────────────────────────
+function PREntryScreen({ onClose, onSave }: { onClose: () => void; onSave: (name: string, weight: number, reps: number) => void }) {
   const [step, setStep] = useState<'exercise'|'entry'>('exercise');
   const [selectedExercise, setSelectedExercise] = useState('');
   const [selectedReps, setSelectedReps] = useState(1);
@@ -662,17 +617,14 @@ function PREntryScreen({ onClose, onSave }: {
   function handleSave() {
     const w = parseFloat(weight);
     if (!w || w <= 0) { Alert.alert('Bitte Gewicht eingeben'); return; }
-    onSave(selectedExercise, w, selectedReps);
-    onClose();
+    onSave(selectedExercise, w, selectedReps); onClose();
   }
 
   return (
     <Modal visible animationType="slide">
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
         <View style={prEntry.header}>
-          <TouchableOpacity onPress={onClose} style={prEntry.closeBtn}>
-            <IconClose color={theme.textPrimary} size={16} />
-          </TouchableOpacity>
+          <TouchableOpacity onPress={onClose} style={prEntry.closeBtn}><IconClose color={theme.textPrimary} size={16} /></TouchableOpacity>
           <View style={{ flex: 1 }}>
             <Text style={prEntry.eyebrow}>Personal Record</Text>
             <Text style={prEntry.title}>{step === 'exercise' ? 'Übung wählen' : selectedExercise}</Text>
@@ -742,7 +694,7 @@ function PREntryScreen({ onClose, onSave }: {
   );
 }
 
-// ─── PR Screen ────────────────────────────────────────────────
+// ─── PRScreen ─────────────────────────────────────────────────
 function PRScreen({ prHistory, onClose, onAddPR }: { prHistory: PRHistory; onClose: () => void; onAddPR: () => void }) {
   const entries = Object.entries(prHistory).sort((a,b) => (b[1][b[1].length-1]?.estimated1RM ?? 0) - (a[1][a[1].length-1]?.estimated1RM ?? 0));
   return (
@@ -753,14 +705,12 @@ function PRScreen({ prHistory, onClose, onAddPR }: { prHistory: PRHistory; onClo
           <TouchableOpacity style={hist.closeBtn} onPress={onClose}><IconClose color={theme.textPrimary} size={16} /></TouchableOpacity>
         </View>
         <TouchableOpacity style={prSt.addBtn} onPress={onAddPR} activeOpacity={0.85}>
-          <IconPlus color="#fff" size={18} />
-          <Text style={prSt.addBtnText}>PR eintragen</Text>
+          <IconPlus color="#fff" size={18} /><Text style={prSt.addBtnText}>PR eintragen</Text>
         </TouchableOpacity>
         {entries.length === 0 ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 14 }}>
             <IconTrophy color={theme.textTertiary} size={40} />
             <Text style={{ fontSize: 20, fontWeight: '700', color: theme.textPrimary, textAlign: 'center' }}>Noch keine PRs</Text>
-            <Text style={{ fontSize: 14, color: theme.textSecondary, textAlign: 'center', lineHeight: 21 }}>Trag deinen ersten PR ein.</Text>
           </View>
         ) : (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
@@ -823,65 +773,45 @@ function PRScreen({ prHistory, onClose, onAddPR }: { prHistory: PRHistory; onClo
   );
 }
 
-// ─── Workout Detail Screen ────────────────────────────────────
+// ─── WorkoutDetailScreen ──────────────────────────────────────
 function WorkoutDetailScreen({ item, onClose }: { item: any; onClose: () => void }) {
   const isRun = item._kind === 'run';
   const r = isRun ? item.data as RunData : null;
   const w = !isRun ? item.data as Workout : null;
   return (
     <Modal visible animationType="slide">
-      <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
-        <View style={{ backgroundColor: '#fff', paddingTop: 56, paddingHorizontal: 16, paddingBottom: 16, borderBottomWidth: 0.5, borderBottomColor: '#F2F2F7' }}>
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        <View style={{ backgroundColor: theme.card, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 16, borderBottomWidth: 0.5, borderBottomColor: theme.border }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
-            <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F2F2F7', alignItems: 'center', justifyContent: 'center', marginTop: 4 }} onPress={onClose}>
-              <IconChevronLeft color="#000" size={20} />
+            <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.cardSecondary, alignItems: 'center', justifyContent: 'center', marginTop: 4 }} onPress={onClose}>
+              <IconChevronLeft color={theme.textPrimary} size={20} />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: '#FF6B00', marginBottom: 3 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: theme.orange, marginBottom: 3 }}>
                 {isRun ? 'Lauf' : 'Kraft'} · {formatDateLabel(item.data.date)}
               </Text>
-              <Text style={{ fontSize: 22, fontWeight: '800', color: '#000', letterSpacing: -0.5 }}>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.5 }}>
                 {isRun ? 'Lauftraining' : w?.name}
               </Text>
             </View>
             {!isRun && w?.score !== undefined && (
-              <View style={{ backgroundColor: '#FFF4EC', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#FFD4B0' }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#FF6B00' }}>Score {w.score}</Text>
+              <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: theme.orangeBorder }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.orange }}>Score {w.score}</Text>
               </View>
             )}
           </View>
           <View style={{ flexDirection: 'row', gap: 6 }}>
             {isRun && r ? (
               <>
-                <View style={{ flex: 1, backgroundColor: '#F9F9F9', borderRadius: 10, padding: 10, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#34C759' }}>{r.distance.toFixed(2)}</Text>
-                  <Text style={{ fontSize: 8, color: '#C7C7CC', textTransform: 'uppercase', letterSpacing: 0.4 }}>km</Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: '#F9F9F9', borderRadius: 10, padding: 10, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#1A73E8' }}>{formatTime(r.duration)}</Text>
-                  <Text style={{ fontSize: 8, color: '#C7C7CC', textTransform: 'uppercase', letterSpacing: 0.4 }}>Zeit</Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: '#F9F9F9', borderRadius: 10, padding: 10, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#FF9500' }}>{r.pace}</Text>
-                  <Text style={{ fontSize: 8, color: '#C7C7CC', textTransform: 'uppercase', letterSpacing: 0.4 }}>/km</Text>
-                </View>
+                <View style={detailStat}><Text style={{ fontSize: 16, fontWeight: '700', color: theme.green }}>{r.distance.toFixed(2)}</Text><Text style={detailStatLbl}>km</Text></View>
+                <View style={detailStat}><Text style={{ fontSize: 16, fontWeight: '700', color: theme.blue }}>{formatTime(r.duration)}</Text><Text style={detailStatLbl}>Zeit</Text></View>
+                <View style={detailStat}><Text style={{ fontSize: 16, fontWeight: '700', color: theme.orange }}>{r.pace}</Text><Text style={detailStatLbl}>/km</Text></View>
               </>
             ) : w ? (
               <>
-                <View style={{ flex: 1, backgroundColor: '#F9F9F9', borderRadius: 10, padding: 10, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#FF6B00' }}>{w.exercises?.length ?? 0}</Text>
-                  <Text style={{ fontSize: 8, color: '#C7C7CC', textTransform: 'uppercase', letterSpacing: 0.4 }}>Übungen</Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: '#F9F9F9', borderRadius: 10, padding: 10, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#1A73E8' }}>{w.exercises?.reduce((s,ex) => s+ex.sets.length,0) ?? 0}</Text>
-                  <Text style={{ fontSize: 8, color: '#C7C7CC', textTransform: 'uppercase', letterSpacing: 0.4 }}>Sets</Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: '#F9F9F9', borderRadius: 10, padding: 10, alignItems: 'center' }}>
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#7C3AED' }}>
-                    {Math.round(w.exercises?.reduce((t,ex) => t+ex.sets.reduce((s,set) => s+parseFloat(set.reps||'0')*parseFloat(set.weight||'0'),0),0) ?? 0).toLocaleString()}
-                  </Text>
-                  <Text style={{ fontSize: 8, color: '#C7C7CC', textTransform: 'uppercase', letterSpacing: 0.4 }}>kg Vol.</Text>
-                </View>
+                <View style={detailStat}><Text style={{ fontSize: 16, fontWeight: '700', color: theme.orange }}>{w.exercises?.length ?? 0}</Text><Text style={detailStatLbl}>Übungen</Text></View>
+                <View style={detailStat}><Text style={{ fontSize: 16, fontWeight: '700', color: theme.blue }}>{w.exercises?.reduce((s,ex) => s+ex.sets.length,0) ?? 0}</Text><Text style={detailStatLbl}>Sets</Text></View>
+                <View style={detailStat}><Text style={{ fontSize: 16, fontWeight: '700', color: theme.pink }}>{Math.round(w.exercises?.reduce((t,ex) => t+ex.sets.reduce((s,set) => s+parseFloat(set.reps||'0')*parseFloat(set.weight||'0'),0),0) ?? 0).toLocaleString()}</Text><Text style={detailStatLbl}>kg Vol.</Text></View>
               </>
             ) : null}
           </View>
@@ -891,31 +821,29 @@ function WorkoutDetailScreen({ item, onClose }: { item: any; onClose: () => void
             const mc = MUSCLE_COLORS[exercise.muscleGroup] || '#888';
             const best1RM = getBest1RM(exercise.sets);
             return (
-              <View key={i} style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 8, borderWidth: 0.5, borderColor: '#E5E5EA' }}>
+              <View key={i} style={{ backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 8, borderWidth: 0.5, borderColor: theme.border }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                  <View style={{ backgroundColor: mc+'20', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 }}>
+                  <View style={{ backgroundColor: mc+'22', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 }}>
                     <Text style={{ fontSize: 10, fontWeight: '600', color: mc }}>{exercise.muscleGroup}</Text>
                   </View>
-                  <Text style={{ flex: 1, fontSize: 14, fontWeight: '700', color: '#000' }}>{exercise.name}</Text>
-                  {best1RM > 0 && (
-                    <Text style={{ fontSize: 11, color: '#8E8E93' }}>1RM: <Text style={{ color: '#1A73E8', fontWeight: '600' }}>{best1RM} kg</Text></Text>
-                  )}
+                  <Text style={{ flex: 1, fontSize: 14, fontWeight: '700', color: theme.textPrimary }}>{exercise.name}</Text>
+                  {best1RM > 0 && <Text style={{ fontSize: 11, color: theme.textSecondary }}>1RM: <Text style={{ color: theme.blue, fontWeight: '600' }}>{best1RM} kg</Text></Text>}
                 </View>
                 <View style={{ flexDirection: 'row', gap: 4, marginBottom: 6 }}>
-                  <Text style={{ fontSize: 9, color: '#C7C7CC', width: 20, textAlign: 'center', textTransform: 'uppercase' }}>#</Text>
-                  <Text style={{ fontSize: 9, color: '#C7C7CC', flex: 1, textAlign: 'center', textTransform: 'uppercase' }}>Wdh.</Text>
-                  <Text style={{ fontSize: 9, color: '#C7C7CC', flex: 1, textAlign: 'center', textTransform: 'uppercase' }}>kg</Text>
-                  <Text style={{ fontSize: 9, color: '#C7C7CC', flex: 1, textAlign: 'center', textTransform: 'uppercase' }}>1RM</Text>
+                  <Text style={{ fontSize: 9, color: theme.textTertiary, width: 20, textAlign: 'center', textTransform: 'uppercase' }}>#</Text>
+                  <Text style={{ fontSize: 9, color: theme.textTertiary, flex: 1, textAlign: 'center', textTransform: 'uppercase' }}>Wdh.</Text>
+                  <Text style={{ fontSize: 9, color: theme.textTertiary, flex: 1, textAlign: 'center', textTransform: 'uppercase' }}>kg</Text>
+                  <Text style={{ fontSize: 9, color: theme.textTertiary, flex: 1, textAlign: 'center', textTransform: 'uppercase' }}>1RM</Text>
                 </View>
                 {exercise.sets.map((set, si) => {
                   const oneRM = calc1RM(parseFloat(set.weight||'0'), parseFloat(set.reps||'0'));
                   const isBest = oneRM === best1RM && best1RM > 0;
                   return (
                     <View key={si} style={{ flexDirection: 'row', gap: 4, marginBottom: 4 }}>
-                      <Text style={{ fontSize: 12, color: '#C7C7CC', width: 20, textAlign: 'center' }}>{si+1}</Text>
-                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#000', flex: 1, textAlign: 'center' }}>{set.reps||'—'}</Text>
-                      <Text style={{ fontSize: 12, fontWeight: '600', color: '#000', flex: 1, textAlign: 'center' }}>{set.weight||'—'}</Text>
-                      <Text style={{ fontSize: 12, fontWeight: '600', flex: 1, textAlign: 'center', color: isBest ? '#34C759' : '#1A73E8' }}>
+                      <Text style={{ fontSize: 12, color: theme.textTertiary, width: 20, textAlign: 'center' }}>{si+1}</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: theme.textPrimary, flex: 1, textAlign: 'center' }}>{set.reps||'—'}</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '600', color: theme.textPrimary, flex: 1, textAlign: 'center' }}>{set.weight||'—'}</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '600', flex: 1, textAlign: 'center', color: isBest ? theme.green : theme.blue }}>
                         {oneRM > 0 ? oneRM : '—'}{isBest ? ' ↑' : ''}
                       </Text>
                     </View>
@@ -930,14 +858,13 @@ function WorkoutDetailScreen({ item, onClose }: { item: any; onClose: () => void
     </Modal>
   );
 }
+const detailStat: any = { flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 10, alignItems: 'center' };
+const detailStatLbl: any = { fontSize: 8, color: 'rgba(245,240,238,0.3)', textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 2 };
 
-// ─── History Screen ───────────────────────────────────────────
-function HistoryScreen({ onClose, prHistory, onDelete }: {
-  onClose: () => void; prHistory: PRHistory; onDelete: (id: string) => void;
-}) {
+// ─── HistoryScreen ─────────────────────────────────────────────
+function HistoryScreen({ onClose, prHistory, onDelete }: { onClose: () => void; prHistory: PRHistory; onDelete: (id: string) => void }) {
   const [filter, setFilter] = useState<'alle'|'kraft'|'judo'|'lauf'|'sonstiges'>('alle');
   const [workouts, setWorkouts] = useState<Workout[]>([]);
-  const [allExercises, setAllExercises] = useState(DEFAULT_EXERCISES);
   const [runs, setRuns] = useState<RunData[]>([]);
   const [selectedItem, setSelectedItem] = useState<any>(null);
 
@@ -973,71 +900,69 @@ function HistoryScreen({ onClose, prHistory, onDelete }: {
       { text: 'Löschen', style: 'destructive', onPress: async () => {
         if (item._kind === 'workout') {
           const updated = workouts.filter(w => w.id !== item.data.id);
-          setWorkouts(updated);
-          await AsyncStorage.setItem('workouts', JSON.stringify(updated));
-          onDelete(item.data.id);
+          setWorkouts(updated); await AsyncStorage.setItem('workouts', JSON.stringify(updated)); onDelete(item.data.id);
         } else {
           const updated = runs.filter(r => r.id !== item.data.id);
-          setRuns(updated);
-          await AsyncStorage.setItem('runs', JSON.stringify(updated));
+          setRuns(updated); await AsyncStorage.setItem('runs', JSON.stringify(updated));
         }
       }},
     ]);
   }
 
-  const typeConfig: Record<string,{ bg:string; color:string; label:string; border:string }> = {
-    gym:    { bg:'#FFF4EC', color:'#FF6B00', label:'Kraft',     border:'#FFD4B0' },
-    judo:   { bg:'#EDEAFF', color:'#5E5CE6', label:'Judo',      border:'#C8C3FF' },
-    manual: { bg:'#F2F2F7', color:'#8E8E93', label:'Sonstiges', border:'#E5E5EA' },
-    run:    { bg:'#EDFAF3', color:'#34C759', label:'Lauf',      border:'#B0ECC8' },
+  const typeConfig: Record<string,{ color:string; label:string }> = {
+    gym:    { color: theme.orange, label: 'Kraft' },
+    judo:   { color: theme.blue,   label: 'Judo' },
+    manual: { color: theme.textSecondary, label: 'Sonstiges' },
+    run:    { color: theme.green,  label: 'Lauf' },
   };
 
   if (selectedItem) return <WorkoutDetailScreen item={selectedItem} onClose={() => setSelectedItem(null)} />;
 
   return (
     <Modal visible animationType="slide">
-      <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
-        <View style={{ backgroundColor: '#fff', paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 0.5, borderBottomColor: '#F2F2F7' }}>
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        {/* Header */}
+        <View style={{ backgroundColor: theme.card, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 0.5, borderBottomColor: theme.border }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
             <View>
-              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', color: '#FF6B00', marginBottom: 4 }}>Training</Text>
-              <Text style={{ fontSize: 26, fontWeight: '800', color: '#000', letterSpacing: -0.6 }}>Verlauf</Text>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', color: theme.orange, marginBottom: 4 }}>Training</Text>
+              <Text style={{ fontSize: 26, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.6 }}>Verlauf</Text>
             </View>
-            <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#F2F2F7', alignItems: 'center', justifyContent: 'center' }} onPress={onClose}>
-              <IconClose color="#000" size={16} />
+            <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.cardSecondary, alignItems: 'center', justifyContent: 'center' }} onPress={onClose}>
+              <IconClose color={theme.textPrimary} size={16} />
             </TouchableOpacity>
           </View>
           <View style={{ flexDirection: 'row', gap: 6 }}>
-            <View style={{ backgroundColor: '#FFF4EC', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#FFD4B0' }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: '#FF6B00' }}>{workouts.filter(w => w.type==='gym').length} Kraft</Text>
+            <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: theme.orangeBorder }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.orange }}>{workouts.filter(w => w.type==='gym').length} Kraft</Text>
             </View>
-            <View style={{ backgroundColor: '#EDFAF3', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#B0ECC8' }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: '#34C759' }}>{runs.length} Läufe</Text>
+            <View style={{ backgroundColor: theme.greenLight, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: theme.green+'40' }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.green }}>{runs.length} Läufe</Text>
             </View>
-            <View style={{ backgroundColor: '#F2F2F7', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#E5E5EA' }}>
-              <Text style={{ fontSize: 12, fontWeight: '700', color: '#8E8E93' }}>{allItems.length} Total</Text>
+            <View style={{ backgroundColor: theme.cardSecondary, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: theme.border }}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: theme.textSecondary }}>{allItems.length} Total</Text>
             </View>
           </View>
         </View>
+        {/* Filter */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          style={{ backgroundColor: '#fff', borderBottomWidth: 0.5, borderBottomColor: '#F2F2F7' }}
+          style={{ backgroundColor: theme.card, borderBottomWidth: 0.5, borderBottomColor: theme.border, maxHeight: 50 }}
           contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 10, gap: 6, flexDirection: 'row' }}>
           {FILTERS.map(f => (
             <TouchableOpacity key={f.key}
-              style={{ borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, backgroundColor: filter === f.key ? '#000' : '#F2F2F7' }}
+              style={{ borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: filter === f.key ? theme.orange : theme.cardSecondary }}
               onPress={() => setFilter(f.key)}>
-              <Text style={{ fontSize: 12, fontWeight: '600', color: filter === f.key ? '#fff' : '#000' }}>{f.label}</Text>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: filter === f.key ? '#fff' : theme.textSecondary }}>{f.label}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 14 }}>
           {filtered.length === 0 && (
             <View style={{ alignItems: 'center', paddingVertical: 60, gap: 12 }}>
-              <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: '#F2F2F7', alignItems: 'center', justifyContent: 'center' }}>
-                <IconHistory color="#C7C7CC" size={32} />
+              <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: theme.cardSecondary, alignItems: 'center', justifyContent: 'center' }}>
+                <IconHistory color={theme.textTertiary} size={32} />
               </View>
-              <Text style={{ fontSize: 17, fontWeight: '700', color: '#000' }}>Keine Trainings gefunden</Text>
-              <Text style={{ fontSize: 13, color: '#8E8E93', textAlign: 'center' }}>Starte dein erstes Training.</Text>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: theme.textPrimary }}>Keine Trainings gefunden</Text>
             </View>
           )}
           {filtered.map((item, i) => {
@@ -1050,61 +975,58 @@ function HistoryScreen({ onClose, prHistory, onDelete }: {
             const hasPR = !isRun && w?.exercises?.some(ex => (prHistory?.[ex.name]?.length ?? 0) > 0);
             return (
               <TouchableOpacity key={i} activeOpacity={0.88} onPress={() => setSelectedItem(item)}
-                style={{ backgroundColor: '#fff', borderRadius: 18, padding: 14, marginBottom: 8, borderWidth: 0.5, borderColor: '#E5E5EA' }}>
+                style={{ backgroundColor: theme.card, borderRadius: 18, padding: 14, marginBottom: 8, borderWidth: 0.5, borderColor: theme.border }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                  <View style={{ backgroundColor: tc.bg, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, borderWidth: 1, borderColor: tc.border }}>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: tc.color, textTransform: 'uppercase', letterSpacing: 0.4 }}>{tc.label}</Text>
-                  </View>
-                  <Text style={{ fontSize: 11, color: '#8E8E93' }}>{formatDateLabel(item.data.date)}</Text>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tc.color }} />
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: tc.color, textTransform: 'uppercase', letterSpacing: 0.4 }}>{tc.label}</Text>
+                  <Text style={{ fontSize: 11, color: theme.textSecondary }}>{formatDateLabel(item.data.date)}</Text>
                   {hasPR && (
-                    <View style={{ marginLeft: 'auto' as any, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFFBEA', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#FFE066' }}>
-                      <IconTrophy color="#F59E0B" size={11} />
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: '#92400E' }}>PR</Text>
+                    <View style={{ marginLeft: 'auto' as any, flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(255,215,0,0.1)', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(255,215,0,0.3)' }}>
+                      <IconTrophy color="#FFD700" size={11} />
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: '#FFD700' }}>PR</Text>
                     </View>
                   )}
-                  {/* Score Badge */}
                   {!isRun && w?.score !== undefined && w.score > 0 && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFF4EC', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#FFD4B0' }}>
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: '#FF6B00' }}>⚡ {w.score}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: theme.orangeBorder }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: theme.orange }}>⚡ {w.score}</Text>
                     </View>
                   )}
-                  {/* Delete Button */}
                   <TouchableOpacity
-                    style={{ marginLeft: 'auto' as any, width: 28, height: 28, borderRadius: 14, backgroundColor: '#FFF2F2', alignItems: 'center', justifyContent: 'center' }}
+                    style={{ marginLeft: 'auto' as any, width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,69,58,0.1)', alignItems: 'center', justifyContent: 'center' }}
                     onPress={e => { e.stopPropagation?.(); handleDelete(item); }}>
-                    <IconTrash color="#FF453A" size={14} />
+                    <IconTrash color={theme.red} size={14} />
                   </TouchableOpacity>
                 </View>
-                <Text style={{ fontSize: 16, fontWeight: '800', color: '#000', letterSpacing: -0.3, marginBottom: 10 }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.3, marginBottom: 10 }}>
                   {isRun ? 'Lauftraining' : w?.name}
                 </Text>
                 <View style={{ flexDirection: 'row', gap: 5, marginBottom: (!isRun && w?.exercises && w.exercises.length > 0) ? 10 : 0 }}>
                   {isRun && r ? (
                     <>
-                      <View style={{ flex:1,backgroundColor:'#F9F9F9',borderRadius:8,padding:7,alignItems:'center' }}><Text style={{ fontSize:13,fontWeight:'700',color:'#34C759' }}>{r.distance.toFixed(1)}</Text><Text style={{ fontSize:8,color:'#C7C7CC',textTransform:'uppercase',letterSpacing:0.3 }}>km</Text></View>
-                      <View style={{ flex:1,backgroundColor:'#F9F9F9',borderRadius:8,padding:7,alignItems:'center' }}><Text style={{ fontSize:13,fontWeight:'700',color:'#1A73E8' }}>{formatTime(r.duration)}</Text><Text style={{ fontSize:8,color:'#C7C7CC',textTransform:'uppercase',letterSpacing:0.3 }}>Zeit</Text></View>
-                      <View style={{ flex:1,backgroundColor:'#F9F9F9',borderRadius:8,padding:7,alignItems:'center' }}><Text style={{ fontSize:13,fontWeight:'700',color:'#FF9500' }}>{r.pace}</Text><Text style={{ fontSize:8,color:'#C7C7CC',textTransform:'uppercase',letterSpacing:0.3 }}>/km</Text></View>
+                      <View style={histStat}><Text style={[histStatVal,{color:theme.green}]}>{r.distance.toFixed(1)}</Text><Text style={histStatLbl}>km</Text></View>
+                      <View style={histStat}><Text style={[histStatVal,{color:theme.blue}]}>{formatTime(r.duration)}</Text><Text style={histStatLbl}>Zeit</Text></View>
+                      <View style={histStat}><Text style={[histStatVal,{color:theme.orange}]}>{r.pace}</Text><Text style={histStatLbl}>/km</Text></View>
                     </>
                   ) : (
                     <>
-                      <View style={{ flex:1,backgroundColor:'#F9F9F9',borderRadius:8,padding:7,alignItems:'center' }}><Text style={{ fontSize:13,fontWeight:'700',color:'#FF6B00' }}>{w?.duration}</Text><Text style={{ fontSize:8,color:'#C7C7CC',textTransform:'uppercase',letterSpacing:0.3 }}>min</Text></View>
-                      <View style={{ flex:1,backgroundColor:'#F9F9F9',borderRadius:8,padding:7,alignItems:'center' }}><Text style={{ fontSize:13,fontWeight:'700',color:'#1A73E8' }}>{Math.round(totalVolume).toLocaleString()}</Text><Text style={{ fontSize:8,color:'#C7C7CC',textTransform:'uppercase',letterSpacing:0.3 }}>kg Vol.</Text></View>
-                      <View style={{ flex:1,backgroundColor:'#F9F9F9',borderRadius:8,padding:7,alignItems:'center' }}><Text style={{ fontSize:13,fontWeight:'700',color:'#7C3AED' }}>{totalSets}</Text><Text style={{ fontSize:8,color:'#C7C7CC',textTransform:'uppercase',letterSpacing:0.3 }}>Sets</Text></View>
-                      <View style={{ flex:1,backgroundColor:'#F9F9F9',borderRadius:8,padding:7,alignItems:'center' }}><Text style={{ fontSize:13,fontWeight:'700',color:'#34C759' }}>{w?.exercises?.length ?? 0}</Text><Text style={{ fontSize:8,color:'#C7C7CC',textTransform:'uppercase',letterSpacing:0.3 }}>Üb.</Text></View>
+                      <View style={histStat}><Text style={[histStatVal,{color:theme.orange}]}>{w?.duration}</Text><Text style={histStatLbl}>min</Text></View>
+                      <View style={histStat}><Text style={[histStatVal,{color:theme.blue}]}>{Math.round(totalVolume).toLocaleString()}</Text><Text style={histStatLbl}>kg Vol.</Text></View>
+                      <View style={histStat}><Text style={[histStatVal,{color:theme.pink}]}>{totalSets}</Text><Text style={histStatLbl}>Sets</Text></View>
+                      <View style={histStat}><Text style={[histStatVal,{color:theme.green}]}>{w?.exercises?.length ?? 0}</Text><Text style={histStatLbl}>Üb.</Text></View>
                     </>
                   )}
                 </View>
                 {!isRun && w?.exercises && w.exercises.length > 0 && (
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
                     {w.exercises.slice(0,2).map((ex,ei) => (
-                      <View key={ei} style={{ flexDirection:'row',alignItems:'center',gap:5,backgroundColor:'#F2F2F7',borderRadius:20,paddingHorizontal:10,paddingVertical:4 }}>
+                      <View key={ei} style={{ flexDirection:'row',alignItems:'center',gap:5,backgroundColor:theme.cardSecondary,borderRadius:20,paddingHorizontal:10,paddingVertical:4 }}>
                         <View style={{ width:6,height:6,borderRadius:3,backgroundColor:MUSCLE_COLORS[ex.muscleGroup]||'#888' }} />
-                        <Text style={{ fontSize:11,color:'#3C3C43',fontWeight:'500' }}>{ex.name}</Text>
+                        <Text style={{ fontSize:11,color:theme.textSecondary,fontWeight:'500' }}>{ex.name}</Text>
                       </View>
                     ))}
                     {w.exercises.length > 2 && (
-                      <View style={{ backgroundColor:'#F2F2F7',borderRadius:20,paddingHorizontal:10,paddingVertical:4 }}>
-                        <Text style={{ fontSize:11,color:'#8E8E93',fontWeight:'500' }}>+{w.exercises.length-2} weitere</Text>
+                      <View style={{ backgroundColor:theme.cardSecondary,borderRadius:20,paddingHorizontal:10,paddingVertical:4 }}>
+                        <Text style={{ fontSize:11,color:theme.textTertiary,fontWeight:'500' }}>+{w.exercises.length-2} weitere</Text>
                       </View>
                     )}
                   </View>
@@ -1118,161 +1040,30 @@ function HistoryScreen({ onClose, prHistory, onDelete }: {
     </Modal>
   );
 }
+const histStat: any = { flex:1,backgroundColor:'rgba(255,255,255,0.04)',borderRadius:8,padding:7,alignItems:'center' };
+const histStatVal: any = { fontSize:13,fontWeight:'700' };
+const histStatLbl: any = { fontSize:8,color:'rgba(245,240,238,0.25)',textTransform:'uppercase',letterSpacing:0.3,marginTop:2 };
 
-// ─── Trainingsplan Screen ─────────────────────────────────────
-const PLAN_STORE_KEY = 'trainingPlanConfig';
-const PLAN_WEEK_KEY = 'trainingPlanWeek'; // ISO week number when plan was last generated
-
-function getISOWeek(date: Date): string {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  return `${d.getFullYear()}-W${String(1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)).padStart(2, '0')}`;
-}
-
-const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const FULL_DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-
-type PlanConfig = {
-  exercises: string[];
-  trainingDays: number[]; // 0=Mo ... 6=So
-  goal: string;
-  generatedWeek: string;
-};
-
-type PlanDay = {
-  dayIdx: number;
-  dayLabel: string;
-  name: string;
-  focus: string;
-  exercises: { name: string; sets: number; reps: string; weight: number }[];
-};
-
-function buildPlan(config: PlanConfig, userMaxes: UserMaxes): PlanDay[] {
-  const { exercises, trainingDays, goal } = config;
-  const intensity = goal === 'kraft' ? 0.85 : goal === 'ausdauer' ? 0.6 : 0.72;
-  const repsRange = goal === 'kraft' ? '3–5' : goal === 'ausdauer' ? '15–20' : '8–12';
-  const setsCount = goal === 'kraft' ? 5 : goal === 'ausdauer' ? 3 : 4;
-
-  function w(name: string) {
-    const max = userMaxes[name] || 0;
-    if (!max) return 0;
-    return Math.round((max * intensity) / 2.5) * 2.5;
-  }
-
-  // Muskelgruppen in Push / Pull / Beine / Ganzkörper einteilen
-  const PUSH_MUSCLES = ['Brust', 'Schultern', 'Trizeps'];
-  const PULL_MUSCLES = ['Rücken', 'Bizeps'];
-  const LEG_MUSCLES  = ['Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden'];
-  const CORE_MUSCLES = ['Core'];
-
-  const pushEx  = exercises.filter(e => PUSH_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-  const pullEx  = exercises.filter(e => PULL_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-  const legEx   = exercises.filter(e => LEG_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-  const coreEx  = exercises.filter(e => CORE_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-  const otherEx = exercises.filter(e => ![...PUSH_MUSCLES,...PULL_MUSCLES,...LEG_MUSCLES,...CORE_MUSCLES].includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-
-  const numDays = trainingDays.length;
-
-  // Split-Strategie je nach Anzahl Trainingstage
-  let splits: { name: string; focus: string; exs: string[] }[] = [];
-
-  if (numDays <= 2) {
-    // 2 Tage: Oberkörper / Unterkörper
-    splits = [
-      { name: 'Oberkörper', focus: 'Brust · Rücken · Schultern · Arme', exs: [...pushEx, ...pullEx, ...coreEx] },
-      { name: 'Unterkörper', focus: 'Beine · Gluteus · Waden', exs: [...legEx, ...otherEx] },
-    ];
-  } else if (numDays === 3) {
-    // 3 Tage: Push / Pull / Legs
-    splits = [
-      { name: 'Push', focus: 'Brust · Schultern · Trizeps', exs: [...pushEx] },
-      { name: 'Pull', focus: 'Rücken · Bizeps', exs: [...pullEx] },
-      { name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exs: [...legEx, ...coreEx, ...otherEx] },
-    ];
-  } else if (numDays === 4) {
-    // 4 Tage: Upper A / Lower A / Upper B / Lower B
-    const upperA = [...pushEx.slice(0, Math.ceil(pushEx.length / 2)), ...pullEx.slice(0, Math.ceil(pullEx.length / 2))];
-    const upperB = [...pushEx.slice(Math.ceil(pushEx.length / 2)), ...pullEx.slice(Math.ceil(pullEx.length / 2)), ...coreEx];
-    const lowerA = [...legEx.slice(0, Math.ceil(legEx.length / 2)), ...otherEx];
-    const lowerB = [...legEx.slice(Math.ceil(legEx.length / 2))];
-    splits = [
-      { name: 'Upper A', focus: 'Brust · Rücken', exs: upperA },
-      { name: 'Lower A', focus: 'Quadrizeps · Hamstrings', exs: lowerA.length > 0 ? lowerA : legEx },
-      { name: 'Upper B', focus: 'Schultern · Arme · Core', exs: upperB.length > 0 ? upperB : [...pushEx, ...pullEx] },
-      { name: 'Lower B', focus: 'Gluteus · Waden', exs: lowerB.length > 0 ? lowerB : legEx },
-    ];
-  } else {
-    // 5+ Tage: Push / Pull / Beine / Schultern & Arme / Ganzkörper
-    splits = [
-      { name: 'Push', focus: 'Brust · Trizeps', exs: [...exercises.filter(e => DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup === 'Brust'), ...exercises.filter(e => DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup === 'Trizeps')] },
-      { name: 'Pull', focus: 'Rücken · Bizeps', exs: [...pullEx] },
-      { name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exs: [...legEx] },
-      { name: 'Schultern & Core', focus: 'Schultern · Core', exs: [...exercises.filter(e => DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup === 'Schultern'), ...coreEx] },
-      { name: 'Ganzkörper', focus: 'Alle Gruppen', exs: [...otherEx, ...exercises.slice(0, 4)] },
-    ].slice(0, numDays);
-  }
-
-  // Leere Splits mit Ganzkörper auffüllen
-  splits = splits.map(sp => ({
-    ...sp,
-    exs: sp.exs.length > 0 ? sp.exs : exercises.slice(0, Math.min(4, exercises.length)),
-  }));
-
-  // Plan auf die gewählten Wochentage mappen
-  return Array.from({ length: 7 }, (_, i) => {
-    const trainingIdx = trainingDays.indexOf(i);
-    if (trainingIdx === -1) {
-      return { dayIdx: i, dayLabel: DAY_NAMES[i], name: 'Pause', focus: 'Regeneration', exercises: [] };
-    }
-    const split = splits[trainingIdx % splits.length];
-    return {
-      dayIdx: i,
-      dayLabel: DAY_NAMES[i],
-      name: split.name,
-      focus: split.focus,
-      exercises: split.exs.map(ex => ({
-        name: ex,
-        sets: setsCount,
-        reps: repsRange,
-        weight: w(ex),
-      })),
-    };
-  });
-}
-
-function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
-  onClose: () => void;
-  userMaxes: UserMaxes;
-  allExercises: typeof DEFAULT_EXERCISES;
-}) {
+// ─── TrainingPlanScreen ───────────────────────────────────────
+function TrainingPlanScreen({ onClose, userMaxes, allExercises }: { onClose: () => void; userMaxes: UserMaxes; allExercises: typeof DEFAULT_EXERCISES }) {
   const hasPRs = Object.keys(userMaxes).length > 0;
   const currentWeek = getISOWeek(new Date());
   const isMonday = new Date().getDay() === 1;
 
-  // Steps: 'loading' | 'exercises' | 'days' | 'plan'
-  const [step, setStep] = useState<'loading' | 'exercises' | 'days' | 'plan'>('loading');
+  const [step, setStep] = useState<'loading'|'exercises'|'days'|'plan'>('loading');
   const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [goal, setGoal] = useState('hypertrophie');
   const [plan, setPlan] = useState<PlanDay[]>([]);
-  const [config, setConfig] = useState<PlanConfig | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem(PLAN_STORE_KEY).then(raw => {
       if (!raw) { setStep('exercises'); return; }
       const saved: PlanConfig = JSON.parse(raw);
-      // Re-ask every Monday
       if (isMonday && saved.generatedWeek !== currentWeek) {
-        setSelectedExercises(saved.exercises);
-        setSelectedDays(saved.trainingDays);
-        setGoal(saved.goal);
-        setStep('exercises');
+        setSelectedExercises(saved.exercises); setSelectedDays(saved.trainingDays); setGoal(saved.goal); setStep('exercises');
       } else {
-        setConfig(saved);
-        setPlan(buildPlan(saved, userMaxes));
-        setStep('plan');
+        setPlan(buildPlan(saved, userMaxes, allExercises)); setStep('plan');
       }
     });
   }, []);
@@ -1280,69 +1071,49 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
   async function savePlan() {
     const cfg: PlanConfig = { exercises: selectedExercises, trainingDays: selectedDays, goal, generatedWeek: currentWeek };
     await AsyncStorage.setItem(PLAN_STORE_KEY, JSON.stringify(cfg));
-    setConfig(cfg);
-    setPlan(buildPlan(cfg, userMaxes));
-    setStep('plan');
+    setPlan(buildPlan(cfg, userMaxes, allExercises)); setStep('plan');
   }
 
   async function resetPlan() {
     await AsyncStorage.removeItem(PLAN_STORE_KEY);
-    setSelectedExercises([]); setSelectedDays([]); setGoal('hypertrophie');
-    setStep('exercises');
-  }
-
-  function toggleExercise(name: string) {
-    setSelectedExercises(prev => prev.includes(name) ? prev.filter(e => e !== name) : [...prev, name]);
-  }
-  function toggleDay(i: number) {
-    setSelectedDays(prev => prev.includes(i) ? prev.filter(d => d !== i) : [...prev, i].sort());
+    setSelectedExercises([]); setSelectedDays([]); setGoal('hypertrophie'); setStep('exercises');
   }
 
   const goals = [
-    { key: 'hypertrophie', label: 'Muskelaufbau', emoji: '💪', desc: '8–12 Wdh., 72% 1RM' },
-    { key: 'kraft', label: 'Stärker werden', emoji: '🏋️', desc: '3–5 Wdh., 85% 1RM' },
-    { key: 'ausdauer', label: 'Ausdauer', emoji: '🏃', desc: '15–20 Wdh., 60% 1RM' },
+    { key: 'hypertrophie', label: 'Muskelaufbau', emoji: '💪', desc: '10 Wdh., 72% 1RM' },
+    { key: 'kraft', label: 'Stärker werden', emoji: '🏋️', desc: '4 Wdh., 85% 1RM' },
+    { key: 'ausdauer', label: 'Ausdauer', emoji: '🏃', desc: '15 Wdh., 60% 1RM' },
   ];
 
   return (
     <Modal visible animationType="slide">
       <View style={{ flex: 1, backgroundColor: theme.bg }}>
-
-        {/* Header */}
         <View style={hist.header}>
           <View>
-            <Text style={hist.eyebrow}>
-              {step === 'exercises' ? 'Schritt 1/3' : step === 'days' ? 'Schritt 2/3' : 'Dein Plan'}
-            </Text>
-            <Text style={hist.title}>
-              {step === 'exercises' ? 'Übungen wählen' : step === 'days' ? 'Trainingstage' : 'Trainingsplan'}
-            </Text>
+            <Text style={hist.eyebrow}>{step === 'exercises' ? 'Schritt 1/2' : step === 'days' ? 'Schritt 2/2' : 'Dein Plan'}</Text>
+            <Text style={hist.title}>{step === 'exercises' ? 'Übungen' : step === 'days' ? 'Trainingstage' : 'Trainingsplan'}</Text>
           </View>
-          <TouchableOpacity style={hist.closeBtn} onPress={onClose}>
-            <IconClose color={theme.textPrimary} size={16} />
-          </TouchableOpacity>
+          <TouchableOpacity style={hist.closeBtn} onPress={onClose}><IconClose color={theme.textPrimary} size={16} /></TouchableOpacity>
         </View>
 
-        {/* Progress Bar */}
         {step !== 'plan' && step !== 'loading' && (
           <View style={{ flexDirection: 'row', gap: 4, paddingHorizontal: 16, paddingVertical: 10 }}>
-            {['exercises', 'days', 'goal'].map((s, i) => (
-              <View key={s} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: ['exercises','days','goal'].indexOf(step) >= i ? theme.orange : theme.cardSecondary }} />
+            {['exercises','days'].map((s, i) => (
+              <View key={s} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: ['exercises','days'].indexOf(step) >= i ? theme.orange : theme.cardSecondary }} />
             ))}
           </View>
         )}
 
-        {/* ── Step 1: Übungen ── */}
         {step === 'exercises' && (
           <>
             {!hasPRs && (
-              <View style={{ backgroundColor: 'rgba(232,87,42,0.1)', margin: 16, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: theme.orange + '40' }}>
+              <View style={{ backgroundColor: theme.orangeLight, margin: 16, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: theme.orangeBorder }}>
                 <Text style={{ color: theme.orange, fontSize: 13, fontWeight: '600', marginBottom: 2 }}>⚠️ Keine PRs vorhanden</Text>
                 <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Für Gewichtsempfehlungen trag zuerst PRs ein.</Text>
               </View>
             )}
             <Text style={{ color: theme.textSecondary, fontSize: 12, paddingHorizontal: 16, marginBottom: 8, marginTop: hasPRs ? 12 : 0 }}>
-              Welche Übungen sollen im Plan berücksichtigt werden? ({selectedExercises.length} gewählt)
+              Welche Übungen sollen im Plan sein? ({selectedExercises.length} gewählt)
             </Text>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}>
               {MUSCLE_GROUPS.map(mg => {
@@ -1357,7 +1128,7 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
                         return (
                           <TouchableOpacity key={ex.name}
                             style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: active ? theme.orangeLight : theme.card, borderWidth: 1.5, borderColor: active ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                            onPress={() => toggleExercise(ex.name)} activeOpacity={0.8}>
+                            onPress={() => setSelectedExercises(prev => prev.includes(ex.name) ? prev.filter(e => e !== ex.name) : [...prev, ex.name])} activeOpacity={0.8}>
                             {active && <Text style={{ fontSize: 10, color: theme.orange }}>✓</Text>}
                             <Text style={{ fontSize: 13, color: active ? theme.orange : theme.textPrimary, fontWeight: active ? '600' : '400' }}>{ex.name}</Text>
                             {userMaxes[ex.name] && <Text style={{ fontSize: 9, color: theme.green }}>PR</Text>}
@@ -1372,8 +1143,7 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
             <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, paddingBottom: 34, backgroundColor: theme.bg, borderTopWidth: 0.5, borderTopColor: theme.border }}>
               <TouchableOpacity
                 style={{ backgroundColor: selectedExercises.length > 0 ? theme.orange : theme.cardSecondary, borderRadius: 14, padding: 15, alignItems: 'center' }}
-                onPress={() => selectedExercises.length > 0 && setStep('days')}
-                activeOpacity={0.85}>
+                onPress={() => selectedExercises.length > 0 && setStep('days')} activeOpacity={0.85}>
                 <Text style={{ fontSize: 15, fontWeight: '700', color: selectedExercises.length > 0 ? '#fff' : theme.textTertiary }}>
                   Weiter → {selectedExercises.length > 0 ? `${selectedExercises.length} Übungen` : ''}
                 </Text>
@@ -1382,11 +1152,10 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
           </>
         )}
 
-        {/* ── Step 2: Trainingstage ── */}
         {step === 'days' && (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
             <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 20 }}>
-              An welchen Tagen kannst du trainieren? ({selectedDays.length} Tage gewählt)
+              An welchen Tagen kannst du trainieren? ({selectedDays.length} Tage)
             </Text>
             <View style={{ gap: 8, marginBottom: 24 }}>
               {DAY_NAMES.map((d, i) => {
@@ -1394,7 +1163,7 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
                 return (
                   <TouchableOpacity key={i}
                     style={{ backgroundColor: active ? theme.orangeLight : theme.card, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: active ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 14 }}
-                    onPress={() => toggleDay(i)} activeOpacity={0.85}>
+                    onPress={() => setSelectedDays(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i].sort())} activeOpacity={0.85}>
                     <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: active ? theme.orange : theme.cardSecondary, alignItems: 'center', justifyContent: 'center' }}>
                       <Text style={{ fontSize: 12, fontWeight: '800', color: active ? '#fff' : theme.textTertiary }}>{d}</Text>
                     </View>
@@ -1404,7 +1173,6 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
                 );
               })}
             </View>
-
             <Text style={{ color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12, fontWeight: '600' }}>Ziel</Text>
             <View style={{ gap: 8, marginBottom: 24 }}>
               {goals.map(g => (
@@ -1420,7 +1188,6 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
                 </TouchableOpacity>
               ))}
             </View>
-
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <TouchableOpacity style={{ flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 15, alignItems: 'center', borderWidth: 1, borderColor: theme.border }} onPress={() => setStep('exercises')} activeOpacity={0.85}>
                 <Text style={{ fontSize: 15, fontWeight: '600', color: theme.textSecondary }}>← Zurück</Text>
@@ -1434,23 +1201,12 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
           </ScrollView>
         )}
 
-        {/* ── Step 3: Plan anzeigen ── */}
         {step === 'plan' && (
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
-            {isMonday && (
-              <View style={{ backgroundColor: theme.blueLight, borderRadius: 14, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: theme.blue + '40', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Text style={{ fontSize: 20 }}>📅</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.blue, fontSize: 13, fontWeight: '600' }}>Neue Woche!</Text>
-                  <Text style={{ color: theme.textSecondary, fontSize: 11 }}>Der Plan wurde für diese Woche aktualisiert.</Text>
-                </View>
-              </View>
-            )}
-
             {plan.map((day, i) => (
-              <View key={i} style={{ backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1.5, borderColor: day.exercises.length > 0 ? theme.orange + '40' : theme.border }}>
+              <View key={i} style={{ backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1.5, borderColor: day.exercises.length > 0 ? theme.orangeBorder : theme.border }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: day.exercises.length > 0 ? 12 : 0 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: day.exercises.length > 0 ? theme.orangeLight : theme.cardSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: day.exercises.length > 0 ? theme.orange + '40' : theme.border }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: day.exercises.length > 0 ? theme.orangeLight : theme.cardSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: day.exercises.length > 0 ? theme.orangeBorder : theme.border }}>
                     <Text style={{ fontSize: 11, fontWeight: '800', color: day.exercises.length > 0 ? theme.orange : theme.textTertiary }}>{day.dayLabel}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
@@ -1458,18 +1214,18 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
                     <Text style={{ fontSize: 11, color: theme.textSecondary }}>{day.focus}</Text>
                   </View>
                   {day.exercises.length > 0 && (
-                    <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orange + '40' }}>
+                    <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orangeBorder }}>
                       <Text style={{ fontSize: 10, fontWeight: '700', color: theme.orange }}>{day.exercises.length} Üb.</Text>
                     </View>
                   )}
                 </View>
                 {day.exercises.map((ex, ei) => (
                   <View key={ei} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: theme.border }}>
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: MUSCLE_COLORS[DEFAULT_EXERCISES.find(d => d.name === ex.name)?.muscleGroup ?? ''] ?? theme.orange }} />
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: MUSCLE_COLORS[allExercises.find(d => d.name === ex.name)?.muscleGroup ?? ''] ?? theme.orange }} />
                     <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>{ex.name}</Text>
                     <Text style={{ fontSize: 12, color: theme.textSecondary }}>{ex.sets}×{ex.reps}</Text>
                     {ex.weight > 0 && (
-                      <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orange + '40' }}>
+                      <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orangeBorder }}>
                         <Text style={{ fontSize: 11, fontWeight: '700', color: theme.orange }}>{ex.weight} kg</Text>
                       </View>
                     )}
@@ -1477,16 +1233,12 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
                 ))}
               </View>
             ))}
-
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
-              <TouchableOpacity style={{ flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: theme.border }} onPress={resetPlan} activeOpacity={0.85}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textSecondary }}>Plan neu erstellen</Text>
-              </TouchableOpacity>
-            </View>
-
+            <TouchableOpacity style={{ backgroundColor: theme.card, borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: theme.border, marginTop: 8 }} onPress={resetPlan} activeOpacity={0.85}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textSecondary }}>Plan neu erstellen</Text>
+            </TouchableOpacity>
             <View style={{ backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 12, marginTop: 10 }}>
               <Text style={{ fontSize: 11, color: theme.textTertiary, textAlign: 'center', lineHeight: 16 }}>
-                Empfehlung basierend auf deinen PRs und gewählten Übungen. Jeden Montag wird der Plan aktualisiert.
+                Empfehlung basierend auf deinen PRs. Jeden Montag wird der Plan neu abgefragt.
               </Text>
             </View>
             <View style={{ height: 80 }} />
@@ -1497,7 +1249,7 @@ function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
   );
 }
 
-// ─── Free Workout Start Screen ────────────────────────────────
+// ─── FreeWorkoutStartScreen ───────────────────────────────────
 function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkout, onBack }: {
   onStart: () => void; onStartWithRecommendation: () => void; lastWorkout: Workout | null; onBack: () => void;
 }) {
@@ -1522,7 +1274,6 @@ function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkou
         </View>
         <View style={{ height: 40 }} />
       </ScrollView>
-      {/* SwipeToStart ausserhalb der ScrollView – kein Konflikt */}
       <View style={{ paddingHorizontal: 16, paddingBottom: 140 }}>
         <SwipeToStart onStart={onStart} />
       </View>
@@ -1530,14 +1281,10 @@ function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkou
   );
 }
 
-// ─── Routine Screen ───────────────────────────────────────────
+// ─── RoutineScreen ────────────────────────────────────────────
 function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRoutine, onDeleteRoutine, onBack }: {
-  routines: Routine[];
-  onSelectRoutine: (r: Routine) => void;
-  onCreateRoutine: (r: Routine) => void;
-  onUpdateRoutine: (r: Routine) => void;
-  onDeleteRoutine: (id: string) => void;
-  onBack: () => void;
+  routines: Routine[]; onSelectRoutine: (r: Routine) => void; onCreateRoutine: (r: Routine) => void;
+  onUpdateRoutine: (r: Routine) => void; onDeleteRoutine: (id: string) => void; onBack: () => void;
 }) {
   const [tab, setTab] = useState<'meine'|'suchen'>('meine');
   const [search, setSearch] = useState('');
@@ -1555,11 +1302,8 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
   function saveForm() {
     if (!newName.trim()) { Alert.alert('Bitte Namen eingeben'); return; }
     if (newExercises.length === 0) { Alert.alert('Bitte mindestens eine Übung hinzufügen'); return; }
-    if (editMode === 'create') {
-      onCreateRoutine({ id: Date.now().toString(), name: newName.trim(), exercises: newExercises });
-    } else if (editingRoutine) {
-      onUpdateRoutine({ ...editingRoutine, name: newName.trim(), exercises: newExercises });
-    }
+    if (editMode === 'create') onCreateRoutine({ id: Date.now().toString(), name: newName.trim(), exercises: newExercises });
+    else if (editingRoutine) onUpdateRoutine({ ...editingRoutine, name: newName.trim(), exercises: newExercises });
     setShowForm(false);
   }
 
@@ -1576,7 +1320,7 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
             </View>
           </View>
           <View style={{ paddingHorizontal: 16 }}>
-            <Text style={s.inputLabel}>Name der Routine</Text>
+            <Text style={s.inputLabel}>Name</Text>
             <TextInput style={[s.input,{ marginBottom:20 }]} value={newName} onChangeText={setNewName} placeholder="z.B. Push Day" placeholderTextColor={theme.textTertiary} />
             <Text style={s.inputLabel}>Übungen ({newExercises.length})</Text>
             {newExercises.length > 0 && (
@@ -1632,16 +1376,14 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
               <View style={startSt.emptyState}>
                 <IconDumbbell color={theme.textTertiary} size={36} />
                 <Text style={startSt.emptyStateTitle}>Noch keine Routinen</Text>
-                <Text style={startSt.emptyStateSub}>Erstelle deine erste Routine oder entdecke vorhandene.</Text>
+                <Text style={startSt.emptyStateSub}>Erstelle deine erste Routine.</Text>
               </View>
             ) : routines.map(r => (
               <View key={r.id} style={[startSt.routineCard, { paddingRight: 8 }]}>
                 <TouchableOpacity style={{ flex: 1 }} onPress={() => onSelectRoutine(r)} activeOpacity={0.85}>
                   <Text style={startSt.routineName}>{r.name}</Text>
                   <Text style={startSt.routineMeta}>{r.exercises.map(e=>e.name).slice(0,3).join(' · ')}{r.exercises.length > 3 ? ` · +${r.exercises.length-3}` : ''}</Text>
-                  <View style={startSt.routineChipRow}>
-                    <View style={startSt.routineChip}><Text style={startSt.routineChipText}>{r.exercises.length} Übungen</Text></View>
-                  </View>
+                  <View style={startSt.routineChipRow}><View style={startSt.routineChip}><Text style={startSt.routineChipText}>{r.exercises.length} Übungen</Text></View></View>
                 </TouchableOpacity>
                 <View style={{ gap: 6 }}>
                   <TouchableOpacity onPress={() => openEdit(r)} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.blueLight, alignItems: 'center', justifyContent: 'center' }}>
@@ -1669,9 +1411,7 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
                     <View style={routineSt.communityBadge}><Text style={routineSt.communityBadgeText}>Community</Text></View>
                   </View>
                   <Text style={startSt.routineMeta}>{r.exercises.map(e=>e.name).slice(0,3).join(' · ')}{r.exercises.length > 3 ? ` · +${r.exercises.length-3}` : ''}</Text>
-                  <View style={startSt.routineChipRow}>
-                    <View style={startSt.routineChip}><Text style={startSt.routineChipText}>{r.exercises.length} Übungen</Text></View>
-                  </View>
+                  <View style={startSt.routineChipRow}><View style={startSt.routineChip}><Text style={startSt.routineChipText}>{r.exercises.length} Übungen</Text></View></View>
                 </View>
                 <IconChevronRight color={theme.textTertiary} size={18} />
               </TouchableOpacity>
@@ -1684,14 +1424,11 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
   );
 }
 
-// ─── Routine Detail Screen ────────────────────────────────────
-function RoutineDetailScreen({ routine, onStart, onBack }: {
-  routine: Routine; onStart: (r: Routine) => void; onBack: () => void;
-}) {
+// ─── RoutineDetailScreen ──────────────────────────────────────
+function RoutineDetailScreen({ routine, onStart, onBack }: { routine: Routine; onStart: (r: Routine) => void; onBack: () => void }) {
   const [extraExercises, setExtraExercises] = useState<{ name: string; muscleGroup: string; defaultSets: number }[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const allEx = [...routine.exercises, ...extraExercises];
-  const modifiedRoutine: Routine = { ...routine, exercises: allEx };
 
   return (
     <>
@@ -1714,14 +1451,14 @@ function RoutineDetailScreen({ routine, onStart, onBack }: {
           <TouchableOpacity style={startSt.addExBtn} onPress={() => setShowPicker(true)}>
             <IconPlus color={theme.orange} size={16} /><Text style={startSt.addExBtnText}>Übung hinzufügen</Text>
           </TouchableOpacity>
-          <View style={{ marginTop: 12, marginBottom: 40 }}><SwipeToStart onStart={() => onStart(modifiedRoutine)} /></View>
+          <View style={{ marginTop: 12, marginBottom: 40 }}><SwipeToStart onStart={() => onStart({ ...routine, exercises: allEx })} /></View>
         </View>
       </ScrollView>
     </>
   );
 }
 
-// ─── Active Gym Workout ───────────────────────────────────────
+// ─── ActiveGymWorkout ─────────────────────────────────────────
 function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUpdate, onFinish }: {
   workout: Workout; userMaxes: UserMaxes; prHistory: PRHistory;
   lastWorkoutData: Record<string, WorkoutSet[]>; onUpdate: (w: Workout) => void; onFinish: () => void;
@@ -1734,23 +1471,17 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
 
   useEffect(() => {
     AsyncStorage.getItem('userExercises').then(r => r && setAllExercises(JSON.parse(r)));
-    // Start timer if not already running
-    if (!workoutTimer.isRunning) {
-      workoutTimer.startNow();
-    }
+    if (!workoutTimer.isRunning) workoutTimer.startNow();
   }, []);
 
   async function addExercise(name: string, muscleGroup: string) {
     const lastSets = lastWorkoutData[name];
     const sets = lastSets ? lastSets.map(() => ({ reps:'',weight:'' })) : [{ reps:'',weight:'' }];
     const updated = { ...workout, exercises: [...workout.exercises,{ id:Date.now().toString(),name,muscleGroup,sets }] };
-    onUpdate(updated);
-    await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
-    setShowExercisePicker(false);
+    onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated)); setShowExercisePicker(false);
     if (!allExercises.find(e => e.name === name)) {
       const newAll = [...allExercises,{ name,muscleGroup }];
-      setAllExercises(newAll);
-      await AsyncStorage.setItem('userExercises', JSON.stringify(newAll));
+      setAllExercises(newAll); await AsyncStorage.setItem('userExercises', JSON.stringify(newAll));
     }
   }
 
@@ -1844,7 +1575,9 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
             const pctOfMax = userMax && best1RM > 0 ? Math.round((best1RM/userMax)*100) : null;
             const lastSets = lastWorkoutData[exercise.name];
             const mc = MUSCLE_COLORS[exercise.muscleGroup] || '#888';
-            const recText = userMax ? `Empfehlung: 4 × 8 @ ${Math.round((userMax*0.75)/2.5)*2.5} kg` : null;
+            const recWeight = userMax ? Math.round((userMax*0.75)/2.5)*2.5 : 0;
+            const recText = userMax ? `Empfehlung: 4 × 8 @ ${recWeight} kg` : null;
+
             return (
               <View key={exercise.id} style={active.exerciseCard}>
                 <View style={{ flexDirection:'row',alignItems:'center',gap:10,marginBottom:10 }}>
@@ -1867,36 +1600,19 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
                     </View>
                   </View>
                 )}
-                {recText && (() => {
-  const recWeight = userMax ? String(Math.round((userMax * 0.75) / 2.5) * 2.5) : '';
-  const recReps = '8';
-  return (
-    <TouchableOpacity
-      style={active.recRow}
-      onPress={async () => {
-  const recSets = 4;
-  const newSets = Array.from(
-    { length: Math.max(exercise.sets.length, recSets) },
-    () => ({ reps: recReps, weight: recWeight })
-  );
-  const updated = {
-    ...workout,
-    exercises: workout.exercises.map(ex =>
-      ex.id !== exercise.id ? ex : { ...ex, sets: newSets }
-    ),
-  };
-  onUpdate(updated);
-  await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
-}}
-      activeOpacity={0.75}
-    >
-      <Text style={active.recText}>💡 {recText}</Text>
-      <Text style={{ fontSize: 10, color: theme.blue, fontWeight: '600', marginTop: 3 }}>
-        Tippen zum Übernehmen →
-      </Text>
-    </TouchableOpacity>
-  );
-})()}
+                {recText && (
+                  <TouchableOpacity
+                    style={active.recRow}
+                    onPress={async () => {
+                      const newSets = Array.from({ length: Math.max(exercise.sets.length, 4) }, () => ({ reps: '8', weight: String(recWeight) }));
+                      const updated = { ...workout, exercises: workout.exercises.map(ex => ex.id !== exercise.id ? ex : { ...ex, sets: newSets }) };
+                      onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
+                    }}
+                    activeOpacity={0.75}>
+                    <Text style={active.recText}>💡 {recText}</Text>
+                    <Text style={{ fontSize: 10, color: theme.blue, fontWeight: '600', marginTop: 3 }}>Tippen zum Übernehmen →</Text>
+                  </TouchableOpacity>
+                )}
                 {lastSets && (
                   <View style={active.lastRow}>
                     <Text style={active.lastLabel}>Letztes Mal: </Text>
@@ -1947,7 +1663,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
   );
 }
 
-// ─── Run Screen ───────────────────────────────────────────────
+// ─── RunScreen ────────────────────────────────────────────────
 function RunScreen({ onStop }: { onStop: () => void }) {
   const runTimer = useWorkoutTimer('activeRunTimer');
   const [manualDist, setManualDist] = useState('');
@@ -1970,21 +1686,15 @@ function RunScreen({ onStop }: { onStop: () => void }) {
   const estimatedCalories = parseInt(calories) || Math.round(runTimer.seconds / 60 * 8);
 
   async function finishRun() {
-    await runTimer.stop();
     const dur = runTimer.getDuration() * 60;
-    const runData: RunData = {
-      id: Date.now().toString(), distance: dist, duration: dur,
-      pace: formatPace(dist > 0 ? dur / dist : 0),
-      calories: estimatedCalories, heartRate: parseInt(heartRate) || 0,
-      date: new Date().toISOString(),
-    };
+    await runTimer.stop();
+    const runData: RunData = { id: Date.now().toString(), distance: dist, duration: dur, pace: formatPace(dist > 0 ? dur / dist : 0), calories: estimatedCalories, heartRate: parseInt(heartRate) || 0, date: new Date().toISOString() };
     const raw = await AsyncStorage.getItem('runs');
     const runs = raw ? JSON.parse(raw) : [];
     runs.push(runData);
     await AsyncStorage.setItem('runs', JSON.stringify(runs));
     await AsyncStorage.removeItem('activeWorkout');
-    Alert.alert('Lauf abgeschlossen!', `${dist.toFixed(2)} km · ${formatTime(dur)} · ${formatPace(dist > 0 ? dur / dist : 0)} /km`,
-      [{ text: 'OK', onPress: onStop }]);
+    Alert.alert('Lauf abgeschlossen!', `${dist.toFixed(2)} km · ${formatTime(dur)} · ${formatPace(dist > 0 ? dur / dist : 0)} /km`, [{ text: 'OK', onPress: onStop }]);
   }
 
   return (
@@ -1996,10 +1706,10 @@ function RunScreen({ onStop }: { onStop: () => void }) {
       </Animated.View>
       <View style={s.runStatsGrid}>
         {[
-          { val: dist.toFixed(2), lbl: 'km',       color: theme.green },
+          { val: dist.toFixed(2), lbl: 'km', color: theme.green },
           { val: formatPace(paceSeconds), lbl: '/km Pace', color: theme.blue },
-          { val: String(estimatedCalories), lbl: 'kcal',   color: theme.orange },
-          { val: heartRate || '--', lbl: 'bpm',     color: theme.pink },
+          { val: String(estimatedCalories), lbl: 'kcal', color: theme.orange },
+          { val: heartRate || '--', lbl: 'bpm', color: theme.pink },
         ].map(stat => (
           <View key={stat.lbl} style={s.runStatCard}>
             <Text style={[s.runStatVal, { color: stat.color }]}>{stat.val}</Text>
@@ -2030,7 +1740,7 @@ function RunScreen({ onStop }: { onStop: () => void }) {
   );
 }
 
-// ─── Main Screen ──────────────────────────────────────────────
+// ─── TrainingScreen (Main) ────────────────────────────────────
 type Screen = 'home' | 'freeStart' | 'routineScreen' | 'routineDetail';
 const DAY_LABELS = ['Mo','Di','Mi','Do','Fr','Sa','So'];
 
@@ -2044,6 +1754,9 @@ export default function TrainingScreen() {
   const [showPREntry, setShowPREntry] = useState(false);
   const [showPlan, setShowPlan] = useState(false);
   const [showDeviceModal, setShowDeviceModal] = useState(false);
+  const [showNutritionModal, setShowNutritionModal] = useState(false);
+  const [nutritionAdvice, setNutritionAdvice] = useState<ReturnType<typeof getNutritionAdvice> | null>(null);
+  const [lastWorkoutScore, setLastWorkoutScore] = useState(0);
   const [userMaxes, setUserMaxes] = useState<UserMaxes>({});
   const [prHistory, setPRHistory] = useState<PRHistory>({});
   const [lastWorkoutData, setLastWorkoutData] = useState<Record<string,WorkoutSet[]>>({});
@@ -2056,12 +1769,12 @@ export default function TrainingScreen() {
   useFocusEffect(useCallback(() => {
     loadAll();
     fadeAnim.setValue(0);
-    Animated.timing(fadeAnim, { toValue:1,duration:350,useNativeDriver:true }).start();
+    Animated.timing(fadeAnim, { toValue:1, duration:350, useNativeDriver:true }).start();
   }, []));
 
   async function loadAll() {
     const rawEx = await AsyncStorage.getItem('userExercises');
-if (rawEx) setAllExercises(JSON.parse(rawEx));
+    if (rawEx) setAllExercises(JSON.parse(rawEx));
     const rawW = await AsyncStorage.getItem('workouts');
     if (rawW) {
       const ws: Workout[] = JSON.parse(rawW);
@@ -2074,6 +1787,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
     if (rawActive) {
       const w: Workout = JSON.parse(rawActive);
       if (isToday(w.date)) { if (w.type === 'run') setActiveRun(true); else setActiveWorkout(w); }
+      else { await AsyncStorage.removeItem('activeWorkout'); await AsyncStorage.removeItem('gymWorkoutTimer'); }
     }
     const rawMaxes = await AsyncStorage.getItem('userMaxes');
     if (rawMaxes) setUserMaxes(JSON.parse(rawMaxes));
@@ -2085,59 +1799,31 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
     if (rawDevice) setConnectedDevice(rawDevice);
   }
 
-  async function saveRoutine(r: Routine) {
-    const updated = [...routines, r];
-    setRoutines(updated);
-    await AsyncStorage.setItem('routines', JSON.stringify(updated));
-  }
-
-  async function updateRoutine(r: Routine) {
-    const updated = routines.map(x => x.id === r.id ? r : x);
-    setRoutines(updated);
-    await AsyncStorage.setItem('routines', JSON.stringify(updated));
-  }
-
-  async function deleteRoutine(id: string) {
-    const updated = routines.filter(r => r.id !== id);
-    setRoutines(updated);
-    await AsyncStorage.setItem('routines', JSON.stringify(updated));
-  }
+  async function saveRoutine(r: Routine) { const u = [...routines, r]; setRoutines(u); await AsyncStorage.setItem('routines', JSON.stringify(u)); }
+  async function updateRoutine(r: Routine) { const u = routines.map(x => x.id === r.id ? r : x); setRoutines(u); await AsyncStorage.setItem('routines', JSON.stringify(u)); }
+  async function deleteRoutine(id: string) { const u = routines.filter(r => r.id !== id); setRoutines(u); await AsyncStorage.setItem('routines', JSON.stringify(u)); }
 
   async function savePR(exerciseName: string, weight: number, reps: number) {
     const estimated1RM = calc1RM(weight, reps);
-    const newPRHistory = { ...prHistory };
-    const current = newPRHistory[exerciseName] || [];
-    newPRHistory[exerciseName] = [...current,{ date:new Date().toISOString(),weight,reps,estimated1RM }];
-    setPRHistory(newPRHistory);
-    await AsyncStorage.setItem('prHistory', JSON.stringify(newPRHistory));
+    const newPRH = { ...prHistory };
+    newPRH[exerciseName] = [...(newPRH[exerciseName]||[]),{ date:new Date().toISOString(),weight,reps,estimated1RM }];
+    setPRHistory(newPRH); await AsyncStorage.setItem('prHistory', JSON.stringify(newPRH));
     const newMaxes = { ...userMaxes };
-    if (estimated1RM > (newMaxes[exerciseName] || 0)) {
-      newMaxes[exerciseName] = estimated1RM;
-      setUserMaxes(newMaxes);
-      await AsyncStorage.setItem('userMaxes', JSON.stringify(newMaxes));
-    }
+    if (estimated1RM > (newMaxes[exerciseName] || 0)) { newMaxes[exerciseName] = estimated1RM; setUserMaxes(newMaxes); await AsyncStorage.setItem('userMaxes', JSON.stringify(newMaxes)); }
   }
 
   const gymWorkouts = workouts.filter(w => w.type === 'gym');
   const lastGymWorkout = [...gymWorkouts].sort((a,b) => new Date(b.date).getTime()-new Date(a.date).getTime())[0];
   const daysSinceGym = lastGymWorkout ? daysSince(lastGymWorkout.date) : -1;
-  const kraftRecommended = daysSinceGym >= 2;
   const neverTrainedGym = daysSinceGym === -1;
+  const kraftRecommended = daysSinceGym >= 2;
   const weekDays = getWeekTrainings(workouts);
   const todayDayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
   const prCount = Object.keys(prHistory).length;
 
   const lastExerciseDates: Record<string,number> = {};
-  [...workouts].reverse().forEach(w => {
-    w.exercises?.forEach(ex => {
-      if (lastExerciseDates[ex.muscleGroup] === undefined) lastExerciseDates[ex.muscleGroup] = daysSince(w.date);
-    });
-  });
-  const readyMuscles = lastGymWorkout?.exercises
-    ?.map(ex => ex.muscleGroup)
-    .filter((mg,idx,arr) => arr.indexOf(mg) === idx)
-    .filter(mg => (lastExerciseDates[mg] ?? 99) >= 2)
-    .slice(0,2) ?? [];
+  [...workouts].reverse().forEach(w => { w.exercises?.forEach(ex => { if (lastExerciseDates[ex.muscleGroup] === undefined) lastExerciseDates[ex.muscleGroup] = daysSince(w.date); }); });
+  const readyMuscles = lastGymWorkout?.exercises?.map(ex => ex.muscleGroup).filter((mg,idx,arr) => arr.indexOf(mg) === idx).filter(mg => (lastExerciseDates[mg] ?? 99) >= 2).slice(0,2) ?? [];
 
   async function startFreeWorkout() {
     const w: Workout = { id:Date.now().toString(),date:new Date().toISOString(),name:'Freies Training',exercises:[],duration:0,intensity:3,type:'gym' };
@@ -2147,45 +1833,27 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
 
   async function startFreeWithRecommendation() {
     if (!lastGymWorkout) return startFreeWorkout();
-    const w: Workout = {
-      id:Date.now().toString(),date:new Date().toISOString(),name:lastGymWorkout.name,
-      exercises:lastGymWorkout.exercises.map(ex => ({ ...ex,id:Date.now().toString()+ex.name,sets:ex.sets.map(()=>({ reps:'',weight:'' })) })),
-      duration:0,intensity:3,type:'gym',
-    };
+    const w: Workout = { id:Date.now().toString(),date:new Date().toISOString(),name:lastGymWorkout.name, exercises:lastGymWorkout.exercises.map(ex => ({ ...ex,id:Date.now().toString()+ex.name,sets:ex.sets.map(()=>({ reps:'',weight:'' })) })), duration:0,intensity:3,type:'gym' };
     await AsyncStorage.setItem('activeWorkout', JSON.stringify(w));
     setActiveWorkout(w); setScreen('home');
   }
 
   async function startWithRecommendationFromHome() {
-    if (lastGymWorkout) await startFreeWithRecommendation();
-    else setScreen('freeStart');
+    if (lastGymWorkout) await startFreeWithRecommendation(); else setScreen('freeStart');
   }
 
   async function startRoutineWorkout(routine: Routine) {
-    const w: Workout = {
-      id:Date.now().toString(),date:new Date().toISOString(),name:routine.name,
-      exercises:routine.exercises.map(re => ({ id:Date.now().toString()+re.name,name:re.name,muscleGroup:re.muscleGroup,sets:Array.from({ length:re.defaultSets },()=>({ reps:'',weight:'' })) })),
-      duration:0,intensity:3,type:'gym',
-    };
+    const w: Workout = { id:Date.now().toString(),date:new Date().toISOString(),name:routine.name, exercises:routine.exercises.map(re => ({ id:Date.now().toString()+re.name,name:re.name,muscleGroup:re.muscleGroup,sets:Array.from({ length:re.defaultSets },()=>({ reps:'',weight:'' })) })), duration:0,intensity:3,type:'gym' };
     await AsyncStorage.setItem('activeWorkout', JSON.stringify(w));
     setActiveWorkout(w); setScreen('home');
   }
 
-  async function startRun() {
-    await AsyncStorage.setItem('activeWorkout', JSON.stringify({ id:Date.now().toString(),date:new Date().toISOString(),name:'Lauf',exercises:[],duration:0,intensity:3,type:'run' }));
-    setActiveRun(true);
-  }
-
   async function finishWorkout() {
     if (!activeWorkout) return;
-    // Get duration from stored start time
     const rawTimer = await AsyncStorage.getItem('gymWorkoutTimer');
     let duration = 1;
     if (rawTimer) {
-      try {
-        const { startedAt } = JSON.parse(rawTimer);
-        if (startedAt) duration = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
-      } catch {}
+      try { const { startedAt } = JSON.parse(rawTimer); if (startedAt) duration = Math.max(1, Math.round((Date.now() - startedAt) / 60000)); } catch {}
     }
     const score = calcWorkoutScore({ ...activeWorkout, duration }, userMaxes);
     const finished: Workout = { ...activeWorkout, duration, score };
@@ -2210,14 +1878,19 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
     const histArr = rawWH ? JSON.parse(rawWH) : [];
     histArr.push(finished);
     await AsyncStorage.setItem('workouts', JSON.stringify(histArr));
+    // Timer komplett stoppen und löschen
     await AsyncStorage.removeItem('activeWorkout');
     await AsyncStorage.removeItem('gymWorkoutTimer');
     setActiveWorkout(null);
+
+    // Ernährungsempfehlung berechnen
+    const rawProfile = await AsyncStorage.getItem('profile');
+    const bodyWeight = rawProfile ? JSON.parse(rawProfile).weight : 75;
+    const advice = getNutritionAdvice(score, duration, parseFloat(bodyWeight) || 75);
+    setNutritionAdvice(advice);
+    setLastWorkoutScore(score);
+    setShowNutritionModal(true);
     await loadAll();
-    Alert.alert(
-      'Training abgeschlossen! 🎉',
-      `${duration} Minuten · ${finished.exercises.length} Übungen\n⚡ Trainingsscore: ${score}/100`
-    );
   }
 
   async function stopSession() {
@@ -2234,16 +1907,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
   if (activeRun) return <RunScreen onStop={stopSession} />;
   if (activeWorkout) return <ActiveGymWorkout workout={activeWorkout} userMaxes={userMaxes} prHistory={prHistory} lastWorkoutData={lastWorkoutData} onUpdate={setActiveWorkout} onFinish={finishWorkout} />;
   if (screen === 'freeStart') return <FreeWorkoutStartScreen onStart={startFreeWorkout} onStartWithRecommendation={startFreeWithRecommendation} lastWorkout={lastGymWorkout ?? null} onBack={() => setScreen('home')} />;
-  if (screen === 'routineScreen') return (
-    <RoutineScreen
-      routines={routines}
-      onSelectRoutine={r => { setSelectedRoutine(r); setScreen('routineDetail'); }}
-      onCreateRoutine={saveRoutine}
-      onUpdateRoutine={updateRoutine}
-      onDeleteRoutine={deleteRoutine}
-      onBack={() => setScreen('home')}
-    />
-  );
+  if (screen === 'routineScreen') return <RoutineScreen routines={routines} onSelectRoutine={r => { setSelectedRoutine(r); setScreen('routineDetail'); }} onCreateRoutine={saveRoutine} onUpdateRoutine={updateRoutine} onDeleteRoutine={deleteRoutine} onBack={() => setScreen('home')} />;
   if (screen === 'routineDetail' && selectedRoutine) return <RoutineDetailScreen routine={selectedRoutine} onStart={startRoutineWorkout} onBack={() => setScreen('routineScreen')} />;
 
   return (
@@ -2253,6 +1917,64 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
       {showPREntry && <PREntryScreen onClose={() => setShowPREntry(false)} onSave={savePR} />}
       {showPlan && <TrainingPlanScreen onClose={() => setShowPlan(false)} userMaxes={userMaxes} allExercises={allExercises} />}
 
+      {/* Ernährungsempfehlung Modal */}
+      <Modal visible={showNutritionModal} transparent animationType="slide">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+              <View>
+                <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, color: theme.orange, marginBottom: 4 }}>Training abgeschlossen</Text>
+                <Text style={{ fontSize: 22, fontWeight: '800', color: theme.textPrimary }}>Ernährungsplan 🍗</Text>
+              </View>
+              <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: theme.orangeBorder }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: theme.orange }}>⚡ {lastWorkoutScore}</Text>
+              </View>
+            </View>
+            {nutritionAdvice && (
+              <>
+                {/* Sofort */}
+                <View style={{ backgroundColor: theme.greenLight, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: theme.green+'40' }}>
+                  <Text style={{ color: theme.green, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>{nutritionAdvice.immediate.timing}</Text>
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 28, fontWeight: '800', color: theme.textPrimary }}>{nutritionAdvice.immediate.protein}g</Text>
+                      <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>Protein</Text>
+                    </View>
+                    <View style={{ width: 1, backgroundColor: theme.border }} />
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 28, fontWeight: '800', color: theme.textPrimary }}>{nutritionAdvice.immediate.carbs}g</Text>
+                      <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>Kohlenhydrate</Text>
+                    </View>
+                  </View>
+                  <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 8 }}>z.B. Whey Shake + Banane / Hühnerbrust + Reis</Text>
+                </View>
+                {/* Später */}
+                <View style={{ backgroundColor: theme.blueLight, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: theme.blue+'40' }}>
+                  <Text style={{ color: theme.blue, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>{nutritionAdvice.later.timing}</Text>
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 28, fontWeight: '800', color: theme.textPrimary }}>{nutritionAdvice.later.protein}g</Text>
+                      <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>Protein</Text>
+                    </View>
+                    <View style={{ width: 1, backgroundColor: theme.border }} />
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 28, fontWeight: '800', color: theme.textPrimary }}>{nutritionAdvice.later.carbs}g</Text>
+                      <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 2 }}>Kohlenhydrate</Text>
+                    </View>
+                  </View>
+                  <Text style={{ fontSize: 11, color: theme.textSecondary, marginTop: 8 }}>z.B. Lachs + Kartoffeln / Quark + Haferflocken</Text>
+                </View>
+              </>
+            )}
+            <TouchableOpacity style={{ backgroundColor: theme.orange, borderRadius: 14, padding: 15, alignItems: 'center', marginTop: 16 }} onPress={() => setShowNutritionModal(false)} activeOpacity={0.85}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#fff' }}>Verstanden ✓</Text>
+            </TouchableOpacity>
+            <View style={{ height: 10 }} />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Device Modal */}
       <Modal visible={showDeviceModal} transparent animationType="slide">
         <View style={s.modalOverlay}>
           <View style={s.modalCard}>
@@ -2265,39 +1987,24 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
                 <IconChevronRight color={theme.textTertiary} size={18} />
               </TouchableOpacity>
             ))}
-            <TouchableOpacity style={s.cancelBtn} onPress={() => setShowDeviceModal(false)}>
-              <Text style={s.cancelBtnText}>Abbrechen</Text>
-            </TouchableOpacity>
+            <TouchableOpacity style={s.cancelBtn} onPress={() => setShowDeviceModal(false)}><Text style={s.cancelBtnText}>Abbrechen</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       <ScrollView showsVerticalScrollIndicator={false}>
         <Animated.View style={{ opacity: fadeAnim }}>
-
-          {/* ── HEADER ── */}
-          <View style={{ paddingTop: 60, paddingHorizontal: 16, paddingBottom: 0 }}>
+          <View style={{ paddingTop: 60, paddingHorizontal: 16 }}>
             <Text style={{ fontSize:10,fontWeight:'700',letterSpacing:1.2,textTransform:'uppercase',color:theme.orange,marginBottom:4 }}>Training</Text>
             <Text style={{ fontSize:26,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.6,marginBottom:16 }}>{greeting}</Text>
-
-            {/* Week Grid */}
             <View style={{ backgroundColor:theme.card,borderRadius:18,borderWidth:1,borderColor:theme.border,padding:14,marginBottom:14 }}>
-              <Text style={{ fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.6,marginBottom:10 }}>
-                Diese Woche · {weekDays.filter(Boolean).length} Trainings
-              </Text>
+              <Text style={{ fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.6,marginBottom:10 }}>Diese Woche · {weekDays.filter(Boolean).length} Trainings</Text>
               <View style={{ flexDirection:'row',justifyContent:'space-between',alignItems:'flex-end' }}>
                 {DAY_LABELS.map((lbl, idx) => {
-                  const done = weekDays[idx];
-                  const isToday2 = idx === todayDayIdx;
+                  const done = weekDays[idx], isToday2 = idx === todayDayIdx;
                   return (
                     <View key={lbl} style={{ alignItems:'center',gap:4 }}>
-                      <View style={{
-                        width:27,height:27,borderRadius:14,
-                        backgroundColor: done ? theme.orange : isToday2 ? 'rgba(232,87,42,0.14)' : 'rgba(255,255,255,0.04)',
-                        borderWidth: isToday2 && !done ? 2 : done ? 0 : 1,
-                        borderColor: isToday2 ? theme.orange : 'rgba(255,255,255,0.08)',
-                        alignItems:'center',justifyContent:'center',
-                      }}>
+                      <View style={{ width:27,height:27,borderRadius:14, backgroundColor: done ? theme.orange : isToday2 ? 'rgba(232,87,42,0.14)' : 'rgba(255,255,255,0.04)', borderWidth: isToday2 && !done ? 2 : done ? 0 : 1, borderColor: isToday2 ? theme.orange : 'rgba(255,255,255,0.08)', alignItems:'center',justifyContent:'center' }}>
                         {done ? <IconCheck color="#fff" size={12} /> : isToday2 ? <View style={{ width:7,height:7,borderRadius:4,backgroundColor:theme.orange }} /> : null}
                       </View>
                       <Text style={{ fontSize:9, fontWeight: isToday2 ? '800' : '600', color: isToday2 ? theme.orange : done ? 'rgba(245,240,238,0.4)' : 'rgba(245,240,238,0.18)' }}>{lbl}</Text>
@@ -2308,7 +2015,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
             </View>
           </View>
 
-          {/* ── MAIN CARD ── */}
+          {/* Main Card */}
           <View style={{ marginHorizontal:16,marginBottom:12,backgroundColor:theme.card,borderRadius:22,borderWidth:1.5,borderColor:theme.orangeBorder,padding:18 }}>
             <View style={{ flexDirection:'row',alignItems:'center',gap:6,marginBottom:14 }}>
               <View style={{ width:5,height:5,borderRadius:3,backgroundColor:theme.orange }} />
@@ -2317,7 +2024,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
               </Text>
             </View>
             <View style={{ flexDirection:'row',alignItems:'center',gap:13,marginBottom:13 }}>
-              <View style={{ width:50,height:50,borderRadius:25,backgroundColor:theme.orangeLight,borderWidth:1,borderColor:theme.orangeBorder,alignItems:'center',justifyContent:'center',flexShrink:0 }}>
+              <View style={{ width:50,height:50,borderRadius:25,backgroundColor:theme.orangeLight,borderWidth:1,borderColor:theme.orangeBorder,alignItems:'center',justifyContent:'center' }}>
                 <IconDumbbell color={theme.orange} size={26} />
               </View>
               <View style={{ flex:1 }}>
@@ -2326,8 +2033,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
                 </Text>
                 {!neverTrainedGym && lastGymWorkout && (
                   <Text style={{ fontSize:11,color:theme.textSecondary }}>
-                    {lastGymWorkout.exercises.slice(0,3).map(e=>e.name).join(' · ')}
-                    {lastGymWorkout.exercises.length > 3 ? ` · +${lastGymWorkout.exercises.length-3}` : ''}
+                    {lastGymWorkout.exercises.slice(0,3).map(e=>e.name).join(' · ')}{lastGymWorkout.exercises.length > 3 ? ` · +${lastGymWorkout.exercises.length-3}` : ''}
                   </Text>
                 )}
               </View>
@@ -2341,54 +2047,43 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
                 ))}
               </View>
             )}
-            <TouchableOpacity
-              style={{ backgroundColor:theme.orange,borderRadius:14,padding:14,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:9 }}
-              onPress={startWithRecommendationFromHome} activeOpacity={0.85}>
+            <TouchableOpacity style={{ backgroundColor:theme.orange,borderRadius:14,padding:14,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:9 }} onPress={startWithRecommendationFromHome} activeOpacity={0.85}>
               <IconPlay color="#fff" size={15} />
               <Text style={{ fontSize:14,fontWeight:'800',color:'#fff' }}>Jetzt starten</Text>
             </TouchableOpacity>
           </View>
 
-          {/* ── QUICK ACTIONS ── */}
+          {/* Quick Actions */}
           <View style={{ flexDirection:'row',gap:8,marginHorizontal:16,marginBottom:10 }}>
-            <TouchableOpacity style={{ flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,alignItems:'center',gap:7 }}
-              onPress={() => setScreen('routineScreen')} activeOpacity={0.85}>
-              <IconList color={theme.textSecondary} size={22} />
-              <Text style={{ fontSize:12,fontWeight:'600',color:theme.textSecondary }}>Routinen</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={{ flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,alignItems:'center',gap:7 }}
-              onPress={() => setScreen('freeStart')} activeOpacity={0.85}>
-              <IconPencil color={theme.textSecondary} size={22} />
-              <Text style={{ fontSize:12,fontWeight:'600',color:theme.textSecondary }}>Freies Training</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={{ flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,alignItems:'center',gap:7 }}
-              onPress={() => setShowPlan(true)} activeOpacity={0.85}>
-              <IconCalendar color={theme.textSecondary} size={22} />
-              <Text style={{ fontSize:12,fontWeight:'600',color:theme.textSecondary }}>Plan</Text>
-            </TouchableOpacity>
+            {[
+              { label: 'Routinen', icon: <IconList color={theme.textSecondary} size={22} />, onPress: () => setScreen('routineScreen') },
+              { label: 'Freies Training', icon: <IconPencil color={theme.textSecondary} size={22} />, onPress: () => setScreen('freeStart') },
+              { label: 'Plan', icon: <IconCalendar color={theme.textSecondary} size={22} />, onPress: () => setShowPlan(true) },
+            ].map(btn => (
+              <TouchableOpacity key={btn.label} style={{ flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,alignItems:'center',gap:7 }} onPress={btn.onPress} activeOpacity={0.85}>
+                {btn.icon}
+                <Text style={{ fontSize:11,fontWeight:'600',color:theme.textSecondary }}>{btn.label}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
           {/* PRs */}
-          <TouchableOpacity
-            style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:'rgba(255,215,0,0.2)',flexDirection:'row',alignItems:'center',gap:13 }}
+          <TouchableOpacity style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:'rgba(255,215,0,0.2)',flexDirection:'row',alignItems:'center',gap:13 }}
             onPress={() => prCount === 0 ? setShowPREntry(true) : setShowPRScreen(true)} activeOpacity={0.85}>
-            <View style={{ width:44,height:44,borderRadius:22,backgroundColor:'rgba(255,215,0,0.1)',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
+            <View style={{ width:44,height:44,borderRadius:22,backgroundColor:'rgba(255,215,0,0.1)',alignItems:'center',justifyContent:'center' }}>
               <IconTrophy color="#FFD700" size={22} />
             </View>
             <View style={{ flex:1 }}>
               <Text style={{ fontSize:15,fontWeight:'700',color:theme.textPrimary,marginBottom:2 }}>Personal Records</Text>
-              <Text style={{ fontSize:12,color:theme.textSecondary }}>
-                {prCount === 0 ? 'Noch keine PRs — tippe um einzutragen' : `${prCount} PRs gespeichert`}
-              </Text>
+              <Text style={{ fontSize:12,color:theme.textSecondary }}>{prCount === 0 ? 'Noch keine PRs — tippe um einzutragen' : `${prCount} PRs gespeichert`}</Text>
             </View>
             <IconChevronRight color="rgba(255,215,0,0.4)" size={18} />
           </TouchableOpacity>
 
           {/* Verlauf */}
-          <TouchableOpacity
-            style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:theme.orangeBorder,flexDirection:'row',alignItems:'center',gap:13 }}
+          <TouchableOpacity style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:theme.orangeBorder,flexDirection:'row',alignItems:'center',gap:13 }}
             onPress={() => setShowHistory(true)} activeOpacity={0.85}>
-            <View style={{ width:44,height:44,borderRadius:22,backgroundColor:theme.orangeLight,alignItems:'center',justifyContent:'center',flexShrink:0 }}>
+            <View style={{ width:44,height:44,borderRadius:22,backgroundColor:theme.orangeLight,alignItems:'center',justifyContent:'center' }}>
               <IconHistory color={theme.orange} size={22} />
             </View>
             <View style={{ flex:1 }}>
@@ -2429,7 +2124,6 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
               </View>
             </TouchableOpacity>
           )}
-
           <View style={{ height: 120 }} />
         </Animated.View>
       </ScrollView>
@@ -2443,173 +2137,166 @@ const sw = StyleSheet.create({
   thumb: { width:56,height:56,borderRadius:28,backgroundColor:theme.orange,alignItems:'center',justifyContent:'center',zIndex:2 },
   label: { position:'absolute',left:0,right:0,textAlign:'center',fontSize:13,fontWeight:'600',color:theme.textTertiary },
 });
-
 const startSt = StyleSheet.create({
-  header:          { paddingTop:60,paddingHorizontal:16,paddingBottom:20,flexDirection:'row',alignItems:'flex-start',gap:12 },
-  backBtn:         { width:36,height:36,borderRadius:18,backgroundColor:theme.card,alignItems:'center',justifyContent:'center',marginTop:4,borderWidth:1,borderColor:theme.border },
-  eyebrow:         { fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 },
-  title:           { fontSize:26,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.6 },
-  recCard:         { backgroundColor:theme.card,borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.orangeBorder },
-  recBadgeRow:     { flexDirection:'row',alignItems:'center',gap:6,marginBottom:8 },
-  recDot:          { width:6,height:6,borderRadius:3,backgroundColor:theme.orange },
-  recBadgeText:    { fontSize:10,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',color:theme.orange },
-  recTitle:        { fontSize:17,fontWeight:'800',color:theme.textPrimary,marginBottom:4,letterSpacing:-0.3 },
-  recSub:          { fontSize:12,color:theme.textSecondary,marginBottom:12 },
-  recBtn:          { backgroundColor:theme.orange,borderRadius:12,padding:12,alignItems:'center' },
-  recBtnText:      { fontSize:13,fontWeight:'700',color:'#fff' },
-  emptyCard:       { backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:12,borderWidth:1,borderColor:theme.border },
-  emptyCardTitle:  { fontSize:14,fontWeight:'600',color:theme.textSecondary,marginBottom:3 },
-  emptyCardSub:    { fontSize:12,color:theme.textTertiary },
-  routineCard:     { backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:10,flexDirection:'row',alignItems:'center',gap:12,borderWidth:1,borderColor:theme.border },
-  routineName:     { fontSize:16,fontWeight:'700',color:theme.textPrimary,marginBottom:4,letterSpacing:-0.3 },
-  routineMeta:     { fontSize:11,color:theme.textSecondary,marginBottom:8 },
-  routineChipRow:  { flexDirection:'row',gap:6 },
-  routineChip:     { backgroundColor:theme.orangeLight,borderRadius:20,paddingHorizontal:10,paddingVertical:4,borderWidth:1,borderColor:theme.orangeBorder },
+  header: { paddingTop:60,paddingHorizontal:16,paddingBottom:20,flexDirection:'row',alignItems:'flex-start',gap:12 },
+  backBtn: { width:36,height:36,borderRadius:18,backgroundColor:theme.card,alignItems:'center',justifyContent:'center',marginTop:4,borderWidth:1,borderColor:theme.border },
+  eyebrow: { fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 },
+  title: { fontSize:26,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.6 },
+  recCard: { backgroundColor:theme.card,borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.orangeBorder },
+  recBadgeRow: { flexDirection:'row',alignItems:'center',gap:6,marginBottom:8 },
+  recDot: { width:6,height:6,borderRadius:3,backgroundColor:theme.orange },
+  recBadgeText: { fontSize:10,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',color:theme.orange },
+  recTitle: { fontSize:17,fontWeight:'800',color:theme.textPrimary,marginBottom:4,letterSpacing:-0.3 },
+  recSub: { fontSize:12,color:theme.textSecondary,marginBottom:12 },
+  recBtn: { backgroundColor:theme.orange,borderRadius:12,padding:12,alignItems:'center' },
+  recBtnText: { fontSize:13,fontWeight:'700',color:'#fff' },
+  emptyCard: { backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:12,borderWidth:1,borderColor:theme.border },
+  emptyCardTitle: { fontSize:14,fontWeight:'600',color:theme.textSecondary,marginBottom:3 },
+  emptyCardSub: { fontSize:12,color:theme.textTertiary },
+  routineCard: { backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:10,flexDirection:'row',alignItems:'center',gap:12,borderWidth:1,borderColor:theme.border },
+  routineName: { fontSize:16,fontWeight:'700',color:theme.textPrimary,marginBottom:4,letterSpacing:-0.3 },
+  routineMeta: { fontSize:11,color:theme.textSecondary,marginBottom:8 },
+  routineChipRow: { flexDirection:'row',gap:6 },
+  routineChip: { backgroundColor:theme.orangeLight,borderRadius:20,paddingHorizontal:10,paddingVertical:4,borderWidth:1,borderColor:theme.orangeBorder },
   routineChipText: { fontSize:11,fontWeight:'600',color:theme.orange },
-  exListCard:      { backgroundColor:theme.card,borderRadius:16,overflow:'hidden',marginBottom:12,borderWidth:1,borderColor:theme.border },
-  exRow:           { flexDirection:'row',alignItems:'center',gap:10,padding:12 },
-  exRowBorder:     { borderBottomWidth:0.5,borderBottomColor:theme.border },
-  exDot:           { width:8,height:8,borderRadius:4 },
-  exName:          { flex:1,fontSize:13,fontWeight:'600',color:theme.textPrimary },
-  addExBtn:        { flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,borderWidth:1,borderColor:theme.orangeBorder,borderRadius:12,borderStyle:'dashed',padding:12,marginBottom:12 },
-  addExBtnText:    { fontSize:13,fontWeight:'600',color:theme.orange },
-  emptyState:      { alignItems:'center',paddingVertical:60,gap:12 },
+  exListCard: { backgroundColor:theme.card,borderRadius:16,overflow:'hidden',marginBottom:12,borderWidth:1,borderColor:theme.border },
+  exRow: { flexDirection:'row',alignItems:'center',gap:10,padding:12 },
+  exRowBorder: { borderBottomWidth:0.5,borderBottomColor:theme.border },
+  exDot: { width:8,height:8,borderRadius:4 },
+  exName: { flex:1,fontSize:13,fontWeight:'600',color:theme.textPrimary },
+  addExBtn: { flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,borderWidth:1,borderColor:theme.orangeBorder,borderRadius:12,borderStyle:'dashed',padding:12,marginBottom:12 },
+  addExBtnText: { fontSize:13,fontWeight:'600',color:theme.orange },
+  emptyState: { alignItems:'center',paddingVertical:60,gap:12 },
   emptyStateTitle: { fontSize:17,fontWeight:'700',color:theme.textPrimary },
-  emptyStateSub:   { fontSize:13,color:theme.textSecondary,textAlign:'center' },
+  emptyStateSub: { fontSize:13,color:theme.textSecondary,textAlign:'center' },
 });
-
 const routineSt = StyleSheet.create({
-  tabRow:             { flexDirection:'row',gap:8,marginBottom:16 },
-  tabBtn:             { flex:1,paddingVertical:10,borderRadius:12,backgroundColor:theme.card,alignItems:'center',borderWidth:1,borderColor:theme.border },
-  tabBtnActive:       { backgroundColor:theme.orange,borderColor:theme.orange },
-  tabBtnText:         { fontSize:13,fontWeight:'600',color:theme.textSecondary },
-  tabBtnTextActive:   { color:'#fff' },
-  createBtn:          { backgroundColor:theme.card,borderRadius:16,padding:16,flexDirection:'row',alignItems:'center',gap:14,marginBottom:12,borderWidth:1,borderColor:theme.orangeBorder },
-  createBtnIcon:      { width:44,height:44,borderRadius:22,backgroundColor:theme.orangeLight,alignItems:'center',justifyContent:'center' },
-  createBtnTitle:     { fontSize:15,fontWeight:'700',color:theme.textPrimary,marginBottom:2 },
-  createBtnSub:       { fontSize:12,color:theme.textSecondary },
-  searchBox:          { flexDirection:'row',alignItems:'center',gap:10,backgroundColor:theme.card,borderRadius:12,paddingHorizontal:14,paddingVertical:12,marginBottom:14,borderWidth:1,borderColor:theme.border },
-  searchInput:        { flex:1,fontSize:14,color:theme.textPrimary },
-  communityBadge:     { backgroundColor:theme.blueLight,borderRadius:20,paddingHorizontal:8,paddingVertical:3 },
+  tabRow: { flexDirection:'row',gap:8,marginBottom:16 },
+  tabBtn: { flex:1,paddingVertical:10,borderRadius:12,backgroundColor:theme.card,alignItems:'center',borderWidth:1,borderColor:theme.border },
+  tabBtnActive: { backgroundColor:theme.orange,borderColor:theme.orange },
+  tabBtnText: { fontSize:13,fontWeight:'600',color:theme.textSecondary },
+  tabBtnTextActive: { color:'#fff' },
+  createBtn: { backgroundColor:theme.card,borderRadius:16,padding:16,flexDirection:'row',alignItems:'center',gap:14,marginBottom:12,borderWidth:1,borderColor:theme.orangeBorder },
+  createBtnIcon: { width:44,height:44,borderRadius:22,backgroundColor:theme.orangeLight,alignItems:'center',justifyContent:'center' },
+  createBtnTitle: { fontSize:15,fontWeight:'700',color:theme.textPrimary,marginBottom:2 },
+  createBtnSub: { fontSize:12,color:theme.textSecondary },
+  searchBox: { flexDirection:'row',alignItems:'center',gap:10,backgroundColor:theme.card,borderRadius:12,paddingHorizontal:14,paddingVertical:12,marginBottom:14,borderWidth:1,borderColor:theme.border },
+  searchInput: { flex:1,fontSize:14,color:theme.textPrimary },
+  communityBadge: { backgroundColor:theme.blueLight,borderRadius:20,paddingHorizontal:8,paddingVertical:3 },
   communityBadgeText: { fontSize:10,fontWeight:'600',color:theme.blue },
 });
-
 const prEntry = StyleSheet.create({
-  header:       { flexDirection:'row',alignItems:'flex-end',gap:12,paddingTop:60,paddingHorizontal:16,paddingBottom:20,backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border },
-  closeBtn:     { width:36,height:36,borderRadius:18,backgroundColor:theme.cardSecondary,alignItems:'center',justifyContent:'center' },
-  eyebrow:      { fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 },
-  title:        { fontSize:24,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.5 },
-  searchBox:    { flexDirection:'row',alignItems:'center',gap:10,backgroundColor:theme.card,borderRadius:12,paddingHorizontal:14,paddingVertical:12,marginBottom:20,borderWidth:1,borderColor:theme.border },
-  searchInput:  { flex:1,fontSize:14,color:theme.textPrimary },
-  muscleLabel:  { fontSize:10,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',marginBottom:8 },
-  exRow:        { flexDirection:'row',alignItems:'center',gap:10,backgroundColor:theme.card,borderRadius:12,padding:14,marginBottom:8,borderWidth:1,borderColor:theme.border },
-  exDot:        { width:8,height:8,borderRadius:4 },
-  exName:       { flex:1,fontSize:14,fontWeight:'600',color:theme.textPrimary },
+  header: { flexDirection:'row',alignItems:'flex-end',gap:12,paddingTop:60,paddingHorizontal:16,paddingBottom:20,backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border },
+  closeBtn: { width:36,height:36,borderRadius:18,backgroundColor:theme.cardSecondary,alignItems:'center',justifyContent:'center' },
+  eyebrow: { fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 },
+  title: { fontSize:24,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.5 },
+  searchBox: { flexDirection:'row',alignItems:'center',gap:10,backgroundColor:theme.card,borderRadius:12,paddingHorizontal:14,paddingVertical:12,marginBottom:20,borderWidth:1,borderColor:theme.border },
+  searchInput: { flex:1,fontSize:14,color:theme.textPrimary },
+  muscleLabel: { fontSize:10,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',marginBottom:8 },
+  exRow: { flexDirection:'row',alignItems:'center',gap:10,backgroundColor:theme.card,borderRadius:12,padding:14,marginBottom:8,borderWidth:1,borderColor:theme.border },
+  exDot: { width:8,height:8,borderRadius:4 },
+  exName: { flex:1,fontSize:14,fontWeight:'600',color:theme.textPrimary },
   sectionLabel: { fontSize:11,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',color:theme.textTertiary,marginBottom:12 },
-  repsRow:      { flexDirection:'row',gap:10,marginBottom:8 },
-  repsBtn:      { flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,alignItems:'center',borderWidth:1,borderColor:theme.border },
-  repsBtnActive:{ backgroundColor:theme.orange,borderColor:theme.orange },
-  repsBtnNum:   { fontSize:28,fontWeight:'800',color:theme.textPrimary,marginBottom:2 },
+  repsRow: { flexDirection:'row',gap:10,marginBottom:8 },
+  repsBtn: { flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,alignItems:'center',borderWidth:1,borderColor:theme.border },
+  repsBtnActive: { backgroundColor:theme.orange,borderColor:theme.orange },
+  repsBtnNum: { fontSize:28,fontWeight:'800',color:theme.textPrimary,marginBottom:2 },
   repsBtnLabel: { fontSize:11,color:theme.textSecondary },
-  weightRow:    { flexDirection:'row',alignItems:'center',gap:12,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,marginBottom:16 },
-  weightInput:  { flex:1,fontSize:48,fontWeight:'800',color:theme.textPrimary,letterSpacing:-1 },
-  weightUnit:   { fontSize:20,fontWeight:'600',color:theme.textTertiary },
-  previewCard:  { backgroundColor:theme.orangeLight,borderRadius:14,padding:16,marginBottom:20,flexDirection:'row',alignItems:'center',justifyContent:'space-between',borderWidth:1,borderColor:theme.orangeBorder },
+  weightRow: { flexDirection:'row',alignItems:'center',gap:12,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,marginBottom:16 },
+  weightInput: { flex:1,fontSize:48,fontWeight:'800',color:theme.textPrimary,letterSpacing:-1 },
+  weightUnit: { fontSize:20,fontWeight:'600',color:theme.textTertiary },
+  previewCard: { backgroundColor:theme.orangeLight,borderRadius:14,padding:16,marginBottom:20,flexDirection:'row',alignItems:'center',justifyContent:'space-between',borderWidth:1,borderColor:theme.orangeBorder },
   previewLabel: { fontSize:12,fontWeight:'600',color:theme.orange,textTransform:'uppercase',letterSpacing:0.8 },
-  previewVal:   { fontSize:28,fontWeight:'800',color:theme.orange },
-  saveBtn:      { backgroundColor:theme.orange,borderRadius:16,padding:16,alignItems:'center' },
-  saveBtnText:  { fontSize:15,fontWeight:'700',color:'#fff' },
+  previewVal: { fontSize:28,fontWeight:'800',color:theme.orange },
+  saveBtn: { backgroundColor:theme.orange,borderRadius:16,padding:16,alignItems:'center' },
+  saveBtnText: { fontSize:15,fontWeight:'700',color:'#fff' },
 });
-
 const prSt = StyleSheet.create({
-  addBtn:       { flexDirection:'row',alignItems:'center',gap:8,backgroundColor:theme.orange,borderRadius:14,padding:14,margin:16,justifyContent:'center' },
-  addBtnText:   { fontSize:14,fontWeight:'700',color:'#fff' },
-  card:         { backgroundColor:theme.card,borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.border },
-  rankBadge:    { width:36,height:36,borderRadius:18,alignItems:'center',justifyContent:'center',borderWidth:1.5 },
-  rankText:     { fontSize:12,fontWeight:'800' },
+  addBtn: { flexDirection:'row',alignItems:'center',gap:8,backgroundColor:theme.orange,borderRadius:14,padding:14,margin:16,justifyContent:'center' },
+  addBtnText: { fontSize:14,fontWeight:'700',color:'#fff' },
+  card: { backgroundColor:theme.card,borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.border },
+  rankBadge: { width:36,height:36,borderRadius:18,alignItems:'center',justifyContent:'center',borderWidth:1.5 },
+  rankText: { fontSize:12,fontWeight:'800' },
   exerciseName: { fontSize:16,fontWeight:'700',color:theme.textPrimary,letterSpacing:-0.3 },
   exerciseDate: { fontSize:12,color:theme.textTertiary,marginTop:2 },
-  oneRMVal:     { fontSize:20,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.5 },
-  oneRMLabel:   { fontSize:10,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.5 },
-  prStat:       { flex:1,backgroundColor:theme.cardSecondary,borderRadius:10,padding:10,alignItems:'center' },
-  prStatVal:    { fontSize:15,fontWeight:'700',color:theme.textPrimary },
-  prStatLbl:    { fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.4,marginTop:2 },
-  deltaChip:    { borderRadius:20,paddingHorizontal:10,paddingVertical:6,flexDirection:'row',alignItems:'center',gap:4 },
-  deltaText:    { fontSize:12,fontWeight:'700' },
+  oneRMVal: { fontSize:20,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.5 },
+  oneRMLabel: { fontSize:10,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.5 },
+  prStat: { flex:1,backgroundColor:theme.cardSecondary,borderRadius:10,padding:10,alignItems:'center' },
+  prStatVal: { fontSize:15,fontWeight:'700',color:theme.textPrimary },
+  prStatLbl: { fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.4,marginTop:2 },
+  deltaChip: { borderRadius:20,paddingHorizontal:10,paddingVertical:6,flexDirection:'row',alignItems:'center',gap:4 },
+  deltaText: { fontSize:12,fontWeight:'700' },
 });
-
 const active = StyleSheet.create({
-  header:         { backgroundColor:theme.card,paddingTop:56,paddingHorizontal:16,paddingBottom:14,flexDirection:'row',alignItems:'flex-start',gap:12,borderBottomWidth:0.5,borderBottomColor:theme.border },
-  workoutLabel:   { fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 },
-  workoutTitle:   { fontSize:20,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.4 },
-  timerBadge:     { backgroundColor:theme.orangeLight,borderRadius:12,paddingHorizontal:12,paddingVertical:8,alignItems:'center',borderWidth:1,borderColor:theme.orangeBorder },
-  timerText:      { fontSize:18,fontWeight:'800',color:theme.orange,letterSpacing:1 },
-  timerLabel:     { fontSize:8,color:theme.orange,textTransform:'uppercase',letterSpacing:0.5,marginTop:1,opacity:0.6 },
-  statsRow:       { flexDirection:'row',gap:8,padding:12,backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border },
-  statBox:        { flex:1,backgroundColor:theme.cardSecondary,borderRadius:10,padding:10,alignItems:'center' },
-  statVal:        { fontSize:18,fontWeight:'700' },
-  statLbl:        { fontSize:8,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.5,marginTop:2 },
-  pauseCard:      { backgroundColor:theme.card,borderLeftWidth:3,padding:12,marginBottom:12,marginTop:12,borderRadius:0 },
-  pauseLabel:     { fontSize:9,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',marginBottom:2 },
-  pauseTimer:     { fontSize:22,fontWeight:'800',color:theme.textPrimary,letterSpacing:1 },
-  pauseBtn:       { backgroundColor:theme.cardSecondary,borderRadius:8,paddingHorizontal:8,paddingVertical:6,borderWidth:1,borderColor:theme.border },
-  pauseBtnText:   { fontSize:11,fontWeight:'600',color:theme.textSecondary },
-  exerciseCard:   { backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.border },
-  musclePill:     { paddingHorizontal:10,paddingVertical:4,borderRadius:20 },
+  header: { backgroundColor:theme.card,paddingTop:56,paddingHorizontal:16,paddingBottom:14,flexDirection:'row',alignItems:'flex-start',gap:12,borderBottomWidth:0.5,borderBottomColor:theme.border },
+  workoutLabel: { fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 },
+  workoutTitle: { fontSize:20,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.4 },
+  timerBadge: { backgroundColor:theme.orangeLight,borderRadius:12,paddingHorizontal:12,paddingVertical:8,alignItems:'center',borderWidth:1,borderColor:theme.orangeBorder },
+  timerText: { fontSize:18,fontWeight:'800',color:theme.orange,letterSpacing:1 },
+  timerLabel: { fontSize:8,color:theme.orange,textTransform:'uppercase',letterSpacing:0.5,marginTop:1,opacity:0.6 },
+  statsRow: { flexDirection:'row',gap:8,padding:12,backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border },
+  statBox: { flex:1,backgroundColor:theme.cardSecondary,borderRadius:10,padding:10,alignItems:'center' },
+  statVal: { fontSize:18,fontWeight:'700' },
+  statLbl: { fontSize:8,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.5,marginTop:2 },
+  pauseCard: { backgroundColor:theme.card,borderLeftWidth:3,padding:12,marginBottom:12,marginTop:12,borderRadius:0 },
+  pauseLabel: { fontSize:9,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',marginBottom:2 },
+  pauseTimer: { fontSize:22,fontWeight:'800',color:theme.textPrimary,letterSpacing:1 },
+  pauseBtn: { backgroundColor:theme.cardSecondary,borderRadius:8,paddingHorizontal:8,paddingVertical:6,borderWidth:1,borderColor:theme.border },
+  pauseBtnText: { fontSize:11,fontWeight:'600',color:theme.textSecondary },
+  exerciseCard: { backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.border },
+  musclePill: { paddingHorizontal:10,paddingVertical:4,borderRadius:20 },
   musclePillText: { fontSize:11,fontWeight:'500' },
-  exerciseName:   { flex:1,fontSize:15,fontWeight:'700',color:theme.textPrimary },
-  prWarn:         { backgroundColor:'rgba(232,87,42,0.08)',borderRadius:10,padding:12,borderLeftWidth:3,borderLeftColor:theme.orange,marginBottom:12 },
-  prWarnTitle:    { fontSize:12,fontWeight:'700',color:theme.textPrimary,marginBottom:2 },
-  prWarnBtn:      { flex:1,borderRadius:8,padding:8,alignItems:'center',borderWidth:1,borderColor:theme.border,backgroundColor:theme.cardSecondary },
-  prWarnBtnText:  { fontSize:11,fontWeight:'600',color:theme.textSecondary },
-  recRow:         { backgroundColor:theme.blueLight,borderRadius:8,padding:8,marginBottom:10,borderWidth:1,borderColor:'rgba(74,158,255,0.2)' },
-  recText:        { fontSize:12,color:theme.blue,fontWeight:'500' },
-  lastRow:        { flexDirection:'row',backgroundColor:theme.cardSecondary,borderRadius:8,padding:8,marginBottom:8 },
-  lastLabel:      { fontSize:11,color:theme.textSecondary },
-  lastVal:        { fontSize:11,color:theme.orange,fontWeight:'500',flex:1 },
-  oneRM:          { fontSize:11,color:theme.textSecondary,marginBottom:10 },
-  setHeaderText:  { fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.8,textAlign:'center' },
-  setRow:         { flexDirection:'row',gap:8,marginBottom:8,alignItems:'center' },
-  setNumber:      { fontSize:13,color:theme.textSecondary,width:24,textAlign:'center' },
-  setInput:       { flex:1,backgroundColor:theme.cardSecondary,borderRadius:10,padding:11,color:theme.textPrimary,fontSize:15,textAlign:'center',borderWidth:1,borderColor:theme.border },
-  addSetBtn:      { padding:8,alignItems:'center' },
-  addSetBtnText:  { fontSize:13,color:theme.orange,fontWeight:'500' },
+  exerciseName: { flex:1,fontSize:15,fontWeight:'700',color:theme.textPrimary },
+  prWarn: { backgroundColor:'rgba(232,87,42,0.08)',borderRadius:10,padding:12,borderLeftWidth:3,borderLeftColor:theme.orange,marginBottom:12 },
+  prWarnTitle: { fontSize:12,fontWeight:'700',color:theme.textPrimary,marginBottom:2 },
+  prWarnBtn: { flex:1,borderRadius:8,padding:8,alignItems:'center',borderWidth:1,borderColor:theme.border,backgroundColor:theme.cardSecondary },
+  prWarnBtnText: { fontSize:11,fontWeight:'600',color:theme.textSecondary },
+  recRow: { backgroundColor:theme.blueLight,borderRadius:8,padding:8,marginBottom:10,borderWidth:1,borderColor:'rgba(74,158,255,0.2)' },
+  recText: { fontSize:12,color:theme.blue,fontWeight:'500' },
+  lastRow: { flexDirection:'row',backgroundColor:theme.cardSecondary,borderRadius:8,padding:8,marginBottom:8 },
+  lastLabel: { fontSize:11,color:theme.textSecondary },
+  lastVal: { fontSize:11,color:theme.orange,fontWeight:'500',flex:1 },
+  oneRM: { fontSize:11,color:theme.textSecondary,marginBottom:10 },
+  setHeaderText: { fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.8,textAlign:'center' },
+  setRow: { flexDirection:'row',gap:8,marginBottom:8,alignItems:'center' },
+  setNumber: { fontSize:13,color:theme.textSecondary,width:24,textAlign:'center' },
+  setInput: { flex:1,backgroundColor:theme.cardSecondary,borderRadius:10,padding:11,color:theme.textPrimary,fontSize:15,textAlign:'center',borderWidth:1,borderColor:theme.border },
+  addSetBtn: { padding:8,alignItems:'center' },
+  addSetBtnText: { fontSize:13,color:theme.orange,fontWeight:'500' },
   addExerciseBtn: { backgroundColor:theme.orangeLight,borderRadius:14,padding:14,alignItems:'center',marginBottom:10,borderWidth:1,borderColor:theme.orangeBorder,flexDirection:'row',justifyContent:'center',gap:8 },
   addExerciseBtnText: { fontSize:15,color:theme.orange,fontWeight:'600' },
-  finishBtn:      { backgroundColor:theme.orange,borderRadius:16,padding:16,alignItems:'center',marginBottom:20 },
-  finishBtnText:  { fontSize:15,color:'#fff',fontWeight:'700' },
+  finishBtn: { backgroundColor:theme.orange,borderRadius:16,padding:16,alignItems:'center',marginBottom:20 },
+  finishBtnText: { fontSize:15,color:'#fff',fontWeight:'700' },
 });
-
 const hist = StyleSheet.create({
-  header:   { flexDirection:'row',justifyContent:'space-between',alignItems:'flex-end',paddingTop:60,paddingHorizontal:22,paddingBottom:14,backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border },
-  eyebrow:  { fontSize:11,fontWeight:'600',color:theme.orange,letterSpacing:0.8,textTransform:'uppercase',marginBottom:4 },
-  title:    { fontSize:28,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.8 },
+  header: { flexDirection:'row',justifyContent:'space-between',alignItems:'flex-end',paddingTop:60,paddingHorizontal:22,paddingBottom:14,backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border },
+  eyebrow: { fontSize:11,fontWeight:'600',color:theme.orange,letterSpacing:0.8,textTransform:'uppercase',marginBottom:4 },
+  title: { fontSize:28,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.8 },
   closeBtn: { width:36,height:36,borderRadius:18,backgroundColor:theme.cardSecondary,alignItems:'center',justifyContent:'center' },
 });
-
 const s = StyleSheet.create({
-  container:         { flex:1,backgroundColor:theme.bg,paddingHorizontal:20 },
-  headerLabel:       { fontSize:11,letterSpacing:1.5,textTransform:'uppercase',color:theme.textSecondary,marginTop:60,marginBottom:12 },
-  card:              { backgroundColor:theme.card,borderRadius:16,padding:14,marginBottom:10,borderWidth:1,borderColor:theme.border },
-  cardTitle:         { fontSize:10,textTransform:'uppercase',letterSpacing:1.5,color:theme.textSecondary,marginBottom:10 },
-  inputLabel:        { fontSize:10,textTransform:'uppercase',letterSpacing:1.2,color:theme.textSecondary,marginBottom:6 },
-  input:             { backgroundColor:theme.cardSecondary,borderRadius:12,padding:13,color:theme.textPrimary,fontSize:15,marginBottom:12,borderWidth:1,borderColor:theme.border },
-  saveBtn:           { backgroundColor:theme.orange,borderRadius:14,padding:15,alignItems:'center' },
-  saveBtnText:       { fontSize:15,fontWeight:'600',color:'#fff' },
-  cancelBtn:         { padding:14,alignItems:'center' },
-  cancelBtnText:     { fontSize:14,color:theme.textSecondary },
-  presetChip:        { paddingHorizontal:12,paddingVertical:7,borderRadius:20,backgroundColor:theme.cardSecondary,borderWidth:1,borderColor:theme.border },
-  presetChipText:    { fontSize:13,color:theme.textPrimary },
-  modalOverlay:      { flex:1,backgroundColor:'rgba(0,0,0,0.6)',justifyContent:'flex-end' },
-  modalCard:         { backgroundColor:theme.card,borderTopLeftRadius:24,borderTopRightRadius:24,padding:24,gap:12 },
-  modalTitle:        { fontSize:20,fontWeight:'700',color:theme.textPrimary },
-  runTimerCard:      { backgroundColor:theme.card,borderRadius:24,padding:28,alignItems:'center',gap:10,marginBottom:14,borderLeftWidth:3,borderLeftColor:theme.green,borderWidth:1,borderColor:theme.border },
-  runTimerLabel:     { fontSize:10,color:theme.textSecondary,textTransform:'uppercase',letterSpacing:2 },
-  runTimerDisplay:   { fontSize:60,fontWeight:'300',color:theme.textPrimary,letterSpacing:-2 },
-  runStatsGrid:      { flexDirection:'row',gap:8,marginBottom:14 },
-  runStatCard:       { flex:1,backgroundColor:theme.card,borderRadius:14,padding:12,alignItems:'center',borderWidth:1,borderColor:theme.border },
-  runStatVal:        { fontSize:16,fontWeight:'600' },
-  runStatLbl:        { fontSize:8,color:theme.textSecondary,textTransform:'uppercase',letterSpacing:0.8,marginTop:3,textAlign:'center' },
-  finishRunBtn:      { backgroundColor:theme.green,borderRadius:16,padding:16,alignItems:'center',marginBottom:40 },
-  finishRunBtnText:  { fontSize:15,fontWeight:'600',color:'#000' },
+  container: { flex:1,backgroundColor:theme.bg,paddingHorizontal:20 },
+  headerLabel: { fontSize:11,letterSpacing:1.5,textTransform:'uppercase',color:theme.textSecondary,marginTop:60,marginBottom:12 },
+  card: { backgroundColor:theme.card,borderRadius:16,padding:14,marginBottom:10,borderWidth:1,borderColor:theme.border },
+  cardTitle: { fontSize:10,textTransform:'uppercase',letterSpacing:1.5,color:theme.textSecondary,marginBottom:10 },
+  inputLabel: { fontSize:10,textTransform:'uppercase',letterSpacing:1.2,color:theme.textSecondary,marginBottom:6 },
+  input: { backgroundColor:theme.cardSecondary,borderRadius:12,padding:13,color:theme.textPrimary,fontSize:15,marginBottom:12,borderWidth:1,borderColor:theme.border },
+  saveBtn: { backgroundColor:theme.orange,borderRadius:14,padding:15,alignItems:'center' },
+  saveBtnText: { fontSize:15,fontWeight:'600',color:'#fff' },
+  cancelBtn: { padding:14,alignItems:'center' },
+  cancelBtnText: { fontSize:14,color:theme.textSecondary },
+  presetChip: { paddingHorizontal:12,paddingVertical:7,borderRadius:20,backgroundColor:theme.cardSecondary,borderWidth:1,borderColor:theme.border },
+  presetChipText: { fontSize:13,color:theme.textPrimary },
+  modalOverlay: { flex:1,backgroundColor:'rgba(0,0,0,0.6)',justifyContent:'flex-end' },
+  modalCard: { backgroundColor:theme.card,borderTopLeftRadius:24,borderTopRightRadius:24,padding:24,gap:12 },
+  modalTitle: { fontSize:20,fontWeight:'700',color:theme.textPrimary },
+  runTimerCard: { backgroundColor:theme.card,borderRadius:24,padding:28,alignItems:'center',gap:10,marginBottom:14,borderLeftWidth:3,borderLeftColor:theme.green,borderWidth:1,borderColor:theme.border },
+  runTimerLabel: { fontSize:10,color:theme.textSecondary,textTransform:'uppercase',letterSpacing:2 },
+  runTimerDisplay: { fontSize:60,fontWeight:'300',color:theme.textPrimary,letterSpacing:-2 },
+  runStatsGrid: { flexDirection:'row',gap:8,marginBottom:14 },
+  runStatCard: { flex:1,backgroundColor:theme.card,borderRadius:14,padding:12,alignItems:'center',borderWidth:1,borderColor:theme.border },
+  runStatVal: { fontSize:16,fontWeight:'600' },
+  runStatLbl: { fontSize:8,color:theme.textSecondary,textTransform:'uppercase',letterSpacing:0.8,marginTop:3,textAlign:'center' },
+  finishRunBtn: { backgroundColor:theme.green,borderRadius:16,padding:16,alignItems:'center',marginBottom:40 },
+  finishRunBtnText: { fontSize:15,fontWeight:'600',color:'#000' },
 });
