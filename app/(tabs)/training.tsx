@@ -7,7 +7,7 @@ import {
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-
+import { JudoTrackingScreen } from '../judo-tracking';
 const SW = Dimensions.get('window').width;
 
 const theme = {
@@ -1765,6 +1765,7 @@ export default function TrainingScreen() {
   const [allExercises, setAllExercises] = useState(DEFAULT_EXERCISES);
   const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [showJudo, setShowJudo] = useState(false);
 
   useFocusEffect(useCallback(() => {
     loadAll();
@@ -1916,6 +1917,7 @@ export default function TrainingScreen() {
       {showPRScreen && <PRScreen prHistory={prHistory} onClose={() => setShowPRScreen(false)} onAddPR={() => { setShowPRScreen(false); setShowPREntry(true); }} />}
       {showPREntry && <PREntryScreen onClose={() => setShowPREntry(false)} onSave={savePR} />}
       {showPlan && <TrainingPlanScreen onClose={() => setShowPlan(false)} userMaxes={userMaxes} allExercises={allExercises} />}
+        {showJudo && <JudoTrackingScreen onClose={() => setShowJudo(false)} />}
 
       {/* Ernährungsempfehlung Modal */}
       <Modal visible={showNutritionModal} transparent animationType="slide">
@@ -2059,6 +2061,7 @@ export default function TrainingScreen() {
               { label: 'Routinen', icon: <IconList color={theme.textSecondary} size={22} />, onPress: () => setScreen('routineScreen') },
               { label: 'Freies Training', icon: <IconPencil color={theme.textSecondary} size={22} />, onPress: () => setScreen('freeStart') },
               { label: 'Plan', icon: <IconCalendar color={theme.textSecondary} size={22} />, onPress: () => setShowPlan(true) },
+              { label: 'Judo', icon: <Text style={{fontSize:22}}>🥋</Text>, onPress: () => setShowJudo(true) },
             ].map(btn => (
               <TouchableOpacity key={btn.label} style={{ flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,alignItems:'center',gap:7 }} onPress={btn.onPress} activeOpacity={0.85}>
                 {btn.icon}
