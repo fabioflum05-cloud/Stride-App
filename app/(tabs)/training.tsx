@@ -1332,6 +1332,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
     </>
   );
 }
+
 // ─── Run Screen ───────────────────────────────────────────────
 function RunScreen({ onStop }: { onStop: () => void }) {
   const timer = usePersistentTimer('activeRunTimer');

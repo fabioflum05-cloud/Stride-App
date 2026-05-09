@@ -12,14 +12,12 @@
       "policy": "appVersion"
     },
     "ios": {
-  "supportsTablet": true,
-  "bundleIdentifier": "com.fabioflum.performanceapp",
-  "infoPlist": {
-    "ITSAppUsesNonExemptEncryption": false,
-    "NSHealthShareUsageDescription": "Die App liest Schlaf, HRV und Aktivitätsdaten aus Apple Health.",
-    "NSHealthUpdateUsageDescription": "Die App schreibt keine Daten in Apple Health."
-  }
-},
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fabioflum.performanceapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -35,23 +33,7 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-    "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
-          "dark": {
-            "backgroundColor": "#000000"
-          }
-        }
-      ],
-      "react-native-health"
-    ],
-
+    
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
