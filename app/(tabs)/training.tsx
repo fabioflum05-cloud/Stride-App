@@ -42,7 +42,6 @@ type Exercise = { id: string; name: string; muscleGroup: string; sets: WorkoutSe
 type Workout = {
   id: string; date: string; name: string; exercises: Exercise[];
   duration: number; intensity: number; type: 'gym' | 'run' | 'manual' | 'judo';
-  score?: number;
 };
 type RunData = {
   id: string; distance: number; duration: number; pace: string;
@@ -198,70 +197,6 @@ function getWeekTrainings(workouts: Workout[]): boolean[] {
   return result;
 }
 
-// ─── Trainingsscore berechnen ─────────────────────────────────
-function calcWorkoutScore(workout: Workout, userMaxes: UserMaxes): number {
-  if (!workout.exercises || workout.exercises.length === 0) return 0;
-  let intensityScore = 0, volumeScore = 0, exerciseCount = 0;
-  for (const ex of workout.exercises) {
-    const max = userMaxes[ex.name] || 0;
-    const best = getBest1RM(ex.sets);
-    if (max > 0 && best > 0) {
-      intensityScore += Math.min(1, best / max);
-      exerciseCount++;
-    }
-    for (const set of ex.sets) {
-      const r = parseFloat(set.reps || '0'), w = parseFloat(set.weight || '0');
-      if (r > 0 && w > 0) volumeScore += r * w;
-    }
-  }
-  const avgIntensity = exerciseCount > 0 ? intensityScore / exerciseCount : 0.5;
-  const volScore = Math.min(1, volumeScore / 10000);
-  const durScore = Math.min(1, (workout.duration || 30) / 90);
-  const setCount = workout.exercises.reduce((s, ex) => s + ex.sets.length, 0);
-  const setsScore = Math.min(1, setCount / 20);
-  return Math.round((avgIntensity * 0.4 + volScore * 0.3 + durScore * 0.15 + setsScore * 0.15) * 100);
-}
-
-// ─── Trainingsplan generieren ─────────────────────────────────
-function generateTrainingPlan(goal: string, userMaxes: UserMaxes): { day: string; name: string; focus: string; exercises: { name: string; sets: number; reps: string; weight: number }[] }[] {
-  const hasPRs = Object.keys(userMaxes).length > 0;
-  const intensity = goal === 'kraft' ? 0.85 : goal === 'ausdauer' ? 0.6 : 0.72;
-  const repsRange = goal === 'kraft' ? '4' : goal === 'ausdauer' ? '15' : '10';
-  const setsCount = goal === 'kraft' ? 5 : goal === 'ausdauer' ? 3 : 4;
-
-  function w(name: string) {
-    const max = userMaxes[name] || 0;
-    if (!max) return 0;
-    return Math.round((max * intensity) / 2.5) * 2.5;
-  }
-
-  return [
-    { day: 'Mo', name: 'Push', focus: 'Brust · Schultern · Trizeps', exercises: [
-      { name: 'Bankdrücken', sets: setsCount, reps: repsRange, weight: w('Bankdrücken') },
-      { name: 'Schulterdrücken', sets: setsCount - 1, reps: repsRange, weight: w('Schulterdrücken') },
-      { name: 'Trizepsdrücken', sets: 3, reps: repsRange, weight: w('Trizepsdrücken') },
-    ]},
-    { day: 'Di', name: 'Pull', focus: 'Rücken · Bizeps', exercises: [
-      { name: 'Klimmzüge', sets: setsCount, reps: repsRange, weight: w('Klimmzüge') },
-      { name: 'Rudern', sets: setsCount, reps: repsRange, weight: w('Rudern') },
-      { name: 'Curls', sets: 3, reps: repsRange, weight: w('Curls') },
-    ]},
-    { day: 'Mi', name: 'Pause', focus: 'Aktive Erholung', exercises: [] },
-    { day: 'Do', name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exercises: [
-      { name: 'Kniebeugen', sets: setsCount, reps: repsRange, weight: w('Kniebeugen') },
-      { name: 'Romanian Deadlift', sets: setsCount - 1, reps: repsRange, weight: w('Romanian Deadlift') },
-      { name: 'Hip Thrust', sets: 3, reps: repsRange, weight: w('Hip Thrust') },
-    ]},
-    { day: 'Fr', name: 'Upper', focus: 'Ganzkörper Kraft', exercises: [
-      { name: 'Deadlift', sets: setsCount, reps: repsRange, weight: w('Deadlift') },
-      { name: 'Schulterdrücken', sets: 3, reps: repsRange, weight: w('Schulterdrücken') },
-      { name: 'Seitheben', sets: 3, reps: repsRange, weight: w('Seitheben') },
-    ]},
-    { day: 'Sa', name: 'Optional', focus: 'Schwachstellen', exercises: [] },
-    { day: 'So', name: 'Ruhe', focus: 'Regeneration', exercises: [] },
-  ];
-}
-
 // ─── SVG Icons ────────────────────────────────────────────────
 function IconDumbbell({ color, size = 20 }: { color: string; size?: number }) {
   return (
@@ -347,6 +282,14 @@ function IconSearch({ color, size = 20 }: { color: string; size?: number }) {
     </Svg>
   );
 }
+function IconFlame({ color, size = 20 }: { color: string; size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2C12 2 8 6 8 10C8 12.2 9.8 14 12 14C14.2 14 16 12.2 16 10C16 8 14 5 14 5C14 5 13.5 7 12 7C10.5 7 10 5.5 10 5.5C10 5.5 12 2 12 2Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M12 14C9 14 6 16 6 19C6 21 8 22 12 22C16 22 18 21 18 19C18 16 15 14 12 14Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
 function IconPlay({ color, size = 20 }: { color: string; size?: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -396,45 +339,24 @@ function IconChevronsRight({ color, size = 20 }: { color: string; size?: number 
     </Svg>
   );
 }
-function IconTrash({ color, size = 18 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M3 6H21M8 6V4H16V6M19 6L18 20H6L5 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
-}
-function IconCalendar({ color, size = 20 }: { color: string; size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M8 2V5M16 2V5M3 8H21M5 4H19C20.1 4 21 4.9 21 6V20C21 21.1 20.1 22 19 22H5C3.9 22 3 21.1 3 20V6C3 4.9 3.9 4 5 4Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-    </Svg>
-  );
-}
 
 // ─── Swipe To Start ───────────────────────────────────────────
-// Uses its own PanResponder that captures horizontal swipes
-// and does NOT let them bubble up to the tab swipe handler.
 function SwipeToStart({ onStart }: { onStart: () => void }) {
   const THUMB_SIZE = 56;
   const [trackWidth, setTrackWidth] = useState(SW - 64);
   const MAX_DRAG = trackWidth - THUMB_SIZE - 12;
   const translateX = useRef(new Animated.Value(0)).current;
-  const completed = useRef(false);
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 5,
+    onMoveShouldSetPanResponder: (_,gs) => Math.abs(gs.dx) > Math.abs(gs.dy),
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { completed.current = false; },
-    onPanResponderMove: (_, gs) => {
-      translateX.setValue(Math.max(0, Math.min(gs.dx, MAX_DRAG)));
-    },
-    onPanResponderRelease: (_, gs) => {
-      if (gs.dx > MAX_DRAG * 0.7 && !completed.current) {
-        completed.current = true;
+    onPanResponderMove: (_,gs) => { translateX.setValue(Math.max(0, Math.min(gs.dx, MAX_DRAG))); },
+    onPanResponderRelease: (_,gs) => {
+      if (gs.dx > MAX_DRAG * 0.7) {
         Animated.timing(translateX, { toValue: MAX_DRAG, duration: 100, useNativeDriver: true }).start(() => {
           onStart();
-          setTimeout(() => { translateX.setValue(0); completed.current = false; }, 500);
+          setTimeout(() => translateX.setValue(0), 500);
         });
       } else {
         Animated.spring(translateX, { toValue: 0, useNativeDriver: true, tension: 80, friction: 12 }).start();
@@ -454,139 +376,78 @@ function SwipeToStart({ onStart }: { onStart: () => void }) {
   );
 }
 
-// ─── Persistent Workout Timer ──────────────────────────────────
-// Stores startedAt in AsyncStorage so it survives app restarts.
-// Stops automatically when workout ends.
-function useWorkoutTimer(timerKey: string) {
+// ─── Persistent Timer ─────────────────────────────────────────
+function usePersistentTimer(key: string) {
   const [seconds, setSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const intervalRef = useRef<any>(null);
-  const startAtRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
-    AsyncStorage.getItem(timerKey).then(raw => {
+    AsyncStorage.getItem(key).then(raw => {
       if (!raw) return;
-      try {
-        const { startedAt } = JSON.parse(raw);
-        if (startedAt) {
-          startAtRef.current = startedAt;
-          setSeconds(Math.floor((Date.now() - startedAt) / 1000));
-          setIsRunning(true);
-        }
-      } catch {}
+      const { startedAt, running, elapsed } = JSON.parse(raw);
+      if (running && startedAt) { startTimeRef.current = startedAt; setSeconds(Math.floor((Date.now()-startedAt)/1000)); setIsRunning(true); }
+      else if (elapsed) setSeconds(elapsed);
     });
-
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'active' && startAtRef.current) {
-        setSeconds(Math.floor((Date.now() - startAtRef.current) / 1000));
-      }
+      if (appStateRef.current === 'active' && next.match(/inactive|background/) && startTimeRef.current)
+        AsyncStorage.setItem(key, JSON.stringify({ startedAt: startTimeRef.current, running: true }));
+      if (appStateRef.current.match(/inactive|background/) && next === 'active')
+        AsyncStorage.getItem(key).then(raw => {
+          if (!raw) return;
+          const { startedAt, running } = JSON.parse(raw);
+          if (running && startedAt) setSeconds(Math.floor((Date.now()-startedAt)/1000));
+        });
       appStateRef.current = next;
     });
-    return () => { sub.remove(); clearInterval(intervalRef.current); };
-  }, [timerKey]);
+    return () => sub.remove();
+  }, [key]);
 
   useEffect(() => {
-    if (isRunning && startAtRef.current) {
-      intervalRef.current = setInterval(() => {
-        if (startAtRef.current)
-          setSeconds(Math.floor((Date.now() - startAtRef.current) / 1000));
-      }, 1000);
+    if (isRunning) {
+      if (!startTimeRef.current) startTimeRef.current = Date.now() - seconds * 1000;
+      AsyncStorage.setItem(key, JSON.stringify({ startedAt: startTimeRef.current, running: true }));
+      intervalRef.current = setInterval(() => setSeconds(Math.floor((Date.now()-startTimeRef.current!)/1000)), 1000);
     } else {
       clearInterval(intervalRef.current);
+      if (startTimeRef.current)
+        AsyncStorage.setItem(key, JSON.stringify({ startedAt: startTimeRef.current, running: false, elapsed: Math.floor((Date.now()-startTimeRef.current)/1000) }));
     }
     return () => clearInterval(intervalRef.current);
   }, [isRunning]);
 
-  const startNow = useCallback(async () => {
-    const now = Date.now();
-    startAtRef.current = now;
-    await AsyncStorage.setItem(timerKey, JSON.stringify({ startedAt: now }));
-    setIsRunning(true);
-  }, [timerKey]);
-
-  const stop = useCallback(async () => {
-    clearInterval(intervalRef.current);
-    setIsRunning(false);
-    await AsyncStorage.removeItem(timerKey);
-  }, [timerKey]);
-
-  const getDuration = useCallback(() => {
-    if (!startAtRef.current) return 0;
-    return Math.max(1, Math.round((Date.now() - startAtRef.current) / 60000));
-  }, []);
-
-  return { seconds, isRunning, startNow, stop, getDuration };
+  const reset = useCallback(() => { setSeconds(0); setIsRunning(false); startTimeRef.current = null; AsyncStorage.removeItem(key); }, [key]);
+  const start = useCallback(() => { startTimeRef.current = Date.now() - seconds * 1000; setIsRunning(true); }, [seconds]);
+  const pause = useCallback(() => setIsRunning(false), []);
+  return { seconds, isRunning, start, pause, reset };
 }
 
-// ─── Persistent Rest Timer ─────────────────────────────────────
+// ─── Rest Timer ───────────────────────────────────────────────
 function useRestTimer() {
   const [seconds, setSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [targetSeconds, setTargetSeconds] = useState(90);
-  const startAtRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
   const intervalRef = useRef<any>(null);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-  const STORE_KEY = 'restTimerData';
 
   useEffect(() => {
-    AsyncStorage.getItem(STORE_KEY).then(raw => {
-      if (!raw) return;
-      try {
-        const { startedAt, target } = JSON.parse(raw);
-        if (startedAt && target) {
-          const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-          const remaining = Math.max(0, target - elapsed);
-          if (remaining > 0) {
-            startAtRef.current = startedAt;
-            setTargetSeconds(target);
-            setSeconds(remaining);
-            setIsRunning(true);
-          } else {
-            AsyncStorage.removeItem(STORE_KEY);
-          }
-        }
-      } catch {}
-    });
-
-    const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
-      if (next === 'active' && startAtRef.current && isRunning) {
-        const elapsed = Math.floor((Date.now() - startAtRef.current) / 1000);
-        const remaining = Math.max(0, targetSeconds - elapsed);
-        setSeconds(remaining);
-        if (remaining === 0) { setIsRunning(false); AsyncStorage.removeItem(STORE_KEY); }
-      }
-      appStateRef.current = next;
-    });
-    return () => sub.remove();
-  }, []);
-
-  useEffect(() => {
-    if (isRunning && startAtRef.current) {
+    if (isRunning) {
+      if (!startTimeRef.current) startTimeRef.current = Date.now();
       intervalRef.current = setInterval(() => {
-        if (!startAtRef.current) return;
-        const elapsed = Math.floor((Date.now() - startAtRef.current) / 1000);
-        const remaining = Math.max(0, targetSeconds - elapsed);
+        const remaining = Math.max(0, targetSeconds - Math.floor((Date.now()-startTimeRef.current!)/1000));
         setSeconds(remaining);
-        if (remaining === 0) { setIsRunning(false); startAtRef.current = null; AsyncStorage.removeItem(STORE_KEY); clearInterval(intervalRef.current); }
+        if (remaining === 0) { setIsRunning(false); startTimeRef.current = null; clearInterval(intervalRef.current); }
       }, 1000);
-    } else {
-      clearInterval(intervalRef.current);
-    }
+    } else clearInterval(intervalRef.current);
     return () => clearInterval(intervalRef.current);
   }, [isRunning, targetSeconds]);
 
-  function startFor(secs: number) {
-    const now = Date.now();
-    startAtRef.current = now;
-    setTargetSeconds(secs);
-    setSeconds(secs);
-    setIsRunning(true);
-    AsyncStorage.setItem(STORE_KEY, JSON.stringify({ startedAt: now, target: secs }));
-  }
-  function stopRest() { setIsRunning(false); setSeconds(0); startAtRef.current = null; AsyncStorage.removeItem(STORE_KEY); }
+  function startFor(secs: number) { setTargetSeconds(secs); setSeconds(secs); startTimeRef.current = Date.now(); setIsRunning(true); }
+  function stop() { setIsRunning(false); setSeconds(0); startTimeRef.current = null; }
   const pct = targetSeconds > 0 ? Math.max(0, seconds / targetSeconds) : 0;
-  return { seconds, isRunning, startFor, stop: stopRest, pct };
+  return { seconds, isRunning, startFor, stop, pct };
 }
 
 // ─── Exercise Picker ──────────────────────────────────────────
@@ -844,9 +705,9 @@ function WorkoutDetailScreen({ item, onClose }: { item: any; onClose: () => void
                 {isRun ? 'Lauftraining' : w?.name}
               </Text>
             </View>
-            {!isRun && w?.score !== undefined && (
+            {!isRun && w && (
               <View style={{ backgroundColor: '#FFF4EC', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: '#FFD4B0' }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#FF6B00' }}>Score {w.score}</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#FF6B00' }}>{w.duration} min</Text>
               </View>
             )}
           </View>
@@ -932,12 +793,9 @@ function WorkoutDetailScreen({ item, onClose }: { item: any; onClose: () => void
 }
 
 // ─── History Screen ───────────────────────────────────────────
-function HistoryScreen({ onClose, prHistory, onDelete }: {
-  onClose: () => void; prHistory: PRHistory; onDelete: (id: string) => void;
-}) {
+function HistoryScreen({ onClose, prHistory }: { onClose: () => void; prHistory: PRHistory }) {
   const [filter, setFilter] = useState<'alle'|'kraft'|'judo'|'lauf'|'sonstiges'>('alle');
   const [workouts, setWorkouts] = useState<Workout[]>([]);
-  const [allExercises, setAllExercises] = useState(DEFAULT_EXERCISES);
   const [runs, setRuns] = useState<RunData[]>([]);
   const [selectedItem, setSelectedItem] = useState<any>(null);
 
@@ -966,24 +824,6 @@ function HistoryScreen({ onClose, prHistory, onDelete }: {
     if (filter === 'sonstiges') return t === 'manual';
     return true;
   });
-
-  async function handleDelete(item: HItem) {
-    Alert.alert('Training löschen', 'Dieses Training wirklich löschen?', [
-      { text: 'Abbrechen', style: 'cancel' },
-      { text: 'Löschen', style: 'destructive', onPress: async () => {
-        if (item._kind === 'workout') {
-          const updated = workouts.filter(w => w.id !== item.data.id);
-          setWorkouts(updated);
-          await AsyncStorage.setItem('workouts', JSON.stringify(updated));
-          onDelete(item.data.id);
-        } else {
-          const updated = runs.filter(r => r.id !== item.data.id);
-          setRuns(updated);
-          await AsyncStorage.setItem('runs', JSON.stringify(updated));
-        }
-      }},
-    ]);
-  }
 
   const typeConfig: Record<string,{ bg:string; color:string; label:string; border:string }> = {
     gym:    { bg:'#FFF4EC', color:'#FF6B00', label:'Kraft',     border:'#FFD4B0' },
@@ -1062,18 +902,6 @@ function HistoryScreen({ onClose, prHistory, onDelete }: {
                       <Text style={{ fontSize: 10, fontWeight: '700', color: '#92400E' }}>PR</Text>
                     </View>
                   )}
-                  {/* Score Badge */}
-                  {!isRun && w?.score !== undefined && w.score > 0 && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#FFF4EC', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#FFD4B0' }}>
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: '#FF6B00' }}>⚡ {w.score}</Text>
-                    </View>
-                  )}
-                  {/* Delete Button */}
-                  <TouchableOpacity
-                    style={{ marginLeft: 'auto' as any, width: 28, height: 28, borderRadius: 14, backgroundColor: '#FFF2F2', alignItems: 'center', justifyContent: 'center' }}
-                    onPress={e => { e.stopPropagation?.(); handleDelete(item); }}>
-                    <IconTrash color="#FF453A" size={14} />
-                  </TouchableOpacity>
                 </View>
                 <Text style={{ fontSize: 16, fontWeight: '800', color: '#000', letterSpacing: -0.3, marginBottom: 10 }}>
                   {isRun ? 'Lauftraining' : w?.name}
@@ -1119,395 +947,17 @@ function HistoryScreen({ onClose, prHistory, onDelete }: {
   );
 }
 
-// ─── Trainingsplan Screen ─────────────────────────────────────
-const PLAN_STORE_KEY = 'trainingPlanConfig';
-const PLAN_WEEK_KEY = 'trainingPlanWeek'; // ISO week number when plan was last generated
-
-function getISOWeek(date: Date): string {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  return `${d.getFullYear()}-W${String(1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)).padStart(2, '0')}`;
-}
-
-const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const FULL_DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-
-type PlanConfig = {
-  exercises: string[];
-  trainingDays: number[]; // 0=Mo ... 6=So
-  goal: string;
-  generatedWeek: string;
-};
-
-type PlanDay = {
-  dayIdx: number;
-  dayLabel: string;
-  name: string;
-  focus: string;
-  exercises: { name: string; sets: number; reps: string; weight: number }[];
-};
-
-function buildPlan(config: PlanConfig, userMaxes: UserMaxes): PlanDay[] {
-  const { exercises, trainingDays, goal } = config;
-  const intensity = goal === 'kraft' ? 0.85 : goal === 'ausdauer' ? 0.6 : 0.72;
-  const repsRange = goal === 'kraft' ? '3–5' : goal === 'ausdauer' ? '15–20' : '8–12';
-  const setsCount = goal === 'kraft' ? 5 : goal === 'ausdauer' ? 3 : 4;
-
-  function w(name: string) {
-    const max = userMaxes[name] || 0;
-    if (!max) return 0;
-    return Math.round((max * intensity) / 2.5) * 2.5;
-  }
-
-  // Muskelgruppen in Push / Pull / Beine / Ganzkörper einteilen
-  const PUSH_MUSCLES = ['Brust', 'Schultern', 'Trizeps'];
-  const PULL_MUSCLES = ['Rücken', 'Bizeps'];
-  const LEG_MUSCLES  = ['Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden'];
-  const CORE_MUSCLES = ['Core'];
-
-  const pushEx  = exercises.filter(e => PUSH_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-  const pullEx  = exercises.filter(e => PULL_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-  const legEx   = exercises.filter(e => LEG_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-  const coreEx  = exercises.filter(e => CORE_MUSCLES.includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-  const otherEx = exercises.filter(e => ![...PUSH_MUSCLES,...PULL_MUSCLES,...LEG_MUSCLES,...CORE_MUSCLES].includes(DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup ?? ''));
-
-  const numDays = trainingDays.length;
-
-  // Split-Strategie je nach Anzahl Trainingstage
-  let splits: { name: string; focus: string; exs: string[] }[] = [];
-
-  if (numDays <= 2) {
-    // 2 Tage: Oberkörper / Unterkörper
-    splits = [
-      { name: 'Oberkörper', focus: 'Brust · Rücken · Schultern · Arme', exs: [...pushEx, ...pullEx, ...coreEx] },
-      { name: 'Unterkörper', focus: 'Beine · Gluteus · Waden', exs: [...legEx, ...otherEx] },
-    ];
-  } else if (numDays === 3) {
-    // 3 Tage: Push / Pull / Legs
-    splits = [
-      { name: 'Push', focus: 'Brust · Schultern · Trizeps', exs: [...pushEx] },
-      { name: 'Pull', focus: 'Rücken · Bizeps', exs: [...pullEx] },
-      { name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exs: [...legEx, ...coreEx, ...otherEx] },
-    ];
-  } else if (numDays === 4) {
-    // 4 Tage: Upper A / Lower A / Upper B / Lower B
-    const upperA = [...pushEx.slice(0, Math.ceil(pushEx.length / 2)), ...pullEx.slice(0, Math.ceil(pullEx.length / 2))];
-    const upperB = [...pushEx.slice(Math.ceil(pushEx.length / 2)), ...pullEx.slice(Math.ceil(pullEx.length / 2)), ...coreEx];
-    const lowerA = [...legEx.slice(0, Math.ceil(legEx.length / 2)), ...otherEx];
-    const lowerB = [...legEx.slice(Math.ceil(legEx.length / 2))];
-    splits = [
-      { name: 'Upper A', focus: 'Brust · Rücken', exs: upperA },
-      { name: 'Lower A', focus: 'Quadrizeps · Hamstrings', exs: lowerA.length > 0 ? lowerA : legEx },
-      { name: 'Upper B', focus: 'Schultern · Arme · Core', exs: upperB.length > 0 ? upperB : [...pushEx, ...pullEx] },
-      { name: 'Lower B', focus: 'Gluteus · Waden', exs: lowerB.length > 0 ? lowerB : legEx },
-    ];
-  } else {
-    // 5+ Tage: Push / Pull / Beine / Schultern & Arme / Ganzkörper
-    splits = [
-      { name: 'Push', focus: 'Brust · Trizeps', exs: [...exercises.filter(e => DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup === 'Brust'), ...exercises.filter(e => DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup === 'Trizeps')] },
-      { name: 'Pull', focus: 'Rücken · Bizeps', exs: [...pullEx] },
-      { name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exs: [...legEx] },
-      { name: 'Schultern & Core', focus: 'Schultern · Core', exs: [...exercises.filter(e => DEFAULT_EXERCISES.find(d => d.name === e)?.muscleGroup === 'Schultern'), ...coreEx] },
-      { name: 'Ganzkörper', focus: 'Alle Gruppen', exs: [...otherEx, ...exercises.slice(0, 4)] },
-    ].slice(0, numDays);
-  }
-
-  // Leere Splits mit Ganzkörper auffüllen
-  splits = splits.map(sp => ({
-    ...sp,
-    exs: sp.exs.length > 0 ? sp.exs : exercises.slice(0, Math.min(4, exercises.length)),
-  }));
-
-  // Plan auf die gewählten Wochentage mappen
-  return Array.from({ length: 7 }, (_, i) => {
-    const trainingIdx = trainingDays.indexOf(i);
-    if (trainingIdx === -1) {
-      return { dayIdx: i, dayLabel: DAY_NAMES[i], name: 'Pause', focus: 'Regeneration', exercises: [] };
-    }
-    const split = splits[trainingIdx % splits.length];
-    return {
-      dayIdx: i,
-      dayLabel: DAY_NAMES[i],
-      name: split.name,
-      focus: split.focus,
-      exercises: split.exs.map(ex => ({
-        name: ex,
-        sets: setsCount,
-        reps: repsRange,
-        weight: w(ex),
-      })),
-    };
-  });
-}
-
-function TrainingPlanScreen({ onClose, userMaxes, allExercises }: {
-  onClose: () => void;
-  userMaxes: UserMaxes;
-  allExercises: typeof DEFAULT_EXERCISES;
-}) {
-  const hasPRs = Object.keys(userMaxes).length > 0;
-  const currentWeek = getISOWeek(new Date());
-  const isMonday = new Date().getDay() === 1;
-
-  // Steps: 'loading' | 'exercises' | 'days' | 'plan'
-  const [step, setStep] = useState<'loading' | 'exercises' | 'days' | 'plan'>('loading');
-  const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
-  const [selectedDays, setSelectedDays] = useState<number[]>([]);
-  const [goal, setGoal] = useState('hypertrophie');
-  const [plan, setPlan] = useState<PlanDay[]>([]);
-  const [config, setConfig] = useState<PlanConfig | null>(null);
-
-  useEffect(() => {
-    AsyncStorage.getItem(PLAN_STORE_KEY).then(raw => {
-      if (!raw) { setStep('exercises'); return; }
-      const saved: PlanConfig = JSON.parse(raw);
-      // Re-ask every Monday
-      if (isMonday && saved.generatedWeek !== currentWeek) {
-        setSelectedExercises(saved.exercises);
-        setSelectedDays(saved.trainingDays);
-        setGoal(saved.goal);
-        setStep('exercises');
-      } else {
-        setConfig(saved);
-        setPlan(buildPlan(saved, userMaxes));
-        setStep('plan');
-      }
-    });
-  }, []);
-
-  async function savePlan() {
-    const cfg: PlanConfig = { exercises: selectedExercises, trainingDays: selectedDays, goal, generatedWeek: currentWeek };
-    await AsyncStorage.setItem(PLAN_STORE_KEY, JSON.stringify(cfg));
-    setConfig(cfg);
-    setPlan(buildPlan(cfg, userMaxes));
-    setStep('plan');
-  }
-
-  async function resetPlan() {
-    await AsyncStorage.removeItem(PLAN_STORE_KEY);
-    setSelectedExercises([]); setSelectedDays([]); setGoal('hypertrophie');
-    setStep('exercises');
-  }
-
-  function toggleExercise(name: string) {
-    setSelectedExercises(prev => prev.includes(name) ? prev.filter(e => e !== name) : [...prev, name]);
-  }
-  function toggleDay(i: number) {
-    setSelectedDays(prev => prev.includes(i) ? prev.filter(d => d !== i) : [...prev, i].sort());
-  }
-
-  const goals = [
-    { key: 'hypertrophie', label: 'Muskelaufbau', emoji: '💪', desc: '8–12 Wdh., 72% 1RM' },
-    { key: 'kraft', label: 'Stärker werden', emoji: '🏋️', desc: '3–5 Wdh., 85% 1RM' },
-    { key: 'ausdauer', label: 'Ausdauer', emoji: '🏃', desc: '15–20 Wdh., 60% 1RM' },
-  ];
-
-  return (
-    <Modal visible animationType="slide">
-      <View style={{ flex: 1, backgroundColor: theme.bg }}>
-
-        {/* Header */}
-        <View style={hist.header}>
-          <View>
-            <Text style={hist.eyebrow}>
-              {step === 'exercises' ? 'Schritt 1/3' : step === 'days' ? 'Schritt 2/3' : 'Dein Plan'}
-            </Text>
-            <Text style={hist.title}>
-              {step === 'exercises' ? 'Übungen wählen' : step === 'days' ? 'Trainingstage' : 'Trainingsplan'}
-            </Text>
-          </View>
-          <TouchableOpacity style={hist.closeBtn} onPress={onClose}>
-            <IconClose color={theme.textPrimary} size={16} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Progress Bar */}
-        {step !== 'plan' && step !== 'loading' && (
-          <View style={{ flexDirection: 'row', gap: 4, paddingHorizontal: 16, paddingVertical: 10 }}>
-            {['exercises', 'days', 'goal'].map((s, i) => (
-              <View key={s} style={{ flex: 1, height: 3, borderRadius: 2, backgroundColor: ['exercises','days','goal'].indexOf(step) >= i ? theme.orange : theme.cardSecondary }} />
-            ))}
-          </View>
-        )}
-
-        {/* ── Step 1: Übungen ── */}
-        {step === 'exercises' && (
-          <>
-            {!hasPRs && (
-              <View style={{ backgroundColor: 'rgba(232,87,42,0.1)', margin: 16, borderRadius: 14, padding: 12, borderWidth: 1, borderColor: theme.orange + '40' }}>
-                <Text style={{ color: theme.orange, fontSize: 13, fontWeight: '600', marginBottom: 2 }}>⚠️ Keine PRs vorhanden</Text>
-                <Text style={{ color: theme.textSecondary, fontSize: 12 }}>Für Gewichtsempfehlungen trag zuerst PRs ein.</Text>
-              </View>
-            )}
-            <Text style={{ color: theme.textSecondary, fontSize: 12, paddingHorizontal: 16, marginBottom: 8, marginTop: hasPRs ? 12 : 0 }}>
-              Welche Übungen sollen im Plan berücksichtigt werden? ({selectedExercises.length} gewählt)
-            </Text>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}>
-              {MUSCLE_GROUPS.map(mg => {
-                const exs = allExercises.filter(e => e.muscleGroup === mg);
-                if (exs.length === 0) return null;
-                return (
-                  <View key={mg} style={{ marginBottom: 16 }}>
-                    <Text style={{ color: MUSCLE_COLORS[mg], fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 }}>{mg}</Text>
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                      {exs.map(ex => {
-                        const active = selectedExercises.includes(ex.name);
-                        return (
-                          <TouchableOpacity key={ex.name}
-                            style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: active ? theme.orangeLight : theme.card, borderWidth: 1.5, borderColor: active ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}
-                            onPress={() => toggleExercise(ex.name)} activeOpacity={0.8}>
-                            {active && <Text style={{ fontSize: 10, color: theme.orange }}>✓</Text>}
-                            <Text style={{ fontSize: 13, color: active ? theme.orange : theme.textPrimary, fontWeight: active ? '600' : '400' }}>{ex.name}</Text>
-                            {userMaxes[ex.name] && <Text style={{ fontSize: 9, color: theme.green }}>PR</Text>}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                );
-              })}
-            </ScrollView>
-            <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16, paddingBottom: 34, backgroundColor: theme.bg, borderTopWidth: 0.5, borderTopColor: theme.border }}>
-              <TouchableOpacity
-                style={{ backgroundColor: selectedExercises.length > 0 ? theme.orange : theme.cardSecondary, borderRadius: 14, padding: 15, alignItems: 'center' }}
-                onPress={() => selectedExercises.length > 0 && setStep('days')}
-                activeOpacity={0.85}>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: selectedExercises.length > 0 ? '#fff' : theme.textTertiary }}>
-                  Weiter → {selectedExercises.length > 0 ? `${selectedExercises.length} Übungen` : ''}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
-
-        {/* ── Step 2: Trainingstage ── */}
-        {step === 'days' && (
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
-            <Text style={{ color: theme.textSecondary, fontSize: 12, marginBottom: 20 }}>
-              An welchen Tagen kannst du trainieren? ({selectedDays.length} Tage gewählt)
-            </Text>
-            <View style={{ gap: 8, marginBottom: 24 }}>
-              {DAY_NAMES.map((d, i) => {
-                const active = selectedDays.includes(i);
-                return (
-                  <TouchableOpacity key={i}
-                    style={{ backgroundColor: active ? theme.orangeLight : theme.card, borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: active ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 14 }}
-                    onPress={() => toggleDay(i)} activeOpacity={0.85}>
-                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: active ? theme.orange : theme.cardSecondary, alignItems: 'center', justifyContent: 'center' }}>
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: active ? '#fff' : theme.textTertiary }}>{d}</Text>
-                    </View>
-                    <Text style={{ flex: 1, fontSize: 15, fontWeight: '600', color: active ? theme.textPrimary : theme.textSecondary }}>{FULL_DAY_NAMES[i]}</Text>
-                    {active && <IconCheck color={theme.orange} size={18} />}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <Text style={{ color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12, fontWeight: '600' }}>Ziel</Text>
-            <View style={{ gap: 8, marginBottom: 24 }}>
-              {goals.map(g => (
-                <TouchableOpacity key={g.key}
-                  style={{ backgroundColor: goal === g.key ? theme.orangeLight : theme.card, borderRadius: 14, padding: 14, borderWidth: 1.5, borderColor: goal === g.key ? theme.orange : theme.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}
-                  onPress={() => setGoal(g.key)} activeOpacity={0.85}>
-                  <Text style={{ fontSize: 24 }}>{g.emoji}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: theme.textPrimary }}>{g.label}</Text>
-                    <Text style={{ fontSize: 11, color: theme.textSecondary }}>{g.desc}</Text>
-                  </View>
-                  {goal === g.key && <IconCheck color={theme.orange} size={16} />}
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <TouchableOpacity style={{ flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 15, alignItems: 'center', borderWidth: 1, borderColor: theme.border }} onPress={() => setStep('exercises')} activeOpacity={0.85}>
-                <Text style={{ fontSize: 15, fontWeight: '600', color: theme.textSecondary }}>← Zurück</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={{ flex: 2, backgroundColor: selectedDays.length > 0 ? theme.orange : theme.cardSecondary, borderRadius: 14, padding: 15, alignItems: 'center' }}
-                onPress={() => selectedDays.length > 0 && savePlan()} activeOpacity={0.85}>
-                <Text style={{ fontSize: 15, fontWeight: '700', color: selectedDays.length > 0 ? '#fff' : theme.textTertiary }}>Plan erstellen ✓</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-        )}
-
-        {/* ── Step 3: Plan anzeigen ── */}
-        {step === 'plan' && (
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
-            {isMonday && (
-              <View style={{ backgroundColor: theme.blueLight, borderRadius: 14, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: theme.blue + '40', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Text style={{ fontSize: 20 }}>📅</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: theme.blue, fontSize: 13, fontWeight: '600' }}>Neue Woche!</Text>
-                  <Text style={{ color: theme.textSecondary, fontSize: 11 }}>Der Plan wurde für diese Woche aktualisiert.</Text>
-                </View>
-              </View>
-            )}
-
-            {plan.map((day, i) => (
-              <View key={i} style={{ backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1.5, borderColor: day.exercises.length > 0 ? theme.orange + '40' : theme.border }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: day.exercises.length > 0 ? 12 : 0 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: day.exercises.length > 0 ? theme.orangeLight : theme.cardSecondary, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: day.exercises.length > 0 ? theme.orange + '40' : theme.border }}>
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: day.exercises.length > 0 ? theme.orange : theme.textTertiary }}>{day.dayLabel}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 15, fontWeight: '700', color: theme.textPrimary }}>{day.name}</Text>
-                    <Text style={{ fontSize: 11, color: theme.textSecondary }}>{day.focus}</Text>
-                  </View>
-                  {day.exercises.length > 0 && (
-                    <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orange + '40' }}>
-                      <Text style={{ fontSize: 10, fontWeight: '700', color: theme.orange }}>{day.exercises.length} Üb.</Text>
-                    </View>
-                  )}
-                </View>
-                {day.exercises.map((ex, ei) => (
-                  <View key={ei} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 0.5, borderTopColor: theme.border }}>
-                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: MUSCLE_COLORS[DEFAULT_EXERCISES.find(d => d.name === ex.name)?.muscleGroup ?? ''] ?? theme.orange }} />
-                    <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>{ex.name}</Text>
-                    <Text style={{ fontSize: 12, color: theme.textSecondary }}>{ex.sets}×{ex.reps}</Text>
-                    {ex.weight > 0 && (
-                      <View style={{ backgroundColor: theme.orangeLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.orange + '40' }}>
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: theme.orange }}>{ex.weight} kg</Text>
-                      </View>
-                    )}
-                  </View>
-                ))}
-              </View>
-            ))}
-
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
-              <TouchableOpacity style={{ flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: theme.border }} onPress={resetPlan} activeOpacity={0.85}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textSecondary }}>Plan neu erstellen</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 12, marginTop: 10 }}>
-              <Text style={{ fontSize: 11, color: theme.textTertiary, textAlign: 'center', lineHeight: 16 }}>
-                Empfehlung basierend auf deinen PRs und gewählten Übungen. Jeden Montag wird der Plan aktualisiert.
-              </Text>
-            </View>
-            <View style={{ height: 80 }} />
-          </ScrollView>
-        )}
-      </View>
-    </Modal>
-  );
-}
-
 // ─── Free Workout Start Screen ────────────────────────────────
 function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkout, onBack }: {
   onStart: () => void; onStartWithRecommendation: () => void; lastWorkout: Workout | null; onBack: () => void;
 }) {
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+    <ScrollView style={{ flex: 1, backgroundColor: theme.bg }} showsVerticalScrollIndicator={false}>
       <View style={startSt.header}>
         <TouchableOpacity onPress={onBack} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
         <View><Text style={startSt.eyebrow}>Krafttraining</Text><Text style={startSt.title}>Freies Training</Text></View>
       </View>
-      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16 }}>
+      <View style={{ paddingHorizontal: 16 }}>
         {lastWorkout && (
           <TouchableOpacity style={startSt.recCard} onPress={onStartWithRecommendation} activeOpacity={0.88}>
             <View style={startSt.recBadgeRow}><View style={startSt.recDot} /><Text style={startSt.recBadgeText}>Empfehlung für heute</Text></View>
@@ -1520,60 +970,39 @@ function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkou
           <Text style={startSt.emptyCardTitle}>Leeres Training</Text>
           <Text style={startSt.emptyCardSub}>Selbst Übungen zusammenstellen</Text>
         </View>
-        <View style={{ height: 40 }} />
-      </ScrollView>
-      {/* SwipeToStart ausserhalb der ScrollView – kein Konflikt */}
-      <View style={{ paddingHorizontal: 16, paddingBottom: 140 }}>
-        <SwipeToStart onStart={onStart} />
+        <View style={{ marginTop: 12, marginBottom: 40 }}><SwipeToStart onStart={onStart} /></View>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 // ─── Routine Screen ───────────────────────────────────────────
-function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRoutine, onDeleteRoutine, onBack }: {
-  routines: Routine[];
-  onSelectRoutine: (r: Routine) => void;
-  onCreateRoutine: (r: Routine) => void;
-  onUpdateRoutine: (r: Routine) => void;
-  onDeleteRoutine: (id: string) => void;
-  onBack: () => void;
+function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onBack }: {
+  routines: Routine[]; onSelectRoutine: (r: Routine) => void; onCreateRoutine: (r: Routine) => void; onBack: () => void;
 }) {
   const [tab, setTab] = useState<'meine'|'suchen'>('meine');
   const [search, setSearch] = useState('');
-  const [editMode, setEditMode] = useState<'create'|'edit'>('create');
-  const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
-  const [showForm, setShowForm] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newExercises, setNewExercises] = useState<{ name: string; muscleGroup: string; defaultSets: number }[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const communityFiltered = COMMUNITY_ROUTINES.filter(r => search === '' || r.name.toLowerCase().includes(search.toLowerCase()));
 
-  function openCreate() { setEditMode('create'); setNewName(''); setNewExercises([]); setEditingRoutine(null); setShowForm(true); }
-  function openEdit(r: Routine) { setEditMode('edit'); setNewName(r.name); setNewExercises([...r.exercises]); setEditingRoutine(r); setShowForm(true); }
-
-  function saveForm() {
+  function saveNewRoutine() {
     if (!newName.trim()) { Alert.alert('Bitte Namen eingeben'); return; }
     if (newExercises.length === 0) { Alert.alert('Bitte mindestens eine Übung hinzufügen'); return; }
-    if (editMode === 'create') {
-      onCreateRoutine({ id: Date.now().toString(), name: newName.trim(), exercises: newExercises });
-    } else if (editingRoutine) {
-      onUpdateRoutine({ ...editingRoutine, name: newName.trim(), exercises: newExercises });
-    }
-    setShowForm(false);
+    onCreateRoutine({ id: Date.now().toString(), name: newName.trim(), exercises: newExercises });
+    setCreating(false); setNewName(''); setNewExercises([]);
   }
 
-  if (showForm) {
+  if (creating) {
     return (
       <>
         {showPicker && <ExercisePicker allExercises={DEFAULT_EXERCISES} onSelect={(name,muscleGroup) => { setNewExercises(prev => [...prev,{ name,muscleGroup,defaultSets:3 }]); setShowPicker(false); }} onClose={() => setShowPicker(false)} />}
         <ScrollView style={{ flex: 1, backgroundColor: theme.bg }} showsVerticalScrollIndicator={false}>
           <View style={startSt.header}>
-            <TouchableOpacity onPress={() => setShowForm(false)} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
-            <View>
-              <Text style={startSt.eyebrow}>{editMode === 'create' ? 'Neue Routine' : 'Routine bearbeiten'}</Text>
-              <Text style={startSt.title}>{editMode === 'create' ? 'Erstellen' : newName}</Text>
-            </View>
+            <TouchableOpacity onPress={() => setCreating(false)} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
+            <View><Text style={startSt.eyebrow}>Neue Routine</Text><Text style={startSt.title}>Erstellen</Text></View>
           </View>
           <View style={{ paddingHorizontal: 16 }}>
             <Text style={s.inputLabel}>Name der Routine</Text>
@@ -1593,8 +1022,8 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
             <TouchableOpacity style={startSt.addExBtn} onPress={() => setShowPicker(true)}>
               <IconPlus color={theme.orange} size={16} /><Text style={startSt.addExBtnText}>Übung hinzufügen</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[s.saveBtn,{ marginTop:20 }]} onPress={saveForm} activeOpacity={0.85}>
-              <Text style={s.saveBtnText}>{editMode === 'create' ? 'Routine speichern' : 'Änderungen speichern'}</Text>
+            <TouchableOpacity style={[s.saveBtn,{ marginTop:20 }]} onPress={saveNewRoutine} activeOpacity={0.85}>
+              <Text style={s.saveBtnText}>Routine speichern</Text>
             </TouchableOpacity>
             <View style={{ height: 80 }} />
           </View>
@@ -1620,7 +1049,7 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
         </View>
         {tab === 'meine' ? (
           <>
-            <TouchableOpacity style={routineSt.createBtn} onPress={openCreate} activeOpacity={0.85}>
+            <TouchableOpacity style={routineSt.createBtn} onPress={() => setCreating(true)} activeOpacity={0.85}>
               <View style={routineSt.createBtnIcon}><IconPlus color={theme.orange} size={20} /></View>
               <View style={{ flex: 1 }}>
                 <Text style={routineSt.createBtnTitle}>Neue Routine erstellen</Text>
@@ -1635,24 +1064,16 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
                 <Text style={startSt.emptyStateSub}>Erstelle deine erste Routine oder entdecke vorhandene.</Text>
               </View>
             ) : routines.map(r => (
-              <View key={r.id} style={[startSt.routineCard, { paddingRight: 8 }]}>
-                <TouchableOpacity style={{ flex: 1 }} onPress={() => onSelectRoutine(r)} activeOpacity={0.85}>
+              <TouchableOpacity key={r.id} style={startSt.routineCard} onPress={() => onSelectRoutine(r)} activeOpacity={0.85}>
+                <View style={{ flex: 1 }}>
                   <Text style={startSt.routineName}>{r.name}</Text>
                   <Text style={startSt.routineMeta}>{r.exercises.map(e=>e.name).slice(0,3).join(' · ')}{r.exercises.length > 3 ? ` · +${r.exercises.length-3}` : ''}</Text>
                   <View style={startSt.routineChipRow}>
                     <View style={startSt.routineChip}><Text style={startSt.routineChipText}>{r.exercises.length} Übungen</Text></View>
                   </View>
-                </TouchableOpacity>
-                <View style={{ gap: 6 }}>
-                  <TouchableOpacity onPress={() => openEdit(r)} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: theme.blueLight, alignItems: 'center', justifyContent: 'center' }}>
-                    <IconPencil color={theme.blue} size={14} />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => Alert.alert('Löschen', `"${r.name}" löschen?`, [{ text: 'Abbrechen', style: 'cancel' }, { text: 'Löschen', style: 'destructive', onPress: () => onDeleteRoutine(r.id) }])}
-                    style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(255,69,58,0.12)', alignItems: 'center', justifyContent: 'center' }}>
-                    <IconTrash color={theme.red} size={14} />
-                  </TouchableOpacity>
                 </View>
-              </View>
+                <IconChevronRight color={theme.textTertiary} size={18} />
+              </TouchableOpacity>
             ))}
           </>
         ) : (
@@ -1728,16 +1149,18 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
 }) {
   const [showExercisePicker, setShowExercisePicker] = useState(false);
   const [dismissedPRWarnings, setDismissedPRWarnings] = useState<globalThis.Set<string>>(new globalThis.Set());
-  const workoutTimer = useWorkoutTimer('gymWorkoutTimer');
+  const timer = usePersistentTimer('gymWorkoutTimer');
   const restTimer = useRestTimer();
+  const workoutStartRef = useRef(Date.now());
   const [allExercises, setAllExercises] = useState(DEFAULT_EXERCISES);
 
   useEffect(() => {
+    AsyncStorage.getItem('gymWorkoutTimer').then(raw => { if (!raw) timer.start(); });
+    AsyncStorage.getItem('workoutStartTime').then(raw => {
+      if (raw) workoutStartRef.current = parseInt(raw);
+      else AsyncStorage.setItem('workoutStartTime', String(Date.now()));
+    });
     AsyncStorage.getItem('userExercises').then(r => r && setAllExercises(JSON.parse(r)));
-    // Start timer if not already running
-    if (!workoutTimer.isRunning) {
-      workoutTimer.startNow();
-    }
   }, []);
 
   async function addExercise(name: string, muscleGroup: string) {
@@ -1776,11 +1199,6 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
     onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
   }
 
-  async function handleFinish() {
-    await workoutTimer.stop();
-    onFinish();
-  }
-
   const totalSets = workout.exercises.reduce((s,ex) => s+ex.sets.length, 0);
   const totalVolume = workout.exercises.reduce((t,ex) => t+ex.sets.reduce((s,set) => s+parseFloat(set.reps||'0')*parseFloat(set.weight||'0'),0), 0);
 
@@ -1794,7 +1212,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
             <Text style={active.workoutTitle}>{workout.exercises.length > 0 ? workout.exercises[0].name : 'Training läuft'}</Text>
           </View>
           <View style={active.timerBadge}>
-            <Text style={active.timerText}>{formatTime(workoutTimer.seconds)}</Text>
+            <Text style={active.timerText}>{formatTime(timer.seconds)}</Text>
             <Text style={active.timerLabel}>Timer</Text>
           </View>
         </View>
@@ -1811,7 +1229,6 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
           ))}
         </View>
         <View style={{ paddingHorizontal: 16 }}>
-          {/* Rest Timer */}
           <View style={[active.pauseCard,{ borderLeftColor:restTimer.isRunning ? theme.orange : theme.cardSecondary }]}>
             <View style={{ flexDirection:'row',justifyContent:'space-between',alignItems:'center' }}>
               <View>
@@ -1822,8 +1239,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
               </View>
               <View style={{ flexDirection:'row',gap:6 }}>
                 {[60,90,120,180].map(sec => (
-                  <TouchableOpacity key={sec} style={[active.pauseBtn, restTimer.isRunning && { borderColor:theme.orange }]}
-                    onPress={() => restTimer.isRunning ? restTimer.stop() : restTimer.startFor(sec)}>
+                  <TouchableOpacity key={sec} style={[active.pauseBtn, restTimer.isRunning && { borderColor:theme.orange }]} onPress={() => restTimer.isRunning ? restTimer.stop() : restTimer.startFor(sec)}>
                     <Text style={[active.pauseBtnText, restTimer.isRunning && { color:theme.orange }]}>{sec < 120 ? `${sec}s` : `${sec/60}m`}</Text>
                   </TouchableOpacity>
                 ))}
@@ -1835,7 +1251,6 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
               </View>
             )}
           </View>
-
           {workout.exercises.map(exercise => {
             const hasPR = !!(prHistory[exercise.name]?.length) || !!(userMaxes[exercise.name]);
             const isDismissed = dismissedPRWarnings.has(exercise.id);
@@ -1867,36 +1282,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
                     </View>
                   </View>
                 )}
-                {recText && (() => {
-  const recWeight = userMax ? String(Math.round((userMax * 0.75) / 2.5) * 2.5) : '';
-  const recReps = '8';
-  return (
-    <TouchableOpacity
-      style={active.recRow}
-      onPress={async () => {
-  const recSets = 4;
-  const newSets = Array.from(
-    { length: Math.max(exercise.sets.length, recSets) },
-    () => ({ reps: recReps, weight: recWeight })
-  );
-  const updated = {
-    ...workout,
-    exercises: workout.exercises.map(ex =>
-      ex.id !== exercise.id ? ex : { ...ex, sets: newSets }
-    ),
-  };
-  onUpdate(updated);
-  await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
-}}
-      activeOpacity={0.75}
-    >
-      <Text style={active.recText}>💡 {recText}</Text>
-      <Text style={{ fontSize: 10, color: theme.blue, fontWeight: '600', marginTop: 3 }}>
-        Tippen zum Übernehmen →
-      </Text>
-    </TouchableOpacity>
-  );
-})()}
+                {recText && <View style={active.recRow}><Text style={active.recText}>{recText}</Text></View>}
                 {lastSets && (
                   <View style={active.lastRow}>
                     <Text style={active.lastLabel}>Letztes Mal: </Text>
@@ -1937,7 +1323,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
           <TouchableOpacity style={active.addExerciseBtn} onPress={() => setShowExercisePicker(true)}>
             <IconPlus color={theme.orange} size={18} /><Text style={active.addExerciseBtnText}>Übung hinzufügen</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={active.finishBtn} onPress={handleFinish} activeOpacity={0.85}>
+          <TouchableOpacity style={active.finishBtn} onPress={onFinish} activeOpacity={0.85}>
             <Text style={active.finishBtnText}>Training abschliessen</Text>
           </TouchableOpacity>
           <View style={{ height: 120 }} />
@@ -1946,76 +1332,69 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
     </>
   );
 }
-
 // ─── Run Screen ───────────────────────────────────────────────
 function RunScreen({ onStop }: { onStop: () => void }) {
-  const runTimer = useWorkoutTimer('activeRunTimer');
+  const timer = usePersistentTimer('activeRunTimer');
   const [manualDist, setManualDist] = useState('');
   const [heartRate, setHeartRate] = useState('');
   const [calories, setCalories] = useState('');
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (!runTimer.isRunning) runTimer.startNow();
     const p = Animated.loop(Animated.sequence([
-      Animated.timing(pulseAnim, { toValue: 1.03, duration: 1000, useNativeDriver: true }),
-      Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
+      Animated.timing(pulseAnim, { toValue:1.03,duration:1000,useNativeDriver:true }),
+      Animated.timing(pulseAnim, { toValue:1,duration:1000,useNativeDriver:true }),
     ]));
-    p.start();
+    if (timer.isRunning) p.start(); else p.stop();
     return () => p.stop();
-  }, []);
+  }, [timer.isRunning]);
 
   const dist = parseFloat(manualDist) || 0;
-  const paceSeconds = dist > 0 ? runTimer.seconds / dist : 0;
-  const estimatedCalories = parseInt(calories) || Math.round(runTimer.seconds / 60 * 8);
+  const paceSeconds = dist > 0 ? timer.seconds / dist : 0;
+  const estimatedCalories = parseInt(calories) || Math.round(timer.seconds/60*8);
 
   async function finishRun() {
-    await runTimer.stop();
-    const dur = runTimer.getDuration() * 60;
-    const runData: RunData = {
-      id: Date.now().toString(), distance: dist, duration: dur,
-      pace: formatPace(dist > 0 ? dur / dist : 0),
-      calories: estimatedCalories, heartRate: parseInt(heartRate) || 0,
-      date: new Date().toISOString(),
-    };
+    const runData: RunData = { id:Date.now().toString(),distance:dist,duration:timer.seconds,pace:formatPace(dist>0?timer.seconds/dist:0),calories:estimatedCalories,heartRate:parseInt(heartRate)||0,date:new Date().toISOString() };
     const raw = await AsyncStorage.getItem('runs');
     const runs = raw ? JSON.parse(raw) : [];
     runs.push(runData);
     await AsyncStorage.setItem('runs', JSON.stringify(runs));
-    await AsyncStorage.removeItem('activeWorkout');
-    Alert.alert('Lauf abgeschlossen!', `${dist.toFixed(2)} km · ${formatTime(dur)} · ${formatPace(dist > 0 ? dur / dist : 0)} /km`,
-      [{ text: 'OK', onPress: onStop }]);
+    await AsyncStorage.removeItem('activeRunTimer');
+    Alert.alert('Lauf abgeschlossen!', `${dist.toFixed(2)} km · ${formatTime(timer.seconds)}`, [{ text:'OK',onPress:onStop }]);
   }
 
   return (
     <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
       <Text style={s.headerLabel}>Lauf</Text>
-      <Animated.View style={[s.runTimerCard, { transform: [{ scale: pulseAnim }] }]}>
+      <Animated.View style={[s.runTimerCard, timer.isRunning && { transform:[{ scale:pulseAnim }] }]}>
         <Text style={s.runTimerLabel}>LAUFZEIT</Text>
-        <Text style={s.runTimerDisplay}>{formatTime(runTimer.seconds)}</Text>
+        <Text style={s.runTimerDisplay}>{formatTime(timer.seconds)}</Text>
+        <TouchableOpacity style={[s.runControlBtn, timer.isRunning ? s.runPauseBtn : s.runStartBtn]} onPress={() => timer.isRunning ? timer.pause() : timer.start()} activeOpacity={0.8}>
+          <Text style={[s.runControlBtnText,{ color:timer.isRunning?theme.red:theme.green }]}>{timer.isRunning?'Pause':'Start'}</Text>
+        </TouchableOpacity>
       </Animated.View>
       <View style={s.runStatsGrid}>
         {[
-          { val: dist.toFixed(2), lbl: 'km',       color: theme.green },
-          { val: formatPace(paceSeconds), lbl: '/km Pace', color: theme.blue },
-          { val: String(estimatedCalories), lbl: 'kcal',   color: theme.orange },
-          { val: heartRate || '--', lbl: 'bpm',     color: theme.pink },
+          { val:dist.toFixed(2),lbl:'km',color:theme.green },
+          { val:formatPace(paceSeconds),lbl:'/km Pace',color:theme.blue },
+          { val:String(estimatedCalories),lbl:'kcal',color:theme.orange },
+          { val:heartRate||'--',lbl:'bpm',color:theme.pink },
         ].map(stat => (
           <View key={stat.lbl} style={s.runStatCard}>
-            <Text style={[s.runStatVal, { color: stat.color }]}>{stat.val}</Text>
+            <Text style={[s.runStatVal,{ color:stat.color }]}>{stat.val}</Text>
             <Text style={s.runStatLbl}>{stat.lbl}</Text>
           </View>
         ))}
       </View>
       <View style={s.card}>
         <Text style={s.cardTitle}>Daten eingeben</Text>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flexDirection:'row',gap:10 }}>
           {[
-            { label: 'Distanz (km)', value: manualDist, setter: setManualDist, kb: 'decimal-pad' as const, ph: '0.00' },
-            { label: 'Herzfrequenz', value: heartRate, setter: setHeartRate, kb: 'numeric' as const, ph: 'bpm' },
-            { label: 'Kalorien', value: calories, setter: setCalories, kb: 'numeric' as const, ph: 'kcal' },
+            { label:'Distanz (km)',value:manualDist,setter:setManualDist,kb:'decimal-pad' as const,ph:'0.00' },
+            { label:'Herzfrequenz',value:heartRate,setter:setHeartRate,kb:'numeric' as const,ph:'bpm' },
+            { label:'Kalorien',value:calories,setter:setCalories,kb:'numeric' as const,ph:'kcal' },
           ].map(f => (
-            <View key={f.label} style={{ flex: 1 }}>
+            <View key={f.label} style={{ flex:1 }}>
               <Text style={s.inputLabel}>{f.label}</Text>
               <TextInput style={s.input} value={f.value} onChangeText={f.setter} keyboardType={f.kb} placeholder={f.ph} placeholderTextColor={theme.textTertiary} />
             </View>
@@ -2032,6 +1411,7 @@ function RunScreen({ onStop }: { onStop: () => void }) {
 
 // ─── Main Screen ──────────────────────────────────────────────
 type Screen = 'home' | 'freeStart' | 'routineScreen' | 'routineDetail';
+
 const DAY_LABELS = ['Mo','Di','Mi','Do','Fr','Sa','So'];
 
 export default function TrainingScreen() {
@@ -2042,16 +1422,15 @@ export default function TrainingScreen() {
   const [showHistory, setShowHistory] = useState(false);
   const [showPRScreen, setShowPRScreen] = useState(false);
   const [showPREntry, setShowPREntry] = useState(false);
-  const [showPlan, setShowPlan] = useState(false);
   const [showDeviceModal, setShowDeviceModal] = useState(false);
   const [userMaxes, setUserMaxes] = useState<UserMaxes>({});
   const [prHistory, setPRHistory] = useState<PRHistory>({});
   const [lastWorkoutData, setLastWorkoutData] = useState<Record<string,WorkoutSet[]>>({});
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
-  const [allExercises, setAllExercises] = useState(DEFAULT_EXERCISES);
   const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const workoutStartRef = useRef(Date.now());
 
   useFocusEffect(useCallback(() => {
     loadAll();
@@ -2060,8 +1439,6 @@ export default function TrainingScreen() {
   }, []));
 
   async function loadAll() {
-    const rawEx = await AsyncStorage.getItem('userExercises');
-if (rawEx) setAllExercises(JSON.parse(rawEx));
     const rawW = await AsyncStorage.getItem('workouts');
     if (rawW) {
       const ws: Workout[] = JSON.parse(rawW);
@@ -2075,6 +1452,8 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
       const w: Workout = JSON.parse(rawActive);
       if (isToday(w.date)) { if (w.type === 'run') setActiveRun(true); else setActiveWorkout(w); }
     }
+    const rawStart = await AsyncStorage.getItem('workoutStartTime');
+    if (rawStart) workoutStartRef.current = parseInt(rawStart);
     const rawMaxes = await AsyncStorage.getItem('userMaxes');
     if (rawMaxes) setUserMaxes(JSON.parse(rawMaxes));
     const rawPR = await AsyncStorage.getItem('prHistory');
@@ -2087,18 +1466,6 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
 
   async function saveRoutine(r: Routine) {
     const updated = [...routines, r];
-    setRoutines(updated);
-    await AsyncStorage.setItem('routines', JSON.stringify(updated));
-  }
-
-  async function updateRoutine(r: Routine) {
-    const updated = routines.map(x => x.id === r.id ? r : x);
-    setRoutines(updated);
-    await AsyncStorage.setItem('routines', JSON.stringify(updated));
-  }
-
-  async function deleteRoutine(id: string) {
-    const updated = routines.filter(r => r.id !== id);
     setRoutines(updated);
     await AsyncStorage.setItem('routines', JSON.stringify(updated));
   }
@@ -2123,7 +1490,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
   const daysSinceGym = lastGymWorkout ? daysSince(lastGymWorkout.date) : -1;
   const kraftRecommended = daysSinceGym >= 2;
   const neverTrainedGym = daysSinceGym === -1;
-  const weekDays = getWeekTrainings(workouts);
+  const weekDays = getWeekTrainings(workouts); // boolean[7]
   const todayDayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
   const prCount = Object.keys(prHistory).length;
 
@@ -2141,7 +1508,9 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
 
   async function startFreeWorkout() {
     const w: Workout = { id:Date.now().toString(),date:new Date().toISOString(),name:'Freies Training',exercises:[],duration:0,intensity:3,type:'gym' };
+    workoutStartRef.current = Date.now();
     await AsyncStorage.setItem('activeWorkout', JSON.stringify(w));
+    await AsyncStorage.setItem('workoutStartTime', String(Date.now()));
     setActiveWorkout(w); setScreen('home');
   }
 
@@ -2152,7 +1521,9 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
       exercises:lastGymWorkout.exercises.map(ex => ({ ...ex,id:Date.now().toString()+ex.name,sets:ex.sets.map(()=>({ reps:'',weight:'' })) })),
       duration:0,intensity:3,type:'gym',
     };
+    workoutStartRef.current = Date.now();
     await AsyncStorage.setItem('activeWorkout', JSON.stringify(w));
+    await AsyncStorage.setItem('workoutStartTime', String(Date.now()));
     setActiveWorkout(w); setScreen('home');
   }
 
@@ -2167,7 +1538,9 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
       exercises:routine.exercises.map(re => ({ id:Date.now().toString()+re.name,name:re.name,muscleGroup:re.muscleGroup,sets:Array.from({ length:re.defaultSets },()=>({ reps:'',weight:'' })) })),
       duration:0,intensity:3,type:'gym',
     };
+    workoutStartRef.current = Date.now();
     await AsyncStorage.setItem('activeWorkout', JSON.stringify(w));
+    await AsyncStorage.setItem('workoutStartTime', String(Date.now()));
     setActiveWorkout(w); setScreen('home');
   }
 
@@ -2178,18 +1551,8 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
 
   async function finishWorkout() {
     if (!activeWorkout) return;
-    // Get duration from stored start time
-    const rawTimer = await AsyncStorage.getItem('gymWorkoutTimer');
-    let duration = 1;
-    if (rawTimer) {
-      try {
-        const { startedAt } = JSON.parse(rawTimer);
-        if (startedAt) duration = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
-      } catch {}
-    }
-    const score = calcWorkoutScore({ ...activeWorkout, duration }, userMaxes);
-    const finished: Workout = { ...activeWorkout, duration, score };
-
+    const duration = Math.max(1, Math.round((Date.now()-workoutStartRef.current)/60000));
+    const finished = { ...activeWorkout,duration };
     const newPRH = { ...prHistory };
     for (const ex of finished.exercises) {
       const best = getBest1RM(ex.sets);
@@ -2211,20 +1574,15 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
     histArr.push(finished);
     await AsyncStorage.setItem('workouts', JSON.stringify(histArr));
     await AsyncStorage.removeItem('activeWorkout');
-    await AsyncStorage.removeItem('gymWorkoutTimer');
+    await AsyncStorage.removeItem('workoutStartTime');
     setActiveWorkout(null);
     await loadAll();
-    Alert.alert(
-      'Training abgeschlossen! 🎉',
-      `${duration} Minuten · ${finished.exercises.length} Übungen\n⚡ Trainingsscore: ${score}/100`
-    );
+    Alert.alert('Training abgeschlossen!', `${duration} Minuten · ${finished.exercises.length} Übungen`);
   }
 
   async function stopSession() {
     setActiveRun(false); setActiveWorkout(null);
     await AsyncStorage.removeItem('activeWorkout');
-    await AsyncStorage.removeItem('gymWorkoutTimer');
-    await AsyncStorage.removeItem('activeRunTimer');
     await loadAll();
   }
 
@@ -2234,24 +1592,14 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
   if (activeRun) return <RunScreen onStop={stopSession} />;
   if (activeWorkout) return <ActiveGymWorkout workout={activeWorkout} userMaxes={userMaxes} prHistory={prHistory} lastWorkoutData={lastWorkoutData} onUpdate={setActiveWorkout} onFinish={finishWorkout} />;
   if (screen === 'freeStart') return <FreeWorkoutStartScreen onStart={startFreeWorkout} onStartWithRecommendation={startFreeWithRecommendation} lastWorkout={lastGymWorkout ?? null} onBack={() => setScreen('home')} />;
-  if (screen === 'routineScreen') return (
-    <RoutineScreen
-      routines={routines}
-      onSelectRoutine={r => { setSelectedRoutine(r); setScreen('routineDetail'); }}
-      onCreateRoutine={saveRoutine}
-      onUpdateRoutine={updateRoutine}
-      onDeleteRoutine={deleteRoutine}
-      onBack={() => setScreen('home')}
-    />
-  );
+  if (screen === 'routineScreen') return <RoutineScreen routines={routines} onSelectRoutine={r => { setSelectedRoutine(r); setScreen('routineDetail'); }} onCreateRoutine={r => saveRoutine(r)} onBack={() => setScreen('home')} />;
   if (screen === 'routineDetail' && selectedRoutine) return <RoutineDetailScreen routine={selectedRoutine} onStart={startRoutineWorkout} onBack={() => setScreen('routineScreen')} />;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
-      {showHistory && <HistoryScreen onClose={() => { setShowHistory(false); loadAll(); }} prHistory={prHistory} onDelete={() => loadAll()} />}
+      {showHistory && <HistoryScreen onClose={() => setShowHistory(false)} prHistory={prHistory} />}
       {showPRScreen && <PRScreen prHistory={prHistory} onClose={() => setShowPRScreen(false)} onAddPR={() => { setShowPRScreen(false); setShowPREntry(true); }} />}
       {showPREntry && <PREntryScreen onClose={() => setShowPREntry(false)} onSave={savePR} />}
-      {showPlan && <TrainingPlanScreen onClose={() => setShowPlan(false)} userMaxes={userMaxes} allExercises={allExercises} />}
 
       <Modal visible={showDeviceModal} transparent animationType="slide">
         <View style={s.modalOverlay}>
@@ -2280,7 +1628,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
             <Text style={{ fontSize:10,fontWeight:'700',letterSpacing:1.2,textTransform:'uppercase',color:theme.orange,marginBottom:4 }}>Training</Text>
             <Text style={{ fontSize:26,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.6,marginBottom:16 }}>{greeting}</Text>
 
-            {/* Week Grid */}
+            {/* ── WOCHE — volle Breite, 7 Tage ── */}
             <View style={{ backgroundColor:theme.card,borderRadius:18,borderWidth:1,borderColor:theme.border,padding:14,marginBottom:14 }}>
               <Text style={{ fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.6,marginBottom:10 }}>
                 Diese Woche · {weekDays.filter(Boolean).length} Trainings
@@ -2298,9 +1646,18 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
                         borderColor: isToday2 ? theme.orange : 'rgba(255,255,255,0.08)',
                         alignItems:'center',justifyContent:'center',
                       }}>
-                        {done ? <IconCheck color="#fff" size={12} /> : isToday2 ? <View style={{ width:7,height:7,borderRadius:4,backgroundColor:theme.orange }} /> : null}
+                        {done
+                          ? <IconCheck color="#fff" size={12} />
+                          : isToday2
+                            ? <View style={{ width:7,height:7,borderRadius:4,backgroundColor:theme.orange }} />
+                            : null
+                        }
                       </View>
-                      <Text style={{ fontSize:9, fontWeight: isToday2 ? '800' : '600', color: isToday2 ? theme.orange : done ? 'rgba(245,240,238,0.4)' : 'rgba(245,240,238,0.18)' }}>{lbl}</Text>
+                      <Text style={{
+                        fontSize:9,
+                        fontWeight: isToday2 ? '800' : '600',
+                        color: isToday2 ? theme.orange : done ? 'rgba(245,240,238,0.4)' : 'rgba(245,240,238,0.18)',
+                      }}>{lbl}</Text>
                     </View>
                   );
                 })}
@@ -2308,7 +1665,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
             </View>
           </View>
 
-          {/* ── MAIN CARD ── */}
+          {/* ── EMPFEHLUNG / HAUPTCARD ── */}
           <View style={{ marginHorizontal:16,marginBottom:12,backgroundColor:theme.card,borderRadius:22,borderWidth:1.5,borderColor:theme.orangeBorder,padding:18 }}>
             <View style={{ flexDirection:'row',alignItems:'center',gap:6,marginBottom:14 }}>
               <View style={{ width:5,height:5,borderRadius:3,backgroundColor:theme.orange }} />
@@ -2316,6 +1673,8 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
                 {neverTrainedGym ? 'Starte dein erstes Training' : kraftRecommended ? 'Heute empfohlen' : 'Bereit für mehr?'}
               </Text>
             </View>
+
+            {/* Icon + Titel */}
             <View style={{ flexDirection:'row',alignItems:'center',gap:13,marginBottom:13 }}>
               <View style={{ width:50,height:50,borderRadius:25,backgroundColor:theme.orangeLight,borderWidth:1,borderColor:theme.orangeBorder,alignItems:'center',justifyContent:'center',flexShrink:0 }}>
                 <IconDumbbell color={theme.orange} size={26} />
@@ -2332,6 +1691,8 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
                 )}
               </View>
             </View>
+
+            {/* Bereit-Chips */}
             {readyMuscles.length > 0 && (
               <View style={{ flexDirection:'row',gap:6,marginBottom:16,flexWrap:'wrap' }}>
                 {readyMuscles.map(mg => (
@@ -2341,6 +1702,8 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
                 ))}
               </View>
             )}
+
+            {/* Start Button */}
             <TouchableOpacity
               style={{ backgroundColor:theme.orange,borderRadius:14,padding:14,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:9 }}
               onPress={startWithRecommendationFromHome} activeOpacity={0.85}>
@@ -2349,7 +1712,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
             </TouchableOpacity>
           </View>
 
-          {/* ── QUICK ACTIONS ── */}
+          {/* ── SCHNELL-ACTIONS ── */}
           <View style={{ flexDirection:'row',gap:8,marginHorizontal:16,marginBottom:10 }}>
             <TouchableOpacity style={{ flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,alignItems:'center',gap:7 }}
               onPress={() => setScreen('routineScreen')} activeOpacity={0.85}>
@@ -2361,17 +1724,13 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
               <IconPencil color={theme.textSecondary} size={22} />
               <Text style={{ fontSize:12,fontWeight:'600',color:theme.textSecondary }}>Freies Training</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={{ flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,alignItems:'center',gap:7 }}
-              onPress={() => setShowPlan(true)} activeOpacity={0.85}>
-              <IconCalendar color={theme.textSecondary} size={22} />
-              <Text style={{ fontSize:12,fontWeight:'600',color:theme.textSecondary }}>Plan</Text>
-            </TouchableOpacity>
           </View>
 
-          {/* PRs */}
+          {/* ── PRs ── */}
           <TouchableOpacity
             style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:'rgba(255,215,0,0.2)',flexDirection:'row',alignItems:'center',gap:13 }}
-            onPress={() => prCount === 0 ? setShowPREntry(true) : setShowPRScreen(true)} activeOpacity={0.85}>
+            onPress={() => prCount === 0 ? setShowPREntry(true) : setShowPRScreen(true)}
+            activeOpacity={0.85}>
             <View style={{ width:44,height:44,borderRadius:22,backgroundColor:'rgba(255,215,0,0.1)',alignItems:'center',justifyContent:'center',flexShrink:0 }}>
               <IconTrophy color="#FFD700" size={22} />
             </View>
@@ -2384,7 +1743,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
             <IconChevronRight color="rgba(255,215,0,0.4)" size={18} />
           </TouchableOpacity>
 
-          {/* Verlauf */}
+          {/* ── VERLAUF ── */}
           <TouchableOpacity
             style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:theme.orangeBorder,flexDirection:'row',alignItems:'center',gap:13 }}
             onPress={() => setShowHistory(true)} activeOpacity={0.85}>
@@ -2398,7 +1757,7 @@ if (rawEx) setAllExercises(JSON.parse(rawEx));
             <IconChevronRight color={theme.orange} size={18} />
           </TouchableOpacity>
 
-          {/* Device */}
+          {/* ── GERÄT ── */}
           {connectedDevice ? (
             <View style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,flexDirection:'row',alignItems:'center',gap:13,borderWidth:1,borderColor:theme.border }}>
               <View style={{ width:44,height:44,borderRadius:22,backgroundColor:theme.greenLight,alignItems:'center',justifyContent:'center' }}>
@@ -2606,6 +1965,10 @@ const s = StyleSheet.create({
   runTimerCard:      { backgroundColor:theme.card,borderRadius:24,padding:28,alignItems:'center',gap:10,marginBottom:14,borderLeftWidth:3,borderLeftColor:theme.green,borderWidth:1,borderColor:theme.border },
   runTimerLabel:     { fontSize:10,color:theme.textSecondary,textTransform:'uppercase',letterSpacing:2 },
   runTimerDisplay:   { fontSize:60,fontWeight:'300',color:theme.textPrimary,letterSpacing:-2 },
+  runControlBtn:     { paddingHorizontal:28,paddingVertical:12,borderRadius:20,marginTop:6 },
+  runStartBtn:       { backgroundColor:theme.greenLight },
+  runPauseBtn:       { backgroundColor:'rgba(255,69,58,0.12)' },
+  runControlBtnText: { fontSize:15,fontWeight:'600' },
   runStatsGrid:      { flexDirection:'row',gap:8,marginBottom:14 },
   runStatCard:       { flex:1,backgroundColor:theme.card,borderRadius:14,padding:12,alignItems:'center',borderWidth:1,borderColor:theme.border },
   runStatVal:        { fontSize:16,fontWeight:'600' },
