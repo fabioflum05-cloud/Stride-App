@@ -6,15 +6,7 @@ import {
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { WettkampfHistoryItem, WettkampfModal, WettkampfSession, useWettkampfSessions } from './wettkampf';
-const { sessions, showModal, setShowModal, selectedSession,
-        openNew, openEdit, saveSession, deleteSession } = useWettkampfSessions();
 
-// Im Wettkampf-Tab:
-<TouchableOpacity onPress={openNew}>…Neuer Wettkampf…</TouchableOpacity>
-{sessions.map(s: WettkampfSession, i: number) => ...)sessions.map ...
-<WettkampfHistoryItem ... />
-<WettkampfModal ... />
 // ─────────────────────────────────────────────────────────────────────────────
 // INTEGRATION INSTRUCTIONS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1036,18 +1028,10 @@ export function JudoTrackingScreen({ onClose }: { onClose: () => void }) {
       </View>
     </Modal>
   );// Am Anfang von JudoTrackingScreen, zusammen mit den anderen useState:
-const wettkampf = useWettkampfSessions();
 
 // Im JSX, nach dem history-Block:
-{tab === 'stats' && <JudoStatsView sessions={sessions} />}
+{}
 
-// Wettkampf-Modal außerhalb des ScrollView, aber noch innerhalb des äußeren View:
-<WettkampfModal
-  visible={wettkampf.showModal}
-  existing={wettkampf.selectedSession}
-  onSave={wettkampf.saveSession}
-  onClose={() => wettkampf.setShowModal(false)}
-/>
 }
 
 // ─── Styles ──────────────────────────────────────────────────
