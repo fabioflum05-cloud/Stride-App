@@ -206,6 +206,7 @@ const EXERCISES: LocalExercise[] = [
   { id: 'c4', name: 'Hollow Body Hold', category: 'Core' },
   { id: 'c5', name: 'L-Sit', category: 'Core' },
   { id: 'c6', name: 'Suitcase Carry', category: 'Core' },
+  { id: 'c7', name: 'Landmine', category: 'Core' },
   // ADDUKTOREN
   { id: 'ad1', name: 'Adduktoren (Maschine)', category: 'Adduktoren' },
   { id: 'ad2', name: 'Sumo Squat', category: 'Adduktoren' },
@@ -589,7 +590,6 @@ export default function PRsScreen() {
   useFocusEffect(useCallback(() => { loadData(); }, []));
 
   async function loadData() {
-    await AsyncStorage.removeItem('prHistory'); // ← temporär hinzufügen
     const rawPR = await AsyncStorage.getItem('prHistory');
     if (rawPR) setPRHistory(JSON.parse(rawPR));
     const rawW = await AsyncStorage.getItem('workouts');

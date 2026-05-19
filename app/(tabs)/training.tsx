@@ -14,16 +14,23 @@ import Svg, {
 import { useAppTheme } from '../../constants/ThemeContext';
 
 function getT(colors: any) {
+  const dark = colors.bg < '#888888';
+  const text1 = dark ? '#F0F0F0' : '#2A1F14';
+  const text2 = dark ? '#B0B0B0' : '#5A4A3A';
+  const text3 = dark ? '#808080' : '#7A6E63';
+  const text4 = dark ? '#555555' : '#B0A89E';
+  const border = dark ? 'rgba(255,255,255,0.08)' : 'rgba(60,30,10,0.08)';
+  const borderSoft = dark ? 'rgba(255,255,255,0.05)' : 'rgba(60,30,10,0.05)';
   return {
     bg: colors.bg, card: colors.card, cardAlt: colors.cardSecondary,
-    border: 'rgba(60,30,10,0.08)', borderSoft: 'rgba(60,30,10,0.05)',
+    border, borderSoft,
     orange: colors.accent, orangeAlpha: colors.accent + '26', orangeBorder: colors.accent + '48',
     blue: '#3A7AC0', blueAlpha: 'rgba(58,122,192,0.08)', blueBorder: 'rgba(58,122,192,0.14)',
     green: '#4A8C5C', greenAlpha: 'rgba(74,140,92,0.08)', greenBorder: 'rgba(74,140,92,0.14)',
     red: '#C0392B', redAlpha: 'rgba(192,57,43,0.07)', redBorder: 'rgba(192,57,43,0.14)',
     gold: '#8B6914', goldAlpha: 'rgba(139,105,20,0.08)', goldBorder: 'rgba(139,105,20,0.18)',
     yellow: '#8B6914', white: '#FFFFFF',
-    text1: '#2A1F14', text2: '#5A4A3A', text3: '#7A6E63', text4: '#B0A89E',
+    text1, text2, text3, text4,
   };
 }
 
@@ -202,6 +209,7 @@ const ALL_EXERCISES = [
   { id: 'c4', name: 'Hollow Body Hold', category: 'Core' },
   { id: 'c5', name: 'L-Sit', category: 'Core' },
   { id: 'c6', name: 'Suitcase Carry', category: 'Core' },
+  { id: 'c7', name: 'Landmine', category: 'Core' },
   // ADDUKTOREN
   { id: 'ad1', name: 'Adduktoren (Maschine)', category: 'Adduktoren' },
   { id: 'ad2', name: 'Sumo Squat', category: 'Adduktoren' },
@@ -1401,7 +1409,245 @@ function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => vo
     </Modal>
   );
 }
+// ─── Progress Card (Mini) ─────────────────────────────────────
+function ProgressCard({ prHistory, T, onPress }: { prHistory: PRHistory; T: any; onPress: () => void }) {
+  const [period, setPeriod] = useState<'1M' | '6M' | '1J' | '2J' | 'Gesamt'>('1M');
+  const periods = ['1M', '6M', '1J', '2J', 'Gesamt'] as const;
 
+  const chartData = computeProgressData(prHistory, period);
+  const avgImprovement = chartData.length >= 2
+    ? Math.round(((chartData[chartData.length - 1].avg - chartData[0].avg) / Math.max(chartData[0].avg, 1)) * 100)
+    : 0;
+
+  const W = SW - 32 - 32;
+  const H = 90;
+  const PAD = 8;
+  const vals = chartData.map(d => d.avg);
+  const minV = Math.min(...vals, 0);
+  const maxV = Math.max(...vals, 1);
+  const range = maxV - minV || 1;
+  const pts = vals.map((v, i) => ({
+    x: PAD + (i / Math.max(vals.length - 1, 1)) * (W - PAD * 2),
+    y: H - PAD - ((v - minV) / range) * (H - PAD * 2),
+  }));
+  const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const areaD = pts.length >= 2
+    ? `${pathD} L${pts[pts.length - 1].x.toFixed(1)},${H} L${pts[0].x.toFixed(1)},${H} Z`
+    : '';
+
+  return (
+    <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+      <View style={{ backgroundColor: T.card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: T.border }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+          <View>
+            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 3 }}>Kraftentwicklung</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: T.text1 }}>Ø aller Muskelgruppen</Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: avgImprovement >= 0 ? T.green : T.red, letterSpacing: -0.5 }}>
+              {avgImprovement >= 0 ? '+' : ''}{avgImprovement}%
+            </Text>
+            <Text style={{ fontSize: 9, color: T.text4 }}>{period === 'Gesamt' ? 'gesamt' : period === '1M' ? 'diesen Monat' : period === '6M' ? 'in 6 Monaten' : period === '1J' ? 'dieses Jahr' : 'in 2 Jahren'}</Text>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 5, marginBottom: 12 }}>
+          {periods.map(p => (
+            <TouchableOpacity key={p} onPress={() => setPeriod(p)} style={{ flex: 1, paddingVertical: 5, borderRadius: 7, alignItems: 'center', backgroundColor: period === p ? T.orangeAlpha : T.cardAlt, borderWidth: 1, borderColor: period === p ? T.orangeBorder : T.border }}>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: period === p ? T.orange : T.text4 }}>{p}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {vals.length >= 2 ? (
+          <Svg width={W} height={H}>
+            {areaD ? <Path d={areaD} fill={T.orange + '18'} /> : null}
+            <Path d={pathD} fill="none" stroke={T.orange} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+            {pts.map((p, i) => <Circle key={i} cx={p.x} cy={p.y} r={i === pts.length - 1 ? 4 : 2.5} fill={T.orange} />)}
+          </Svg>
+        ) : (
+          <View style={{ height: H, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 12, color: T.text4 }}>Noch nicht genug Daten</Text>
+          </View>
+        )}
+
+        <TouchableOpacity onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: T.orangeAlpha, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: T.orangeBorder, marginTop: 10 }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: T.orange }}>Detailansicht → Muskelgruppen</Text>
+          <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: T.orange, alignItems: 'center', justifyContent: 'center' }}>
+            <IconChevronRight color="#fff" size={12} />
+          </View>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ─── Progress Detail Modal ────────────────────────────────────
+function ProgressDetailModal({ prHistory, T, onClose }: { prHistory: PRHistory; T: any; onClose: () => void }) {
+  const [period, setPeriod] = useState<'1M' | '6M' | '1J' | '2J' | 'Gesamt'>('1M');
+  const periods = ['1M', '6M', '1J', '2J', 'Gesamt'] as const;
+  const MG_COLORS: Record<string, string> = {
+    Brust: '#E8572A', Rücken: '#3A7AC0', Bizeps: '#4A8C5C',
+    Schultern: '#8B6914', Trizeps: '#7B4A2D', Quadrizeps: '#A03C78',
+    Hamstrings: '#06B6D4', Gluteus: '#F472B6', Waden: '#FB923C', Core: '#F59E0B',
+  };
+  const ALL_MG = Object.keys(MG_COLORS);
+  const [active, setActive] = useState<string[]>(ALL_MG.slice(0, 6));
+
+  const W = SW - 32 - 32;
+  const H = 200;
+  const PAD = 12;
+
+  const allData = ALL_MG.reduce<Record<string, { x: number; y: number }[]>>((acc, mg) => {
+    const data = computeMGProgressData(prHistory, mg, period);
+    const vals = data.map(d => d.val);
+    const minV = Math.min(...vals, 0);
+    const maxV = Math.max(...vals, 1);
+    const range = maxV - minV || 1;
+    acc[mg] = vals.map((v, i) => ({
+      x: PAD + (i / Math.max(vals.length - 1, 1)) * (W - PAD * 2),
+      y: H - PAD - ((v - minV) / range) * (H - PAD * 2),
+    }));
+    return acc;
+  }, {});
+
+  const improvements = ALL_MG.map(mg => {
+    const data = computeMGProgressData(prHistory, mg, period);
+    if (data.length < 2) return { mg, pct: 0 };
+    const pct = Math.round(((data[data.length - 1].val - data[0].val) / Math.max(data[0].val, 1)) * 100);
+    return { mg, pct };
+  }).filter(x => x.pct !== 0).sort((a, b) => b.pct - a.pct);
+
+  return (
+    <Modal visible animationType="slide">
+      <View style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ paddingTop: 60, paddingHorizontal: 20, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: T.borderSoft, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', backgroundColor: T.card }}>
+          <View>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 5 }}>Kraftentwicklung</Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }}>Fortschritt</Text>
+          </View>
+          <TouchableOpacity onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, borderWidth: 1, borderColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
+            <IconClose />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
+          <View style={{ flexDirection: 'row', gap: 5, marginBottom: 16 }}>
+            {periods.map(p => (
+              <TouchableOpacity key={p} onPress={() => setPeriod(p)} style={{ flex: 1, paddingVertical: 6, borderRadius: 8, alignItems: 'center', backgroundColor: period === p ? T.orangeAlpha : T.card, borderWidth: 1, borderColor: period === p ? T.orangeBorder : T.border }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: period === p ? T.orange : T.text4 }}>{p}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={{ backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: T.border }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 12 }}>Verlauf nach Muskelgruppe</Text>
+            <Svg width={W} height={H}>
+              {active.map(mg => {
+                const pts = allData[mg];
+                if (!pts || pts.length < 2) return null;
+                const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                return <Path key={mg} d={d} fill="none" stroke={MG_COLORS[mg]} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />;
+              })}
+              {active.map(mg => {
+                const pts = allData[mg];
+                if (!pts || pts.length < 2) return null;
+                return pts.map((p, i) => <Circle key={`${mg}-${i}`} cx={p.x} cy={p.y} r={i === pts.length - 1 ? 4 : 2.5} fill={MG_COLORS[mg]} />);
+              })}
+            </Svg>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              {ALL_MG.map(mg => (
+                <View key={mg} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 12, height: 3, borderRadius: 2, backgroundColor: MG_COLORS[mg] }} />
+                  <Text style={{ fontSize: 9, color: T.text3 }}>{mg}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Ein-/Ausblenden</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+            {ALL_MG.map(mg => {
+              const on = active.includes(mg);
+              return (
+                <TouchableOpacity key={mg} onPress={() => setActive(prev => on ? prev.filter(x => x !== mg) : [...prev, mg])}
+                  style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, backgroundColor: on ? MG_COLORS[mg] + '18' : T.cardAlt, borderColor: on ? MG_COLORS[mg] + '44' : T.border }}>
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: on ? MG_COLORS[mg] : T.text4 }}>{mg}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {improvements.length > 0 && (
+            <View style={{ backgroundColor: T.card, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: T.border }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 12 }}>Ranking — Verbesserung</Text>
+              {improvements.map(({ mg, pct }) => (
+                <View key={mg} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 11, color: T.text2, width: 80 }}>{mg}</Text>
+                  <View style={{ flex: 1, height: 7, backgroundColor: T.cardAlt, borderRadius: 4, overflow: 'hidden' }}>
+                    <View style={{ height: 7, borderRadius: 4, backgroundColor: MG_COLORS[mg], width: `${Math.min(Math.abs(pct), 100)}%` as any }} />
+                  </View>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: MG_COLORS[mg], width: 38, textAlign: 'right' }}>{pct >= 0 ? '+' : ''}{pct}%</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          <View style={{ height: 60 }} />
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Progress Helpers ─────────────────────────────────────────
+function computeProgressData(prHistory: PRHistory, period: string): { label: string; avg: number }[] {
+  const now = Date.now();
+  const msMap: Record<string, number> = { '1M': 30, '6M': 180, '1J': 365, '2J': 730, 'Gesamt': 9999 };
+  const days = msMap[period] ?? 30;
+  const cutoff = now - days * 24 * 3600000;
+  const buckets = period === '1M' ? 4 : period === '6M' ? 6 : period === '1J' ? 12 : period === '2J' ? 8 : 6;
+
+  return Array.from({ length: buckets }, (_, i) => {
+    const bucketEnd = now - ((buckets - 1 - i) / buckets) * days * 24 * 3600000;
+    const bucketStart = now - ((buckets - i) / buckets) * days * 24 * 3600000;
+    let total = 0, count = 0;
+    Object.values(prHistory).forEach(entries => {
+      entries.forEach(e => {
+        const t = new Date(e.date).getTime();
+        if (t >= bucketStart && t <= bucketEnd) { total += e.estimated1RM; count++; }
+      });
+    });
+    return { label: `${i + 1}`, avg: count > 0 ? Math.round(total / count) : 0 };
+  });
+}
+
+function computeMGProgressData(prHistory: PRHistory, muscleGroup: string, period: string): { label: string; val: number }[] {
+  const now = Date.now();
+  const msMap: Record<string, number> = { '1M': 30, '6M': 180, '1J': 365, '2J': 730, 'Gesamt': 9999 };
+  const days = msMap[period] ?? 30;
+  const buckets = period === '1M' ? 4 : period === '6M' ? 6 : period === '1J' ? 12 : period === '2J' ? 8 : 6;
+  const mgCats: Record<string, string[]> = {
+    Brust: ['Brust'], Rücken: ['Rücken (Breite)', 'Rücken (Dicke)', 'Rücken (Unterer)'],
+    Bizeps: ['Bizeps'], Schultern: ['Schultern'], Trizeps: ['Trizeps'],
+    Quadrizeps: ['Quadrizeps'], Hamstrings: ['Hamstrings'], Gluteus: ['Gesäß'],
+    Waden: ['Waden'], Core: ['Core', 'Bauch', 'Obliques'],
+  };
+  const cats = mgCats[muscleGroup] ?? [muscleGroup];
+  const relevantEntries = Object.entries(prHistory).filter(([name]) =>
+    ALL_EXERCISES.some(ex => ex.name === name && cats.includes(ex.category))
+  ).flatMap(([, entries]) => entries);
+
+  return Array.from({ length: buckets }, (_, i) => {
+    const bucketEnd = now - ((buckets - 1 - i) / buckets) * days * 24 * 3600000;
+    const bucketStart = now - ((buckets - i) / buckets) * days * 24 * 3600000;
+    let total = 0, count = 0;
+    relevantEntries.forEach(e => {
+      const t = new Date(e.date).getTime();
+      if (t >= bucketStart && t <= bucketEnd) { total += e.estimated1RM; count++; }
+    });
+    return { label: `${i + 1}`, val: count > 0 ? Math.round(total / count) : 0 };
+  });
+}
 // ─── Main Training Screen ─────────────────────────────────────
 type Screen = 'home' | 'routines' | 'routineDetail';
 
@@ -1443,6 +1689,7 @@ const T = {
   const [showPRScreen, setShowPRScreen] = useState(false);
   const [showPREntry, setShowPREntry] = useState(false);
   const [showBodyModal, setShowBodyModal] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
   const [editPR, setEditPR] = useState<{ name: string; weight: number; reps: number } | null>(null);
   const [showNutrition, setShowNutrition] = useState(false);
   const [nutritionAdvice, setNutritionAdvice] = useState<ReturnType<typeof getNutritionAdvice> | null>(null);
@@ -1712,6 +1959,7 @@ const T = {
 {editPR && <PREntryScreen onClose={() => setEditPR(null)} onSave={savePR} editExercise={editPR.name} editWeight={editPR.weight} editReps={editPR.reps} />}
       {showPREntry && <PREntryScreen onClose={() => setShowPREntry(false)} onSave={savePR} />}
       {showBodyModal && <BodyModal muscles={muscles} onClose={() => setShowBodyModal(false)} />}
+        {showProgress && <ProgressDetailModal prHistory={prHistory} T={T} onClose={() => setShowProgress(false)} />}
 
       {/* Nutrition Modal */}
       <Modal visible={showNutrition} transparent animationType="slide">
@@ -1780,102 +2028,209 @@ const T = {
 
           {/* HERO */}
           {(() => {
-            const REQUIRED_MUSCLE_GROUPS = ['Brust', 'Rücken', 'Beine', 'Arme'];
-const missingPRMuscles = REQUIRED_MUSCLE_GROUPS.filter(mg => {
-  const exsInGroup = EXERCISE_DB.filter(e => e.muscleGroup === mg);
-  const prsInGroup = exsInGroup.filter(ex => (prHistory[ex.name]?.length ?? 0) >= 2);
-  return prsInGroup.length < 2;
-});
-const hasEnoughPRs = lastGym && missingPRMuscles.length === 0;
-            return (
-              <View style={{ margin: 16, backgroundColor: T.card, borderRadius: 28, borderWidth: 1, borderColor: hasEnoughPRs ? T.orangeBorder : T.border, overflow: 'hidden' }}>
-                <View style={{ position: 'absolute', top: -60, right: -60, width: 200, height: 200, borderRadius: 100, backgroundColor: hasEnoughPRs ? 'rgba(232,87,42,0.07)' : 'rgba(255,255,255,0.02)' }} />
+            // Muskel-Recovery basierte Logik
+            const readyMuscles = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 100);
+            const notReadyMuscles = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) < 100);
+            const allReady = notReadyMuscles.length === 0;
+            const noneReady = readyMuscles.length === 0;
+
+            // Workout-Typ bestimmen basierend auf bereiten Muskeln
+            const PUSH = ['Brust', 'Schultern', 'Trizeps'];
+            const PULL = ['Rücken', 'Bizeps'];
+            const LEGS = ['Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden'];
+
+            const pushReady = PUSH.filter(m => readyMuscles.includes(m));
+            const pullReady = PULL.filter(m => readyMuscles.includes(m));
+            const legsReady = LEGS.filter(m => readyMuscles.includes(m));
+
+            let workoutType = 'Freies Training';
+            let workoutColor = T.orange;
+            let workoutMuscles = readyMuscles;
+            if (allReady) {
+              workoutType = 'Full Body';
+              workoutColor = T.green;
+              workoutMuscles = MUSCLE_GROUPS;
+            } else if (pushReady.length >= 2 && pushReady.length >= pullReady.length && pushReady.length >= legsReady.length) {
+              workoutType = 'Push Day';
+              workoutColor = T.orange;
+              workoutMuscles = pushReady;
+            } else if (pullReady.length >= 2 && pullReady.length >= legsReady.length) {
+              workoutType = 'Pull Day';
+              workoutColor = T.blue;
+              workoutMuscles = pullReady;
+            } else if (legsReady.length >= 2) {
+              workoutType = 'Leg Day';
+              workoutColor = T.red;
+              workoutMuscles = legsReady;
+            } else if (readyMuscles.length > 0) {
+              workoutType = 'Fokus Training';
+              workoutColor = T.orange;
+              workoutMuscles = readyMuscles;
+            }
+
+            // Szenario 1: Alles erschöpft
+            if (noneReady) return (
+              <View style={{ margin: 16, backgroundColor: T.card, borderRadius: 28, borderWidth: 1, borderColor: T.redBorder, overflow: 'hidden' }}>
                 <View style={{ padding: 22, paddingBottom: 0 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 14 }}>
-                    <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: hasEnoughPRs ? T.orange : T.text4 }} />
-                    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: hasEnoughPRs ? T.text3 : T.text4 }}>
-                      {hasEnoughPRs ? 'Heute empfohlen' : 'Kein Empfehlungstraining'}
-                    </Text>
-                    {!hasEnoughPRs && (
-                      <TouchableOpacity
-                        onPress={() => Alert.alert(
-                          'Warum keine Empfehlung?',
-                          'Du brauchst mindestens 2 PRs pro Muskelgruppe damit die App dein Gewicht und Volumen intelligent empfehlen kann.\n\nFehlend: ' + (missingPRMuscles.length > 0 ? missingPRMuscles.join(', ') : 'Kein letztes Training'),
-                          [{ text: 'Verstanden' }]
-                        )}
-                        style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: T.border, alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Text style={{ fontSize: 10, color: T.text3, fontWeight: '700' }}>i</Text>
-                      </TouchableOpacity>
-                    )}
+                    <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: T.red }} />
+                    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.red }}>Ruhetag empfohlen</Text>
+                  </View>
+                  <Text style={{ fontSize: 28, fontWeight: '800', color: T.text1, letterSpacing: -0.8, marginBottom: 6 }}>Erholung</Text>
+                  <Text style={{ fontSize: 13, color: T.text3, marginBottom: 14 }}>Kein Muskel ist bereit für intensives Training</Text>
+                  <View style={{ backgroundColor: T.redAlpha, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: T.redBorder, marginBottom: 14 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: T.red, marginBottom: 4 }}>Schone deinen Körper</Text>
+                    <Text style={{ fontSize: 11, color: T.text3, lineHeight: 17 }}>Deine Muskeln brauchen mehr Zeit. Mach heute leichtes Cardio, Stretching oder einen Ruhetag.</Text>
+                  </View>
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Alternative heute</Text>
+                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: 20 }}>
+                    {['Cardio', 'Stretching', 'Ruhe'].map(a => (
+                      <View key={a} style={{ flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: T.text1 }}>{a}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Regeneration</Text>
+                  <View style={{ gap: 6, marginBottom: 20 }}>
+                    {MUSCLE_GROUPS.slice(0, 4).map(m => {
+                      const lvl = muscles[m]?.level ?? 100;
+                      const col = getMuscleRecoveryColor(lvl);
+                      return (
+                        <View key={m} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={{ fontSize: 10, color: T.text2, width: 70 }}>{m}</Text>
+                          <View style={{ flex: 1, height: 5, backgroundColor: T.cardAlt, borderRadius: 3 }}>
+                            <View style={{ height: 5, borderRadius: 3, backgroundColor: col, width: `${lvl}%` as any }} />
+                          </View>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: col, width: 30, textAlign: 'right' }}>{lvl}%</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={{ backgroundColor: T.cardAlt, padding: 18, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: T.border }}
+                  onPress={startFree} activeOpacity={0.9}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
+                      <IconPlay size={16} color={T.text3} />
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 17, fontWeight: '800', color: T.text2, letterSpacing: -0.3 }}>Trotzdem trainieren</Text>
+                      <Text style={{ fontSize: 11, color: T.text4, marginTop: 2 }}>Leichtes Training möglich</Text>
+                    </View>
+                  </View>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
+                    <IconChevronRight color={T.text3} size={14} />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            );
+
+            // Szenario 2: Alle 100%
+            if (allReady) return (
+              <View style={{ margin: 16, backgroundColor: T.card, borderRadius: 28, borderWidth: 1, borderColor: T.greenBorder, overflow: 'hidden' }}>
+                <View style={{ padding: 22, paddingBottom: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 14 }}>
+                    <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: T.green }} />
+                    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.green }}>Vollständig erholt</Text>
+                  </View>
+                  <Text style={{ fontSize: 28, fontWeight: '800', color: T.text1, letterSpacing: -0.8, marginBottom: 6 }}>Full Body</Text>
+                  <Text style={{ fontSize: 13, color: T.text3, marginBottom: 14 }}>Alle Muskeln sind 100% erholt</Text>
+                  <View style={{ backgroundColor: T.greenAlpha, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: T.greenBorder, marginBottom: 14 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: T.green, marginBottom: 4 }}>Perfekter Zeitpunkt</Text>
+                    <Text style={{ fontSize: 11, color: T.text3, lineHeight: 17 }}>Kein Muskel ist erschöpft — nutze den Tag für ein intensives Ganzkörpertraining oder fokussiere dich auf eine Schwachstelle.</Text>
+                  </View>
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Vorschläge</Text>
+                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: 20 }}>
+                    {['Full Body', 'Schwachstelle', 'Push Day'].map(a => (
+                      <View key={a} style={{ flex: 1, backgroundColor: T.greenAlpha, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: T.greenBorder }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: T.green }}>{a}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={{ backgroundColor: T.green, padding: 18, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: T.border }}
+                  onPress={startFree} activeOpacity={0.9}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
+                      <IconPlay size={16} color={T.white} />
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 17, fontWeight: '800', color: T.white, letterSpacing: -0.3 }}>Full Body starten</Text>
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>Maximales Training heute</Text>
+                    </View>
+                  </View>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.13)', alignItems: 'center', justifyContent: 'center' }}>
+                    <IconChevronRight color={T.white} size={14} />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            );
+
+            // Szenario 3: Gemischt — einige bereit
+            return (
+              <View style={{ margin: 16, backgroundColor: T.card, borderRadius: 28, borderWidth: 1, borderColor: workoutColor + '48', overflow: 'hidden' }}>
+                <View style={{ padding: 22, paddingBottom: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 14 }}>
+                    <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: workoutColor }} />
+                    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: workoutColor }}>Heutige Empfehlung</Text>
+                  </View>
+                  <Text style={{ fontSize: 28, fontWeight: '800', color: T.text1, letterSpacing: -0.8, marginBottom: 6 }}>{workoutType}</Text>
+                  <Text style={{ fontSize: 13, color: T.text3, marginBottom: 14 }}>Basierend auf deiner Muskelregeneration</Text>
+
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Bereit (100%)</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
+                    {readyMuscles.map(m => (
+                      <View key={m} style={{ backgroundColor: workoutColor + '18', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: workoutColor + '30' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: workoutColor }}>{m}</Text>
+                      </View>
+                    ))}
                   </View>
 
-                  {hasEnoughPRs ? (
-                    <>
-                      <Text style={{ fontSize: 30, fontWeight: '800', color: T.text1, letterSpacing: -0.8, marginBottom: 18 }}>
-                        {lastGym.name}
-                      </Text>
-                      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
-                        {[
-                          { v: lastGym.exercises?.length ?? 0, l: 'Übungen', ac: T.orange },
-                          { v: `${lastGym.duration ?? 0}'`, l: 'Dauer', ac: T.blue },
-                          { v: Math.round(lastGym.exercises?.reduce((t, ex) => t + ex.sets.reduce((s, set) => s + parseFloat(set.reps || '0') * parseFloat(set.weight || '0'), 0), 0) ?? 0).toLocaleString(), l: 'kg Vol.', ac: T.green },
-                        ].map(s => (
-                          <View key={s.l} style={{ flex: 1, backgroundColor: T.cardAlt, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border, overflow: 'hidden' }}>
-                            <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, backgroundColor: s.ac, opacity: 0.5 }} />
-                            <Text style={{ fontSize: 19, fontWeight: '800', color: T.text1, letterSpacing: -0.4 }}>{s.v}</Text>
-                            <Text style={{ fontSize: 9, fontWeight: '600', color: T.text4, textTransform: 'uppercase', letterSpacing: 0.7, marginTop: 3 }}>{s.l}</Text>
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Schonen</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
+                    {notReadyMuscles.map(m => (
+                      <View key={m} style={{ backgroundColor: T.cardAlt, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: T.border }}>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: T.text4 }}>{m}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <View style={{ gap: 6, marginBottom: 20 }}>
+                    {workoutMuscles.slice(0, 3).map(m => {
+                      const lvl = muscles[m]?.level ?? 100;
+                      const col = getMuscleRecoveryColor(lvl);
+                      return (
+                        <View key={m} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={{ fontSize: 10, color: T.text2, width: 70 }}>{m}</Text>
+                          <View style={{ flex: 1, height: 5, backgroundColor: T.cardAlt, borderRadius: 3 }}>
+                            <View style={{ height: 5, borderRadius: 3, backgroundColor: col, width: `${lvl}%` as any }} />
                           </View>
-                        ))}
-                      </View>
-                    </>
-                  ) : (
-                    <View style={{ marginBottom: 20 }}>
-                      <Text style={{ fontSize: 22, fontWeight: '800', color: T.text2, letterSpacing: -0.5, marginBottom: 10 }}>
-                        Freies Training
-                      </Text>
-                      <View style={{ backgroundColor: T.cardAlt, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: T.border }}>
-                        <Text style={{ fontSize: 12, color: T.text3, lineHeight: 18 }}>
-                          Speichere mindestens <Text style={{ color: T.text2, fontWeight: '700' }}>2 PRs pro Muskelgruppe</Text> um personalisierte Trainingsempfehlungen zu erhalten.
-                        </Text>
-                        {missingPRMuscles.length > 0 && (
-                          <Text style={{ fontSize: 11, color: T.text4, marginTop: 8 }}>
-                            Fehlend: {missingPRMuscles.join(', ')}
-                          </Text>
-                        )}
-                        <TouchableOpacity
-                          style={{ marginTop: 12, backgroundColor: T.goldAlpha, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: T.goldBorder, alignItems: 'center' }}
-                          onPress={() => setShowPREntry(true)}
-                        >
-                          <Text style={{ fontSize: 12, fontWeight: '700', color: T.gold }}>PR eintragen →</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: col, width: 30, textAlign: 'right' }}>{lvl}%</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
                 </View>
 
                 <TouchableOpacity
-                  style={{ backgroundColor: hasEnoughPRs ? T.orange : T.cardAlt, padding: 18, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: T.border }}
-                  onPress={hasEnoughPRs ? startWithLast : startFree}
-                  activeOpacity={0.9}
+                  style={{ backgroundColor: workoutColor, padding: 18, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: T.border }}
+                  onPress={startFree} activeOpacity={0.9}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13 }}>
-                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: hasEnoughPRs ? 'rgba(255,255,255,0.16)' : T.border, alignItems: 'center', justifyContent: 'center' }}>
-                      <IconPlay size={16} color={hasEnoughPRs ? T.white : T.text3} />
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
+                      <IconPlay size={16} color={T.white} />
                     </View>
                     <View>
-                      <Text style={{ fontSize: 17, fontWeight: '800', color: hasEnoughPRs ? T.white : T.text2, letterSpacing: -0.3 }}>
-                        {hasEnoughPRs ? 'Jetzt starten' : 'Trotzdem starten'}
-                      </Text>
-                      <Text style={{ fontSize: 11, color: hasEnoughPRs ? 'rgba(255,255,255,0.5)' : T.text4, marginTop: 2 }}>
-                        {hasEnoughPRs
-                          ? lastGym.exercises?.slice(0, 3).map(e => e.name).join(' · ')
-                          : 'Freies Training ohne Empfehlung'}
-                      </Text>
+                      <Text style={{ fontSize: 17, fontWeight: '800', color: T.white, letterSpacing: -0.3 }}>{workoutType} starten</Text>
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{workoutMuscles.slice(0, 3).join(' · ')}</Text>
                     </View>
                   </View>
-                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: hasEnoughPRs ? 'rgba(255,255,255,0.13)' : T.border, alignItems: 'center', justifyContent: 'center' }}>
-                    <IconChevronRight color={hasEnoughPRs ? T.white : T.text3} size={14} />
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.13)', alignItems: 'center', justifyContent: 'center' }}>
+                    <IconChevronRight color={T.white} size={14} />
                   </View>
                 </TouchableOpacity>
               </View>
@@ -1900,40 +2255,27 @@ const hasEnoughPRs = lastGym && missingPRMuscles.length === 0;
             </TouchableOpacity>
           </View>
 
+          {/* FORTSCHRITT DIAGRAMM */}
+          <ProgressCard prHistory={prHistory} T={T} onPress={() => setShowProgress(true)} />
+
           {/* PR SECTION */}
-<View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4 }}>Persönliche Rekorde</Text>
-    
-  </View>
-  <TouchableOpacity
-    onPress={() => router.push('/prs' as any)}
-    style={{
-      backgroundColor: T.orange,
-      borderRadius: 18,
-      padding: 18,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 14,
-    }}
-    activeOpacity={0.85}
-  >
-    <View style={{
-      width: 40, height: 40, borderRadius: 12,
-      backgroundColor: 'rgba(255,255,255,0.2)',
-      alignItems: 'center', justifyContent: 'center',
-    }}>
-      <IconTrophy size={20} color={T.white} />
-    </View>
-    <View style={{ flex: 1 }}>
-      <Text style={{ fontSize: 16, fontWeight: '800', color: T.white, letterSpacing: -0.3 }}>Persönliche Rekorde</Text>
-      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>{Object.keys(prHistory).length} Rekorde gespeichert</Text>
-    </View>
-    <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
-  <Text style={{ color: T.white, fontSize: 18, fontWeight: '300' }}>→</Text>
-</View>
-  </TouchableOpacity>
-</View>
+          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4 }}>Persönliche Rekorde</Text>
+            </View>
+            <TouchableOpacity onPress={() => router.push('/prs' as any)} style={{ backgroundColor: T.orange, borderRadius: 18, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 }} activeOpacity={0.85}>
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+                <IconTrophy size={20} color={T.white} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: T.white, letterSpacing: -0.3 }}>Persönliche Rekorde</Text>
+                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>{Object.keys(prHistory).length} Rekorde gespeichert</Text>
+              </View>
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: T.white, fontSize: 18, fontWeight: '300' }}>→</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
 
           {/* RECOVERY */}
           <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
