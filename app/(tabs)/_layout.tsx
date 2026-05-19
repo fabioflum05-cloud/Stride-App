@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { theme } from '../../constants/theme';
+import { useAppTheme } from '../../constants/ThemeContext';
 
 function HomeIcon({ color }: { color: string }) {
   return (
@@ -38,8 +38,7 @@ function NutritionIcon({ color }: { color: string }) {
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
       <Path d="M12 2C8 2 4 6 4 10C4 14 7 17 12 22C17 17 20 14 20 10C20 6 16 2 12 2Z"
         stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-      <Path d="M12 6V12M9 9H15"
-        stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+      <Path d="M12 6V12M9 9H15" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -80,7 +79,6 @@ function TimerIcon({ color }: { color: string }) {
   );
 }
 
-// ─── 4 Main Tabs ─────────────────────────────────────────────
 const MAIN_TABS = [
   { route: '/', label: 'Home', Icon: HomeIcon },
   { route: '/training', label: 'Training', Icon: TrainingIcon },
@@ -99,6 +97,8 @@ const TRAINING_TABS = [
 ];
 
 function MainTabBar({ pathname }: { pathname: string }) {
+  const { colors } = useAppTheme();
+
   function getIndex() {
     if (pathname === '/') return 0;
     if (pathname.includes('/training') || pathname.includes('/body') ||
@@ -114,10 +114,10 @@ function MainTabBar({ pathname }: { pathname: string }) {
   const currentIndex = getIndex();
 
   return (
-    <View style={[styles.wrapper, { backgroundColor: currentIndex === 1 ? '#1A1614' : 'transparent' }]} pointerEvents="box-none">
+    <View style={styles.wrapper} pointerEvents="box-none">
       <View style={[styles.container, {
-        backgroundColor: currentIndex === 1 ? '#231F1C' : theme.card,
-        borderColor: currentIndex === 1 ? 'rgba(232,87,42,0.25)' : 'rgba(0,0,0,0.08)',
+        backgroundColor: colors.card,
+        borderColor: 'rgba(0,0,0,0.08)',
       }]}>
         {MAIN_TABS.map(({ route, label, Icon }, index) => {
           const active = index === currentIndex;
@@ -130,23 +130,20 @@ function MainTabBar({ pathname }: { pathname: string }) {
               activeOpacity={0.6}
             >
               <View style={styles.dotWrap}>
-                {active && <View style={[styles.dotActive, isTrainingTab && { backgroundColor: theme.orange }]} />}
+                {active && <View style={[styles.dotActive, { backgroundColor: colors.accent }]} />}
               </View>
               {isTrainingTab ? (
                 <View style={{
-                  backgroundColor: active ? '#E8572A' : 'rgba(232,87,42,0.12)',
+                  backgroundColor: active ? colors.accent : colors.cardSecondary,
                   borderRadius: 14, width: 48, height: 36,
                   alignItems: 'center', justifyContent: 'center',
                 }}>
-                  <Icon color={active ? '#fff' : '#E8572A'} />
+                  <Icon color={active ? '#fff' : colors.accent} />
                 </View>
               ) : (
-                <Icon color={active ? theme.blue : theme.textTertiary} />
+                <Icon color={active ? colors.accent : '#C7C7CC'} />
               )}
-              <Text style={[
-                styles.label,
-                active && (isTrainingTab ? { color: '#E8572A' } : styles.labelActive),
-              ]}>
+              <Text style={[styles.label, active && { color: colors.accent, fontWeight: '500' }]}>
                 {label}
               </Text>
             </TouchableOpacity>
@@ -159,12 +156,13 @@ function MainTabBar({ pathname }: { pathname: string }) {
 
 function TrainingTabBar({ onStop }: { onStop: () => void }) {
   const pathname = usePathname();
+  const { colors } = useAppTheme();
 
   return (
-    <View style={[styles.wrapper, { backgroundColor: '#1A1614' }]} pointerEvents="box-none">
+    <View style={styles.wrapper} pointerEvents="box-none">
       <View style={[styles.container, {
-        backgroundColor: '#231F1C',
-        borderColor: 'rgba(232,87,42,0.25)',
+        backgroundColor: colors.card,
+        borderColor: 'rgba(0,0,0,0.08)',
       }]}>
         {TRAINING_TABS.map(({ route, label, Icon, isStop }: any) => {
           const active = !isStop && pathname.includes(route);
@@ -176,10 +174,10 @@ function TrainingTabBar({ onStop }: { onStop: () => void }) {
               activeOpacity={0.6}
             >
               <View style={styles.dotWrap}>
-                {active && <View style={[styles.dotActive, { backgroundColor: theme.orange }]} />}
+                {active && <View style={[styles.dotActive, { backgroundColor: colors.accent }]} />}
               </View>
-              <Icon color={isStop ? theme.red : active ? theme.orange : theme.textTertiary} />
-              <Text style={[styles.label, active && { color: theme.orange }, isStop && { color: theme.red }]}>
+              <Icon color={isStop ? '#FF3B30' : active ? colors.accent : '#C7C7CC'} />
+              <Text style={[styles.label, active && { color: colors.accent }, isStop && { color: '#FF3B30' }]}>
                 {label}
               </Text>
             </TouchableOpacity>
@@ -213,6 +211,7 @@ function AnimatedScreen() {
 
 export default function TabLayout() {
   const pathname = usePathname();
+  const { colors } = useAppTheme();
   const [isTraining, setIsTraining] = useState(false);
 
   const currentIdx = MAIN_ROUTES.findIndex(r =>
@@ -247,11 +246,11 @@ export default function TabLayout() {
   }
 
   const swipe = Gesture.Pan()
-  .runOnJS(true)
-  .activeOffsetX([-25, 25])
-  .failOffsetY([-8, 8])
-  .minDistance(30)
-  .enabled(false)
+    .runOnJS(true)
+    .activeOffsetX([-25, 25])
+    .failOffsetY([-8, 8])
+    .minDistance(30)
+    .enabled(false)
     .onEnd((e) => {
       if (e.velocityX > 200 || e.translationX > 50) {
         if (currentIdx > 0) router.push(MAIN_ROUTES[currentIdx - 1] as any);
@@ -264,16 +263,14 @@ export default function TabLayout() {
       }
     });
 
-  const bgColor = currentIdx === 1 ? '#1A1614' : '#fff';
-
   return (
     <GestureDetector gesture={swipe}>
       <KeyboardAvoidingView
-        style={{ flex: 1, backgroundColor: bgColor }}
+        style={{ flex: 1, backgroundColor: colors.bg }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={0}
       >
-        <View style={{ flex: 1, overflow: 'hidden', backgroundColor: bgColor }}>
+        <View style={{ flex: 1, overflow: 'hidden', backgroundColor: colors.bg }}>
           <View style={{ flex: 1, paddingBottom: 100 }}>
             <AnimatedScreen />
           </View>
@@ -294,7 +291,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flexDirection: 'row', borderRadius: 26,
-    borderWidth: 0.5, borderColor: theme.border,
+    borderWidth: 0.5,
     paddingVertical: 10, paddingHorizontal: 4,
     alignItems: 'center', justifyContent: 'space-around',
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
@@ -302,7 +299,6 @@ const styles = StyleSheet.create({
   },
   tab: { flex: 1, alignItems: 'center', gap: 3 },
   dotWrap: { height: 6, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
-  dotActive: { width: 4, height: 4, borderRadius: 2, backgroundColor: theme.blue },
-  label: { color: theme.textTertiary, fontSize: 9, letterSpacing: 0.5 },
-  labelActive: { color: theme.blue, fontWeight: '500' },
+  dotActive: { width: 4, height: 4, borderRadius: 2 },
+  label: { color: '#C7C7CC', fontSize: 9, letterSpacing: 0.5 },
 });
