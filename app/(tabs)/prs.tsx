@@ -603,19 +603,30 @@ export default function PRsScreen() {
     const built: PRHistory = { ...existing };
     for (const w of ws) {
       for (const ex of w.exercises ?? []) {
+        // Besten Set pro Übung pro Workout finden
+        let bestEst = 0;
+        let bestWeight = 0;
+        let bestReps = 0;
         for (const set of ex.sets ?? []) {
           const weight = parseFloat(set.weight || '0');
           const reps = parseInt(set.reps || '0');
           if (weight > 0 && reps > 0) {
             const est = calc1RM(weight, reps);
-            const existing_entries = built[ex.name] ?? [];
-            const alreadyExists = existing_entries.some(
-              (e: PREntry) => e.date.slice(0, 10) === w.date.slice(0, 10) && e.weight === weight && e.reps === reps
-            );
-            if (!alreadyExists) {
-              built[ex.name] = [...existing_entries, { date: w.date, weight, reps, estimated1RM: est }]
-                .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            if (est > bestEst) {
+              bestEst = est;
+              bestWeight = weight;
+              bestReps = reps;
             }
+          }
+        }
+        if (bestEst > 0) {
+          const existing_entries = built[ex.name] ?? [];
+          const alreadyExists = existing_entries.some(
+            (e: PREntry) => e.date.slice(0, 10) === w.date.slice(0, 10)
+          );
+          if (!alreadyExists) {
+            built[ex.name] = [...existing_entries, { date: w.date, weight: bestWeight, reps: bestReps, estimated1RM: bestEst }]
+              .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
           }
         }
       }
@@ -656,8 +667,12 @@ export default function PRsScreen() {
           <Text style={{ fontSize: 30, fontWeight: '800', color: '#fff', letterSpacing: -0.8, marginBottom: 16 }}>Muskelgruppe</Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 12, padding: 12, alignItems: 'center' }}>
-              <Text style={{ fontSize: 22, fontWeight: '800', color: '#fff' }}>{exercisesWithPR.length}</Text>
-              <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>Übungen</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: '#fff' }}>
+  {MUSCLE_GROUPS_CONFIG.filter(mg =>
+    EXERCISES.some(e => mg.categories.includes(e.category) && (prHistory[e.name]?.length ?? 0) > 0)
+  ).length}
+</Text>
+<Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>Muskelgruppen</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 12, padding: 12, alignItems: 'center' }}>
               <Text style={{ fontSize: 22, fontWeight: '800', color: '#fff' }}>
