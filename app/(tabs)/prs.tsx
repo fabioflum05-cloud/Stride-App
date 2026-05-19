@@ -706,12 +706,21 @@ export default function PRsScreen() {
                     {count > 0 ? `${count} PRs gespeichert` : 'Noch keine PRs'}
                   </Text>
                 </View>
-                {bestRM > 0 && (
-                  <View style={{ alignItems: 'flex-end', marginRight: 4 }}>
-                    <Text style={{ fontSize: 22, fontWeight: '800', color: TEXT1, letterSpacing: -0.5 }}>{Math.round(bestRM)} kg</Text>
-                    <Text style={{ fontSize: 9, color: TEXT3, textTransform: 'uppercase', letterSpacing: 0.4 }}>Bester 1RM</Text>
-                  </View>
-                )}
+                {(() => {
+  const allEntries = EXERCISES
+    .filter(e => mg.categories.includes(e.category))
+    .flatMap(e => prHistory[e.name] ?? []);
+  if (allEntries.length === 0) return null;
+  const latest = allEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+  const days = Math.floor((Date.now() - new Date(latest.date).getTime()) / (1000 * 60 * 60 * 24));
+  const label = days === 0 ? 'heute' : days === 1 ? 'gestern' : `vor ${days} Tagen`;
+  return (
+    <View style={{ alignItems: 'flex-end', marginRight: 4 }}>
+      <Text style={{ fontSize: 13, fontWeight: '600', color: TEXT1 }}>{label}</Text>
+      <Text style={{ fontSize: 9, color: TEXT3, textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 2 }}>letzter PR</Text>
+    </View>
+  );
+})()}
                 <Text style={{ color: TEXT3, fontSize: 18 }}>›</Text>
               </TouchableOpacity>
             );
