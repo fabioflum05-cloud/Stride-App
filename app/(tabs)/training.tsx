@@ -1,121 +1,295 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, Animated, AppState, AppStateStatus,
   Dimensions, Modal, PanResponder, ScrollView, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
-import Svg, { Circle, Defs, Ellipse, G, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
-import { JudoTrackingScreen } from '../judo-tracking';
+import Svg, {
+  Circle, Defs, Ellipse,
+  Line,
+  Path, RadialGradient, Rect, Stop
+} from 'react-native-svg';
+import { useAppTheme } from '../../constants/ThemeContext';
+
+function getT(colors: any) {
+  const dark = colors.bg < '#888888';
+  const text1 = dark ? '#F0F0F0' : '#2A1F14';
+  const text2 = dark ? '#B0B0B0' : '#5A4A3A';
+  const text3 = dark ? '#808080' : '#7A6E63';
+  const text4 = dark ? '#555555' : '#B0A89E';
+  const border = dark ? 'rgba(255,255,255,0.08)' : 'rgba(60,30,10,0.08)';
+  const borderSoft = dark ? 'rgba(255,255,255,0.05)' : 'rgba(60,30,10,0.05)';
+  return {
+    bg: colors.bg, card: colors.card, cardAlt: colors.cardSecondary,
+    border, borderSoft,
+    orange: colors.accent, orangeAlpha: colors.accent + '26', orangeBorder: colors.accent + '48',
+    blue: '#3A7AC0', blueAlpha: 'rgba(58,122,192,0.08)', blueBorder: 'rgba(58,122,192,0.14)',
+    green: '#4A8C5C', greenAlpha: 'rgba(74,140,92,0.08)', greenBorder: 'rgba(74,140,92,0.14)',
+    red: '#C0392B', redAlpha: 'rgba(192,57,43,0.07)', redBorder: 'rgba(192,57,43,0.14)',
+    gold: '#8B6914', goldAlpha: 'rgba(139,105,20,0.08)', goldBorder: 'rgba(139,105,20,0.18)',
+    yellow: '#8B6914', white: '#FFFFFF',
+    text1, text2, text3, text4,
+  };
+}
 
 const SW = Dimensions.get('window').width;
 
-const theme = {
-  bg:            '#1A1614',
-  card:          '#231F1C',
-  cardSecondary: '#2E2825',
-  border:        'rgba(255,255,255,0.07)' as string,
-  orange:        '#E8572A',
-  orangeLight:   'rgba(232,87,42,0.15)' as string,
-  orangeBorder:  'rgba(232,87,42,0.25)' as string,
-  blue:          '#4A9EFF',
-  blueLight:     'rgba(74,158,255,0.12)' as string,
-  green:         '#34C759',
-  greenLight:    'rgba(52,199,89,0.12)' as string,
-  red:           '#FF453A',
-  redLight:      'rgba(255,69,58,0.12)' as string,
-  pink:          '#FF375F',
-  yellow:        '#FFD60A',
-  textPrimary:   '#F5F0EE',
-  textSecondary: 'rgba(245,240,238,0.45)' as string,
-  textTertiary:  'rgba(245,240,238,0.22)' as string,
-};
+const ALL_EXERCISES = [
+  // BRUST
+  { id: 'b1', name: 'Bankdrücken (LH)', category: 'Brust' },
+  { id: 'b2', name: 'Bankdrücken (KH)', category: 'Brust' },
+  { id: 'b3', name: 'Schrägbank oben (LH)', category: 'Brust' },
+  { id: 'b4', name: 'Schrägbank oben (KH)', category: 'Brust' },
+  { id: 'b5', name: 'Schrägbank unten', category: 'Brust' },
+  { id: 'b6', name: 'Dips', category: 'Brust' },
+  { id: 'b7', name: 'Kabelflieges oben', category: 'Brust' },
+  { id: 'b8', name: 'Kabelflieges mitte', category: 'Brust' },
+  { id: 'b9', name: 'Kabelflieges unten', category: 'Brust' },
+  { id: 'b10', name: 'Flieges flach (KH)', category: 'Brust' },
+  { id: 'b11', name: 'Flieges schräg (KH)', category: 'Brust' },
+  { id: 'b12', name: 'Pec Deck', category: 'Brust' },
+  { id: 'b13', name: 'Push-ups', category: 'Brust' },
+  { id: 'b14', name: 'Push-ups (Gewicht)', category: 'Brust' },
+  // SCHULTERN
+  { id: 's1', name: 'OHP (LH)', category: 'Schultern' },
+  { id: 's2', name: 'Schulterdrücken sitzend (LH)', category: 'Schultern' },
+  { id: 's3', name: 'Schulterdrücken sitzend (KH)', category: 'Schultern' },
+  { id: 's4', name: 'Schulterdrücken (Maschine)', category: 'Schultern' },
+  { id: 's5', name: 'Arnold Press', category: 'Schultern' },
+  { id: 's6', name: 'Seitheben (KH)', category: 'Schultern' },
+  { id: 's7', name: 'Seitheben (Kabel)', category: 'Schultern' },
+  { id: 's8', name: 'Seitheben (Maschine)', category: 'Schultern' },
+  { id: 's9', name: 'Frontheben (LH)', category: 'Schultern' },
+  { id: 's10', name: 'Frontheben (KH)', category: 'Schultern' },
+  { id: 's11', name: 'Frontheben (Kabel)', category: 'Schultern' },
+  { id: 's12', name: 'Reverse Flyes (KH)', category: 'Schultern' },
+  { id: 's13', name: 'Reverse Flyes (Kabel)', category: 'Schultern' },
+  { id: 's14', name: 'Upright Row (LH)', category: 'Schultern' },
+  { id: 's15', name: 'Upright Row (Kabel)', category: 'Schultern' },
+  { id: 's16', name: 'Face Pulls', category: 'Schultern' },
+  { id: 's17', name: 'Band Pull Aparts', category: 'Schultern' },
+  // TRIZEPS
+  { id: 't1', name: 'Enges Bankdrücken', category: 'Trizeps' },
+  { id: 't2', name: 'Skull Crushers (LH)', category: 'Trizeps' },
+  { id: 't3', name: 'Skull Crushers (EZ)', category: 'Trizeps' },
+  { id: 't4', name: 'Pushdown (Seil)', category: 'Trizeps' },
+  { id: 't5', name: 'Pushdown (Stange)', category: 'Trizeps' },
+  { id: 't6', name: 'Overhead Extension (KH)', category: 'Trizeps' },
+  { id: 't7', name: 'Overhead Extension (Kabel)', category: 'Trizeps' },
+  { id: 't8', name: 'Overhead Extension (EZ)', category: 'Trizeps' },
+  { id: 't9', name: 'Kickbacks (KH)', category: 'Trizeps' },
+  { id: 't10', name: 'Kickbacks (Kabel)', category: 'Trizeps' },
+  { id: 't11', name: 'Dips (Trizeps)', category: 'Trizeps' },
+  { id: 't12', name: 'Trizeps (Maschine)', category: 'Trizeps' },
+  // BIZEPS
+  { id: 'bz1', name: 'Curl (LH)', category: 'Bizeps' },
+  { id: 'bz2', name: 'Curl (EZ)', category: 'Bizeps' },
+  { id: 'bz3', name: 'Curl abwechselnd (KH)', category: 'Bizeps' },
+  { id: 'bz4', name: 'Curl gleichzeitig (KH)', category: 'Bizeps' },
+  { id: 'bz5', name: 'Hammer Curl (KH)', category: 'Bizeps' },
+  { id: 'bz6', name: 'Hammer Curl (Kabel)', category: 'Bizeps' },
+  { id: 'bz7', name: 'Konzentrations Curl', category: 'Bizeps' },
+  { id: 'bz8', name: 'Preacher Curl (EZ)', category: 'Bizeps' },
+  { id: 'bz9', name: 'Preacher Curl (Maschine)', category: 'Bizeps' },
+  { id: 'bz10', name: 'Kabel Curl (Stange)', category: 'Bizeps' },
+  { id: 'bz11', name: 'Kabel Curl (Seil)', category: 'Bizeps' },
+  { id: 'bz12', name: 'Zottman Curl', category: 'Bizeps' },
+  { id: 'bz13', name: 'Incline Curl (KH)', category: 'Bizeps' },
+  { id: 'bz14', name: 'Spider Curl', category: 'Bizeps' },
+  // RÜCKEN BREITE
+  { id: 'rb1', name: 'Klimmzüge weit', category: 'Rücken (Breite)' },
+  { id: 'rb2', name: 'Klimmzüge eng', category: 'Rücken (Breite)' },
+  { id: 'rb3', name: 'Klimmzüge neutral', category: 'Rücken (Breite)' },
+  { id: 'rb4', name: 'Latzug weit', category: 'Rücken (Breite)' },
+  { id: 'rb5', name: 'Latzug eng', category: 'Rücken (Breite)' },
+  { id: 'rb6', name: 'Latzug neutral', category: 'Rücken (Breite)' },
+  { id: 'rb7', name: 'Straight Arm Pulldown', category: 'Rücken (Breite)' },
+  { id: 'rb8', name: 'Pullover (KH)', category: 'Rücken (Breite)' },
+  { id: 'rb9', name: 'Pullover (Maschine)', category: 'Rücken (Breite)' },
+  // RÜCKEN DICKE
+  { id: 'rd1', name: 'Kreuzheben', category: 'Rücken (Dicke)' },
+  { id: 'rd2', name: 'Kreuzheben Sumo', category: 'Rücken (Dicke)' },
+  { id: 'rd3', name: 'Kreuzheben Trapbar', category: 'Rücken (Dicke)' },
+  { id: 'rd4', name: 'Rudern overhand (LH)', category: 'Rücken (Dicke)' },
+  { id: 'rd5', name: 'Rudern underhand (LH)', category: 'Rücken (Dicke)' },
+  { id: 'rd6', name: 'Rudern einarmig (KH)', category: 'Rücken (Dicke)' },
+  { id: 'rd7', name: 'T-Bar Rudern', category: 'Rücken (Dicke)' },
+  { id: 'rd8', name: 'Rudern (Maschine)', category: 'Rücken (Dicke)' },
+  { id: 'rd9', name: 'Seilrudern eng', category: 'Rücken (Dicke)' },
+  { id: 'rd10', name: 'Seilrudern weit', category: 'Rücken (Dicke)' },
+  { id: 'rd11', name: 'Chest Supported Row', category: 'Rücken (Dicke)' },
+  { id: 'rd12', name: 'Pendlay Row', category: 'Rücken (Dicke)' },
+  { id: 'rd13', name: 'Meadows Row', category: 'Rücken (Dicke)' },
+  // RÜCKEN UNTERER
+  { id: 'ru1', name: 'Hyperextension', category: 'Rücken (Unterer)' },
+  { id: 'ru2', name: 'Good Mornings', category: 'Rücken (Unterer)' },
+  { id: 'ru3', name: 'Back Extension (Maschine)', category: 'Rücken (Unterer)' },
+  { id: 'ru4', name: 'Superman Hold', category: 'Rücken (Unterer)' },
+  // TRAPEZ
+  { id: 'tr1', name: 'Shrugs (LH)', category: 'Trapez' },
+  { id: 'tr2', name: 'Shrugs (KH)', category: 'Trapez' },
+  { id: 'tr3', name: 'Shrugs (Trapbar)', category: 'Trapez' },
+  { id: 'tr4', name: 'Shrugs (Kabel)', category: 'Trapez' },
+  { id: 'tr5', name: 'Rack Pull', category: 'Trapez' },
+  { id: 'tr6', name: "Farmer's Walk", category: 'Trapez' },
+  // QUADRIZEPS
+  { id: 'q1', name: 'Back Squat', category: 'Quadrizeps' },
+  { id: 'q2', name: 'Back Squat (Low Bar)', category: 'Quadrizeps' },
+  { id: 'q3', name: 'Front Squat', category: 'Quadrizeps' },
+  { id: 'q4', name: 'Goblet Squat', category: 'Quadrizeps' },
+  { id: 'q5', name: 'Beinpresse 45°', category: 'Quadrizeps' },
+  { id: 'q6', name: 'Beinpresse horizontal', category: 'Quadrizeps' },
+  { id: 'q7', name: 'Hack Squat', category: 'Quadrizeps' },
+  { id: 'q8', name: 'Lunges', category: 'Quadrizeps' },
+  { id: 'q9', name: 'Walking Lunges', category: 'Quadrizeps' },
+  { id: 'q10', name: 'Bulgaren Split Squat', category: 'Quadrizeps' },
+  { id: 'q11', name: 'Step-ups (KH)', category: 'Quadrizeps' },
+  { id: 'q12', name: 'Beinstrecker', category: 'Quadrizeps' },
+  { id: 'q13', name: 'Sissy Squat', category: 'Quadrizeps' },
+  { id: 'q14', name: 'Spanish Squat', category: 'Quadrizeps' },
+  // HAMSTRINGS
+  { id: 'h1', name: 'Romanian Deadlift (LH)', category: 'Hamstrings' },
+  { id: 'h2', name: 'Romanian Deadlift (KH)', category: 'Hamstrings' },
+  { id: 'h3', name: 'Stiff Leg Deadlift', category: 'Hamstrings' },
+  { id: 'h4', name: 'Leg Curl liegend', category: 'Hamstrings' },
+  { id: 'h5', name: 'Leg Curl sitzend', category: 'Hamstrings' },
+  { id: 'h6', name: 'Leg Curl stehend', category: 'Hamstrings' },
+  { id: 'h7', name: 'Nordic Curl', category: 'Hamstrings' },
+  { id: 'h8', name: 'Glute Ham Raise', category: 'Hamstrings' },
+  { id: 'h9', name: 'Good Mornings', category: 'Hamstrings' },
+  { id: 'h10', name: 'Cable Pull Through', category: 'Hamstrings' },
+  // GESÄß
+  { id: 'g1', name: 'Hip Thrust (LH)', category: 'Gesäß' },
+  { id: 'g2', name: 'Hip Thrust (Maschine)', category: 'Gesäß' },
+  { id: 'g3', name: 'Glute Bridge', category: 'Gesäß' },
+  { id: 'g4', name: 'Glute Bridge (LH)', category: 'Gesäß' },
+  { id: 'g5', name: 'Cable Kickback', category: 'Gesäß' },
+  { id: 'g6', name: 'Donkey Kicks', category: 'Gesäß' },
+  { id: 'g7', name: 'Donkey Kicks (Kabel)', category: 'Gesäß' },
+  { id: 'g8', name: 'Sumo Deadlift', category: 'Gesäß' },
+  { id: 'g9', name: 'Sumo Squat', category: 'Gesäß' },
+  { id: 'g10', name: 'Step-ups', category: 'Gesäß' },
+  { id: 'g11', name: 'Bulgaren Split Squat', category: 'Gesäß' },
+  { id: 'g12', name: 'Abduktoren (Maschine)', category: 'Gesäß' },
+  { id: 'g13', name: 'Reverse Hyperextension', category: 'Gesäß' },
+  // WADEN
+  { id: 'w1', name: 'Calf Raise stehend', category: 'Waden' },
+  { id: 'w2', name: 'Calf Raise (LH)', category: 'Waden' },
+  { id: 'w3', name: 'Calf Raise sitzend', category: 'Waden' },
+  { id: 'w4', name: 'Donkey Calf Raise', category: 'Waden' },
+  { id: 'w5', name: 'Calf Raise (Beinpresse)', category: 'Waden' },
+  { id: 'w6', name: 'Einbeinige Calf Raise', category: 'Waden' },
+  { id: 'w7', name: 'Einbeinige Calf Raise (KH)', category: 'Waden' },
+  // BAUCH
+  { id: 'ba1', name: 'Crunch', category: 'Bauch' },
+  { id: 'ba2', name: 'Crunch (Kabel)', category: 'Bauch' },
+  { id: 'ba3', name: 'Sit-up', category: 'Bauch' },
+  { id: 'ba4', name: 'Decline Sit-up', category: 'Bauch' },
+  { id: 'ba5', name: 'Leg Raises', category: 'Bauch' },
+  { id: 'ba6', name: 'Hanging Leg Raises', category: 'Bauch' },
+  { id: 'ba7', name: 'Hanging Knee Raises', category: 'Bauch' },
+  { id: 'ba8', name: 'Ab Wheel', category: 'Bauch' },
+  { id: 'ba9', name: 'Cable Crunch', category: 'Bauch' },
+  { id: 'ba10', name: 'Toes to Bar', category: 'Bauch' },
+  { id: 'ba11', name: 'V-Ups', category: 'Bauch' },
+  // OBLIQUES
+  { id: 'o1', name: 'Russian Twists', category: 'Obliques' },
+  { id: 'o2', name: 'Side Plank', category: 'Obliques' },
+  { id: 'o3', name: 'Woodchopper oben', category: 'Obliques' },
+  { id: 'o4', name: 'Woodchopper unten', category: 'Obliques' },
+  { id: 'o5', name: 'Bicycle Crunch', category: 'Obliques' },
+  { id: 'o6', name: 'Pallof Press', category: 'Obliques' },
+  { id: 'o7', name: 'Side Bend (KH)', category: 'Obliques' },
+  // CORE
+  { id: 'c1', name: 'Plank', category: 'Core' },
+  { id: 'c2', name: 'Dead Bug', category: 'Core' },
+  { id: 'c3', name: 'Bird Dog', category: 'Core' },
+  { id: 'c4', name: 'Hollow Body Hold', category: 'Core' },
+  { id: 'c5', name: 'L-Sit', category: 'Core' },
+  { id: 'c6', name: 'Suitcase Carry', category: 'Core' },
+  { id: 'c7', name: 'Landmine', category: 'Core' },
+  // ADDUKTOREN
+  { id: 'ad1', name: 'Adduktoren (Maschine)', category: 'Adduktoren' },
+  { id: 'ad2', name: 'Sumo Squat', category: 'Adduktoren' },
+  { id: 'ad3', name: 'Cable Adduktion', category: 'Adduktoren' },
+  { id: 'ad4', name: 'Copenhagen Plank', category: 'Adduktoren' },
+  { id: 'ad5', name: 'Side Lying Adduktion', category: 'Adduktoren' },
+  // ABDUKTOREN
+  { id: 'ab1', name: 'Abduktoren (Maschine)', category: 'Abduktoren' },
+  { id: 'ab2', name: 'Cable Abduktion', category: 'Abduktoren' },
+  { id: 'ab3', name: 'Band Walk seitlich', category: 'Abduktoren' },
+  { id: 'ab4', name: 'Clamshell', category: 'Abduktoren' },
+  { id: 'ab5', name: 'Monster Walk', category: 'Abduktoren' },
+  // OLYMPIC LIFTS
+  { id: 'ol1', name: 'Clean', category: 'Olympic Lifts' },
+  { id: 'ol2', name: 'Clean & Jerk', category: 'Olympic Lifts' },
+  { id: 'ol3', name: 'Snatch', category: 'Olympic Lifts' },
+  { id: 'ol4', name: 'Power Clean', category: 'Olympic Lifts' },
+  { id: 'ol5', name: 'Hang Clean', category: 'Olympic Lifts' },
+  { id: 'ol6', name: 'Push Jerk', category: 'Olympic Lifts' },
+  { id: 'ol7', name: 'Split Jerk', category: 'Olympic Lifts' },
+  { id: 'ol8', name: 'Hang Snatch', category: 'Olympic Lifts' },
+  { id: 'ol9', name: 'Power Snatch', category: 'Olympic Lifts' },
+
+];
+// ─── Theme ────────────────────────────────────────────────────
+
 
 // ─── Types ────────────────────────────────────────────────────
-type WorkoutSet = { reps: string; weight: string };
-type Exercise = { id: string; name: string; muscleGroup: string; equipment?: string; sets: WorkoutSet[] };
-type Workout = {
-  id: string; date: string; name: string; exercises: Exercise[];
-  duration: number; intensity: number; type: 'gym' | 'run' | 'manual' | 'judo';
-  score?: number;
-};
-type RunData = { id: string; distance: number; duration: number; pace: string; calories: number; heartRate: number; date: string; };
-type PREntry = { date: string; weight: number; reps: number; estimated1RM: number };
-type PRHistory = Record<string, PREntry[]>;
-type UserMaxes = Record<string, number>;
-type Routine = { id: string; name: string; exercises: { name: string; muscleGroup: string; defaultSets: number; equipment?: string }[]; };
-type MuscleState = { level: number; lastTrained: string | null };
-type MuscleMap = Record<string, MuscleState>;
+type WorkoutSet   = { reps: string; weight: string };
+type Exercise     = { id: string; name: string; muscleGroup: string; equipment?: string; sets: WorkoutSet[] };
+type Workout      = { id: string; date: string; name: string; exercises: Exercise[]; duration: number; intensity: number; type: 'gym' | 'run' | 'manual' | 'judo'; score?: number };
+type RunData      = { id: string; distance: number; duration: number; pace: string; calories: number; heartRate: number; date: string };
+type PREntry      = { date: string; weight: number; reps: number; estimated1RM: number };
+type PRHistory    = Record<string, PREntry[]>;
+type UserMaxes    = Record<string, number>;
+type Routine      = { id: string; name: string; exercises: { name: string; muscleGroup: string; defaultSets: number; equipment?: string }[] };
+type MuscleState  = { level: number; lastTrained: string | null };
+type MuscleMap    = Record<string, MuscleState>;
 
-// ─── Exercise Database with muscle mappings & equipment ───────
-// primary: main muscle (100% fatigue weight)
-// secondary: helper muscles (partial fatigue weight)
-// equipment variants shown in picker
-type ExerciseData = {
-  name: string;
-  muscleGroup: string; // primary
-  secondary: { muscle: string; weight: number }[]; // 0–1 fatigue contribution
-  equipment: string[]; // available variants
-};
+// ─── Exercise Database ────────────────────────────────────────
+type ExerciseData = { name: string; muscleGroup: string; secondary: { muscle: string; weight: number }[]; equipment: string[] };
 
 const EXERCISE_DB: ExerciseData[] = [
-  // BRUST
-  { name: 'Bankdrücken',         muscleGroup: 'Brust',       secondary: [{ muscle: 'Trizeps', weight: 0.45 }, { muscle: 'Schultern', weight: 0.25 }], equipment: ['Langhantel', 'Kurzhantel', 'Maschine', 'Smith'] },
-  { name: 'Schrägbankdrücken',   muscleGroup: 'Brust',       secondary: [{ muscle: 'Trizeps', weight: 0.40 }, { muscle: 'Schultern', weight: 0.30 }], equipment: ['Langhantel', 'Kurzhantel', 'Kabelzug'] },
-  { name: 'Fliegende',           muscleGroup: 'Brust',       secondary: [{ muscle: 'Schultern', weight: 0.15 }],                                      equipment: ['Kurzhantel', 'Kabelzug', 'Maschine (Butterfly)'] },
-  { name: 'Dips',                muscleGroup: 'Brust',       secondary: [{ muscle: 'Trizeps', weight: 0.55 }, { muscle: 'Schultern', weight: 0.20 }], equipment: ['Körpergewicht', 'Gewichtsgürtel'] },
-  // RÜCKEN
-  { name: 'Klimmzüge',           muscleGroup: 'Rücken',      secondary: [{ muscle: 'Bizeps', weight: 0.50 }, { muscle: 'Core', weight: 0.15 }],       equipment: ['Körpergewicht', 'Gewichtsgürtel', 'Maschine (Latzug)'] },
-  { name: 'Rudern',              muscleGroup: 'Rücken',      secondary: [{ muscle: 'Bizeps', weight: 0.40 }, { muscle: 'Schultern', weight: 0.15 }],   equipment: ['Langhantel', 'Kurzhantel', 'Kabelzug', 'Maschine'] },
-  { name: 'Kreuzheben',          muscleGroup: 'Rücken',      secondary: [{ muscle: 'Hamstrings', weight: 0.55 }, { muscle: 'Gluteus', weight: 0.40 }, { muscle: 'Quadrizeps', weight: 0.25 }, { muscle: 'Core', weight: 0.30 }], equipment: ['Langhantel', 'Sumo'] },
-  { name: 'Latzug',              muscleGroup: 'Rücken',      secondary: [{ muscle: 'Bizeps', weight: 0.45 }, { muscle: 'Schultern', weight: 0.10 }],   equipment: ['Kabelzug breit', 'Kabelzug eng', 'Kabelzug neutral'] },
-  { name: 'Face Pulls',          muscleGroup: 'Rücken',      secondary: [{ muscle: 'Schultern', weight: 0.40 }],                                      equipment: ['Kabelzug'] },
-  { name: 'Deadlift',            muscleGroup: 'Rücken',      secondary: [{ muscle: 'Hamstrings', weight: 0.50 }, { muscle: 'Gluteus', weight: 0.35 }, { muscle: 'Core', weight: 0.35 }], equipment: ['Langhantel', 'Trap Bar'] },
-  // SCHULTERN
-  { name: 'Schulterdrücken',     muscleGroup: 'Schultern',   secondary: [{ muscle: 'Trizeps', weight: 0.40 }, { muscle: 'Core', weight: 0.10 }],      equipment: ['Langhantel', 'Kurzhantel', 'Maschine', 'Smith'] },
-  { name: 'Seitheben',           muscleGroup: 'Schultern',   secondary: [],                                                                            equipment: ['Kurzhantel', 'Kabelzug'] },
-  { name: 'Vorseitheben',        muscleGroup: 'Schultern',   secondary: [{ muscle: 'Brust', weight: 0.15 }],                                          equipment: ['Kurzhantel', 'Langhantel', 'Kabelzug'] },
-  { name: 'Reverse Flyes',       muscleGroup: 'Schultern',   secondary: [{ muscle: 'Rücken', weight: 0.25 }],                                         equipment: ['Kurzhantel', 'Kabelzug', 'Maschine (Peck Deck)'] },
-  // BIZEPS
-  { name: 'Curls',               muscleGroup: 'Bizeps',      secondary: [],                                                                            equipment: ['Kurzhantel', 'Langhantel', 'Kabelzug', 'Maschine'] },
-  { name: 'Hammer Curls',        muscleGroup: 'Bizeps',      secondary: [],                                                                            equipment: ['Kurzhantel', 'Kabelzug'] },
-  { name: 'Konzentrationscurls', muscleGroup: 'Bizeps',      secondary: [],                                                                            equipment: ['Kurzhantel'] },
-  { name: 'Scottcurls',          muscleGroup: 'Bizeps',      secondary: [],                                                                            equipment: ['Langhantel', 'Kurzhantel', 'Maschine'] },
-  // TRIZEPS
-  { name: 'Trizepsdrücken',      muscleGroup: 'Trizeps',     secondary: [],                                                                            equipment: ['Kabelzug', 'Kurzhantel', 'Langhantel'] },
-  { name: 'Skull Crushers',      muscleGroup: 'Trizeps',     secondary: [],                                                                            equipment: ['Langhantel', 'Kurzhantel', 'EZ-Stange'] },
-  { name: 'Overhead Extension',  muscleGroup: 'Trizeps',     secondary: [],                                                                            equipment: ['Kurzhantel', 'Kabelzug', 'Langhantel'] },
-  // QUADRIZEPS
-  { name: 'Kniebeugen',          muscleGroup: 'Quadrizeps',  secondary: [{ muscle: 'Hamstrings', weight: 0.30 }, { muscle: 'Gluteus', weight: 0.45 }, { muscle: 'Core', weight: 0.20 }], equipment: ['Langhantel (High Bar)', 'Langhantel (Low Bar)', 'Smith', 'Goblet (Kurzhantel)'] },
-  { name: 'Beinpresse',          muscleGroup: 'Quadrizeps',  secondary: [{ muscle: 'Hamstrings', weight: 0.20 }, { muscle: 'Gluteus', weight: 0.30 }], equipment: ['Maschine 45°', 'Maschine horizontal'] },
-  { name: 'Beinstrecker',        muscleGroup: 'Quadrizeps',  secondary: [],                                                                            equipment: ['Maschine'] },
-  { name: 'Ausfallschritte',     muscleGroup: 'Quadrizeps',  secondary: [{ muscle: 'Hamstrings', weight: 0.25 }, { muscle: 'Gluteus', weight: 0.35 }], equipment: ['Kurzhantel', 'Langhantel', 'Körpergewicht'] },
-  // HAMSTRINGS
-  { name: 'Romanian Deadlift',   muscleGroup: 'Hamstrings',  secondary: [{ muscle: 'Gluteus', weight: 0.45 }, { muscle: 'Rücken', weight: 0.20 }],    equipment: ['Langhantel', 'Kurzhantel'] },
-  { name: 'Beinbeuger',          muscleGroup: 'Hamstrings',  secondary: [],                                                                            equipment: ['Maschine liegend', 'Maschine sitzend'] },
-  // GLUTEUS
-  { name: 'Hip Thrust',          muscleGroup: 'Gluteus',     secondary: [{ muscle: 'Hamstrings', weight: 0.25 }, { muscle: 'Core', weight: 0.10 }],   equipment: ['Langhantel', 'Maschine', 'Kurzhantel'] },
-  { name: 'Abduktoren',          muscleGroup: 'Gluteus',     secondary: [],                                                                            equipment: ['Maschine', 'Kabelzug', 'Widerstandsband'] },
-  // WADEN
-  { name: 'Wadenheben',          muscleGroup: 'Waden',       secondary: [],                                                                            equipment: ['Maschine stehend', 'Maschine sitzend', 'Langhantel', 'Körpergewicht'] },
-  // CORE
-  { name: 'Plank',               muscleGroup: 'Core',        secondary: [],                                                                            equipment: ['Körpergewicht', 'Gewichtsweste'] },
-  { name: 'Crunches',            muscleGroup: 'Core',        secondary: [],                                                                            equipment: ['Körpergewicht', 'Kabelzug'] },
-  { name: 'Beinheben',           muscleGroup: 'Core',        secondary: [],                                                                            equipment: ['Körpergewicht', 'Gewichtsweste'] },
-  { name: 'Russian Twist',       muscleGroup: 'Core',        secondary: [],                                                                            equipment: ['Körpergewicht', 'Medizinball', 'Gewichtsscheibe'] },
+  { name: 'Bankdrücken',       muscleGroup: 'Brust',      secondary: [{ muscle: 'Trizeps', weight: 0.45 }, { muscle: 'Schultern', weight: 0.25 }], equipment: ['Langhantel', 'Kurzhantel', 'Maschine', 'Smith'] },
+  { name: 'Schrägbankdrücken', muscleGroup: 'Brust',      secondary: [{ muscle: 'Trizeps', weight: 0.40 }, { muscle: 'Schultern', weight: 0.30 }], equipment: ['Langhantel', 'Kurzhantel', 'Kabelzug'] },
+  { name: 'Fliegende',         muscleGroup: 'Brust',      secondary: [{ muscle: 'Schultern', weight: 0.15 }], equipment: ['Kurzhantel', 'Kabelzug', 'Maschine'] },
+  { name: 'Dips',              muscleGroup: 'Brust',      secondary: [{ muscle: 'Trizeps', weight: 0.55 }, { muscle: 'Schultern', weight: 0.20 }], equipment: ['Körpergewicht', 'Gewichtsgürtel'] },
+  { name: 'Klimmzüge',         muscleGroup: 'Rücken',     secondary: [{ muscle: 'Bizeps', weight: 0.50 }], equipment: ['Körpergewicht', 'Gewichtsgürtel'] },
+  { name: 'Rudern',            muscleGroup: 'Rücken',     secondary: [{ muscle: 'Bizeps', weight: 0.40 }, { muscle: 'Schultern', weight: 0.15 }], equipment: ['Langhantel', 'Kurzhantel', 'Kabelzug', 'Maschine'] },
+  { name: 'Kreuzheben',        muscleGroup: 'Rücken',     secondary: [{ muscle: 'Hamstrings', weight: 0.55 }, { muscle: 'Gluteus', weight: 0.40 }, { muscle: 'Core', weight: 0.30 }], equipment: ['Langhantel', 'Sumo'] },
+  { name: 'Latzug',            muscleGroup: 'Rücken',     secondary: [{ muscle: 'Bizeps', weight: 0.45 }], equipment: ['Kabelzug breit', 'Kabelzug eng'] },
+  { name: 'Schulterdrücken',   muscleGroup: 'Schultern',  secondary: [{ muscle: 'Trizeps', weight: 0.40 }], equipment: ['Langhantel', 'Kurzhantel', 'Maschine'] },
+  { name: 'Seitheben',         muscleGroup: 'Schultern',  secondary: [], equipment: ['Kurzhantel', 'Kabelzug'] },
+  { name: 'Curls',             muscleGroup: 'Bizeps',     secondary: [], equipment: ['Kurzhantel', 'Langhantel', 'Kabelzug'] },
+  { name: 'Hammer Curls',      muscleGroup: 'Bizeps',     secondary: [], equipment: ['Kurzhantel'] },
+  { name: 'Trizepsdrücken',    muscleGroup: 'Trizeps',    secondary: [], equipment: ['Kabelzug', 'Kurzhantel'] },
+  { name: 'Skull Crushers',    muscleGroup: 'Trizeps',    secondary: [], equipment: ['Langhantel', 'EZ-Stange'] },
+  { name: 'Kniebeugen',        muscleGroup: 'Quadrizeps', secondary: [{ muscle: 'Hamstrings', weight: 0.30 }, { muscle: 'Gluteus', weight: 0.45 }, { muscle: 'Core', weight: 0.20 }], equipment: ['Langhantel (High Bar)', 'Langhantel (Low Bar)', 'Smith'] },
+  { name: 'Beinpresse',        muscleGroup: 'Quadrizeps', secondary: [{ muscle: 'Gluteus', weight: 0.30 }], equipment: ['Maschine 45°'] },
+  { name: 'Romanian Deadlift', muscleGroup: 'Hamstrings', secondary: [{ muscle: 'Gluteus', weight: 0.45 }], equipment: ['Langhantel', 'Kurzhantel'] },
+  { name: 'Hip Thrust',        muscleGroup: 'Gluteus',    secondary: [{ muscle: 'Hamstrings', weight: 0.25 }], equipment: ['Langhantel', 'Maschine'] },
+  { name: 'Wadenheben',        muscleGroup: 'Waden',      secondary: [], equipment: ['Maschine stehend', 'Körpergewicht'] },
+  { name: 'Plank',             muscleGroup: 'Core',       secondary: [], equipment: ['Körpergewicht'] },
+  { name: 'Crunches',          muscleGroup: 'Core',       secondary: [], equipment: ['Körpergewicht', 'Kabelzug'] },
 ];
 
-// Build flat list for backward compat
-const DEFAULT_EXERCISES = EXERCISE_DB.map(e => ({ name: e.name, muscleGroup: e.muscleGroup }));
+const IconEdit = ({ size = 16, color = '#B0A89E' }: { size?: number; color?: string }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+    <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+    <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+  </Svg>
+);
 
-const MUSCLE_GROUPS = ['Brust','Rücken','Schultern','Bizeps','Trizeps','Quadrizeps','Hamstrings','Gluteus','Waden','Core'];
+
+const MUSCLE_GROUPS = ['Brust', 'Rücken', 'Schultern', 'Bizeps', 'Trizeps', 'Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden', 'Core'];
 
 const MUSCLE_COLORS: Record<string, string> = {
   Brust: '#EC4899', Rücken: '#7C3AED', Schultern: '#06B6D4',
   Bizeps: '#10B981', Trizeps: '#F59E0B', Quadrizeps: '#FB7185',
-  Hamstrings: '#A78BFA', Gluteus: '#F472B6', Waden: '#67E8F9',
-  Core: '#FB923C', Ganzkörper: '#E8572A',
+  Hamstrings: '#A78BFA', Gluteus: '#F472B6', Waden: '#67E8F9', Core: '#FB923C',
 };
 
 const MUSCLE_RECOVERY_HOURS: Record<string, number> = {
@@ -136,7 +310,6 @@ const COMMUNITY_ROUTINES: Routine[] = [
     { name: 'Klimmzüge', muscleGroup: 'Rücken', defaultSets: 4, equipment: 'Körpergewicht' },
     { name: 'Rudern', muscleGroup: 'Rücken', defaultSets: 4, equipment: 'Langhantel' },
     { name: 'Latzug', muscleGroup: 'Rücken', defaultSets: 3, equipment: 'Kabelzug breit' },
-    { name: 'Face Pulls', muscleGroup: 'Rücken', defaultSets: 3, equipment: 'Kabelzug' },
     { name: 'Curls', muscleGroup: 'Bizeps', defaultSets: 3, equipment: 'Kurzhantel' },
     { name: 'Hammer Curls', muscleGroup: 'Bizeps', defaultSets: 3, equipment: 'Kurzhantel' },
   ]},
@@ -144,80 +317,72 @@ const COMMUNITY_ROUTINES: Routine[] = [
     { name: 'Kniebeugen', muscleGroup: 'Quadrizeps', defaultSets: 4, equipment: 'Langhantel (High Bar)' },
     { name: 'Beinpresse', muscleGroup: 'Quadrizeps', defaultSets: 4, equipment: 'Maschine 45°' },
     { name: 'Romanian Deadlift', muscleGroup: 'Hamstrings', defaultSets: 3, equipment: 'Langhantel' },
-    { name: 'Beinbeuger', muscleGroup: 'Hamstrings', defaultSets: 3, equipment: 'Maschine liegend' },
     { name: 'Hip Thrust', muscleGroup: 'Gluteus', defaultSets: 3, equipment: 'Langhantel' },
     { name: 'Wadenheben', muscleGroup: 'Waden', defaultSets: 4, equipment: 'Maschine stehend' },
   ]},
-  { id: 'c4', name: 'Upper Body', exercises: [
-    { name: 'Bankdrücken', muscleGroup: 'Brust', defaultSets: 3, equipment: 'Langhantel' },
-    { name: 'Rudern', muscleGroup: 'Rücken', defaultSets: 3, equipment: 'Kurzhantel' },
-    { name: 'Schulterdrücken', muscleGroup: 'Schultern', defaultSets: 3, equipment: 'Kurzhantel' },
-    { name: 'Klimmzüge', muscleGroup: 'Rücken', defaultSets: 3, equipment: 'Körpergewicht' },
-    { name: 'Curls', muscleGroup: 'Bizeps', defaultSets: 2, equipment: 'Kurzhantel' },
-    { name: 'Trizepsdrücken', muscleGroup: 'Trizeps', defaultSets: 2, equipment: 'Kabelzug' },
-  ]},
-  { id: 'c5', name: 'Powerlifting', exercises: [
-    { name: 'Kniebeugen', muscleGroup: 'Quadrizeps', defaultSets: 5, equipment: 'Langhantel (Low Bar)' },
-    { name: 'Bankdrücken', muscleGroup: 'Brust', defaultSets: 5, equipment: 'Langhantel' },
-    { name: 'Deadlift', muscleGroup: 'Rücken', defaultSets: 5, equipment: 'Langhantel' },
-  ]},
 ];
 
-// ─── Muscle fatigue calculator ────────────────────────────────
-function calculateMuscleRecovery(
-  workouts: Workout[],
-  muscleMap: MuscleMap
-): MuscleMap {
-  // Build last-trained map with weighted secondary contributions
-  const lastHitMap: Record<string, { date: string; fatigue: number }[]> = {};
+const MAX_SETS_FOR_FULL_FATIGUE = 6;
 
-  workouts.forEach(w => {
-    w.exercises?.forEach(ex => {
-      const exData = EXERCISE_DB.find(e => e.name === ex.name);
-      if (!exData) return;
+function calculateMuscleRecovery(workouts: Workout[]): MuscleMap {
+  const cutoff = Date.now() - 7 * 24 * 3600000;
+  const hitMap: Record<string, { date: string; fatigue: number }[]> = {};
 
-      // Primary muscle – full hit
-      if (!lastHitMap[exData.muscleGroup]) lastHitMap[exData.muscleGroup] = [];
-      lastHitMap[exData.muscleGroup].push({ date: w.date, fatigue: 1.0 });
+  workouts
+    .filter(w => new Date(w.date).getTime() > cutoff)
+    .forEach(w => {
+      w.exercises?.forEach(ex => {
+        const exData = EXERCISE_DB.find(e => e.name === ex.name);
+        if (!exData) return;
 
-      // Secondary muscles – partial hit
-      exData.secondary.forEach(sec => {
-        if (!lastHitMap[sec.muscle]) lastHitMap[sec.muscle] = [];
-        lastHitMap[sec.muscle].push({ date: w.date, fatigue: sec.weight });
+        const setCount = ex.sets.filter(
+          s => parseFloat(s.reps || '0') > 0 && parseFloat(s.weight || '0') > 0
+        ).length || ex.sets.length;
+
+        const primaryFatigue = Math.min(1.0, setCount / MAX_SETS_FOR_FULL_FATIGUE);
+        if (!hitMap[exData.muscleGroup]) hitMap[exData.muscleGroup] = [];
+        hitMap[exData.muscleGroup].push({ date: w.date, fatigue: primaryFatigue });
+
+        exData.secondary.forEach(sec => {
+          const secFatigue = Math.min(1.0, (setCount / MAX_SETS_FOR_FULL_FATIGUE) * sec.weight);
+          if (!hitMap[sec.muscle]) hitMap[sec.muscle] = [];
+          hitMap[sec.muscle].push({ date: w.date, fatigue: secFatigue });
+        });
       });
     });
-  });
 
   const result: MuscleMap = {};
+
   MUSCLE_GROUPS.forEach(m => {
-    const hits = lastHitMap[m] ?? [];
+    const hits = hitMap[m] ?? [];
     if (hits.length === 0) {
       result[m] = { level: 100, lastTrained: null };
       return;
     }
 
-    // Most recent hit
-    const sorted = [...hits].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    const latest = sorted[0];
-    const hoursElapsed = (Date.now() - new Date(latest.date).getTime()) / 3600000;
     const recoveryHours = MUSCLE_RECOVERY_HOURS[m] ?? 48;
+    const now = Date.now();
+    let totalRemainingFatigue = 0;
 
-    // Recovery is scaled by fatigue level – secondary hits recover faster
-    const effectiveRecoveryHours = recoveryHours * latest.fatigue;
-    const rawLevel = Math.min(100, Math.round((hoursElapsed / effectiveRecoveryHours) * 100));
+    hits.forEach(hit => {
+      const hoursElapsed = (now - new Date(hit.date).getTime()) / 3600000;
+      const recoveredFraction = Math.min(1.0, hoursElapsed / recoveryHours);
+      totalRemainingFatigue += hit.fatigue * (1 - recoveredFraction);
+    });
 
-    result[m] = { level: rawLevel, lastTrained: latest.date };
+    totalRemainingFatigue = Math.min(1.0, totalRemainingFatigue);
+
+    const lastTrained = hits.sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    )[0].date;
+
+    result[m] = {
+      level: Math.round((1 - totalRemainingFatigue) * 100),
+      lastTrained,
+    };
   });
 
   return result;
-}
-
-function getMuscleColor(level: number): string {
-  if (level >= 80) return theme.green;
-  if (level >= 60) return theme.blue;
-  if (level >= 40) return theme.yellow;
-  if (level >= 20) return theme.orange;
-  return theme.red;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -231,13 +396,13 @@ function getBest1RM(sets: WorkoutSet[]): number {
 }
 function formatTime(s: number) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-  if (h > 0) return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-  return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  if (h > 0) return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
 function formatPace(paceSeconds: number) {
   if (!paceSeconds || !isFinite(paceSeconds) || paceSeconds <= 0) return '--:--';
   const m = Math.floor(paceSeconds / 60), s = Math.round(paceSeconds % 60);
-  return `${m}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 function isToday(dateString: string) {
   const d = new Date(dateString), t = new Date();
@@ -248,24 +413,23 @@ function daysSince(dateString: string) {
 }
 function formatDateLabel(iso: string) {
   const d = new Date(iso);
-  if (isToday(iso)) return `Heute, ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  return `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')}. ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  if (isToday(iso)) return `Heute, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}. ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 function getWeekTrainings(workouts: Workout[]): boolean[] {
-  const result = [false,false,false,false,false,false,false];
+  const result = [false, false, false, false, false, false, false];
   const now = new Date();
   const dayOfWeek = now.getDay();
   const monday = new Date(now);
   monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-  monday.setHours(0,0,0,0);
+  monday.setHours(0, 0, 0, 0);
   for (const w of workouts) {
-    const d = new Date(w.date); d.setHours(0,0,0,0);
-    const diff = Math.round((d.getTime() - monday.getTime()) / (1000*60*60*24));
+    const d = new Date(w.date); d.setHours(0, 0, 0, 0);
+    const diff = Math.round((d.getTime() - monday.getTime()) / (1000 * 60 * 60 * 24));
     if (diff >= 0 && diff <= 6) result[diff] = true;
   }
   return result;
 }
-
 function calcWorkoutScore(workout: Workout, userMaxes: UserMaxes): number {
   if (!workout.exercises || workout.exercises.length === 0) return 0;
   let intensityScore = 0, volumeScore = 0, exerciseCount = 0;
@@ -284,668 +448,405 @@ function calcWorkoutScore(workout: Workout, userMaxes: UserMaxes): number {
   const setsScore = Math.min(1, workout.exercises.reduce((s, ex) => s + ex.sets.length, 0) / 20);
   return Math.round((avgIntensity * 0.4 + volScore * 0.3 + durScore * 0.15 + setsScore * 0.15) * 100);
 }
-
 function getNutritionAdvice(score: number, duration: number, bodyWeight: number) {
   const w = bodyWeight || 75;
   const intensity = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
-  if (intensity === 'high') return {
-    immediate: { protein: Math.round(w * 0.4), carbs: Math.round(w * 0.8), timing: 'Sofort (0–30 Min.)' },
-    later: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timing: '2–3 Stunden später' },
-  };
-  if (intensity === 'medium') return {
-    immediate: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timing: 'Sofort (0–45 Min.)' },
-    later: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timing: '3–4 Stunden später' },
-  };
-  return {
-    immediate: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timing: 'Innerhalb 1 Stunde' },
-    later: { protein: Math.round(w * 0.2), carbs: Math.round(w * 0.2), timing: '4–5 Stunden später' },
-  };
+  if (intensity === 'high') return { immediate: { protein: Math.round(w * 0.4), carbs: Math.round(w * 0.8), timing: 'Sofort (0–30 Min.)' }, later: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timing: '2–3 Stunden später' } };
+  if (intensity === 'medium') return { immediate: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timing: 'Sofort (0–45 Min.)' }, later: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timing: '3–4 Stunden später' } };
+  return { immediate: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timing: 'Innerhalb 1 Stunde' }, later: { protein: Math.round(w * 0.2), carbs: Math.round(w * 0.2), timing: '4–5 Stunden später' } };
 }
 
-const PLAN_STORE_KEY = 'trainingPlanConfig';
-const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-const FULL_DAY_NAMES = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
-
-function getISOWeek(date: Date): string {
-  const d = new Date(date); d.setHours(0,0,0,0);
-  d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
-  const week1 = new Date(d.getFullYear(), 0, 4);
-  return `${d.getFullYear()}-W${String(1 + Math.round(((d.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7)).padStart(2,'0')}`;
-}
-
-type PlanConfig = { exercises: string[]; trainingDays: number[]; goal: string; generatedWeek: string };
-type PlanDay = { dayIdx: number; dayLabel: string; name: string; focus: string; exercises: { name: string; sets: number; reps: number; weight: number }[] };
-
-function buildPlan(config: PlanConfig, userMaxes: UserMaxes): PlanDay[] {
-  const { exercises, trainingDays, goal } = config;
-  const intensity = goal === 'kraft' ? 0.85 : goal === 'ausdauer' ? 0.6 : 0.72;
-  const reps = goal === 'kraft' ? 4 : goal === 'ausdauer' ? 15 : 10;
-  const setsCount = goal === 'kraft' ? 5 : goal === 'ausdauer' ? 3 : 4;
-  function w(name: string) { const max = userMaxes[name] || 0; if (!max) return 0; return Math.round((max * intensity) / 2.5) * 2.5; }
-  function getMG(name: string) { return EXERCISE_DB.find(d => d.name === name)?.muscleGroup ?? ''; }
-  const PUSH = ['Brust','Schultern','Trizeps'], PULL = ['Rücken','Bizeps'], LEGS = ['Quadrizeps','Hamstrings','Gluteus','Waden'], CORE = ['Core'];
-  const pushEx = exercises.filter(e => PUSH.includes(getMG(e)));
-  const pullEx = exercises.filter(e => PULL.includes(getMG(e)));
-  const legEx  = exercises.filter(e => LEGS.includes(getMG(e)));
-  const coreEx = exercises.filter(e => CORE.includes(getMG(e)));
-  const otherEx = exercises.filter(e => ![...PUSH,...PULL,...LEGS,...CORE].includes(getMG(e)));
-  const numDays = trainingDays.length;
-  let splits: { name: string; focus: string; exs: string[] }[] = [];
-  if (numDays <= 2) {
-    splits = [
-      { name: 'Oberkörper', focus: 'Brust · Rücken · Schultern · Arme', exs: [...pushEx,...pullEx,...coreEx] },
-      { name: 'Unterkörper', focus: 'Beine · Gluteus · Waden', exs: [...legEx,...otherEx] },
-    ];
-  } else if (numDays === 3) {
-    splits = [
-      { name: 'Push', focus: 'Brust · Schultern · Trizeps', exs: pushEx },
-      { name: 'Pull', focus: 'Rücken · Bizeps', exs: pullEx },
-      { name: 'Beine', focus: 'Quadrizeps · Hamstrings · Gluteus', exs: [...legEx,...coreEx,...otherEx] },
-    ];
-  } else {
-    splits = [
-      { name: 'Upper A', focus: 'Brust · Rücken', exs: [...pushEx.slice(0,Math.ceil(pushEx.length/2)),...pullEx.slice(0,Math.ceil(pullEx.length/2))] },
-      { name: 'Lower A', focus: 'Quadrizeps · Hamstrings', exs: [...legEx.slice(0,Math.ceil(legEx.length/2)),...otherEx] },
-      { name: 'Upper B', focus: 'Schultern · Arme · Core', exs: [...pushEx.slice(Math.ceil(pushEx.length/2)),...pullEx.slice(Math.ceil(pullEx.length/2)),...coreEx] },
-      { name: 'Lower B', focus: 'Gluteus · Waden', exs: legEx.slice(Math.ceil(legEx.length/2)) },
-    ].slice(0, numDays);
-  }
-  splits = splits.map(sp => ({ ...sp, exs: sp.exs.length > 0 ? sp.exs : exercises.slice(0,4) }));
-  return Array.from({ length: 7 }, (_, i) => {
-    const trainingIdx = trainingDays.indexOf(i);
-    if (trainingIdx === -1) return { dayIdx: i, dayLabel: DAY_NAMES[i], name: 'Pause', focus: 'Regeneration', exercises: [] };
-    const split = splits[trainingIdx % splits.length];
-    return { dayIdx: i, dayLabel: DAY_NAMES[i], name: split.name, focus: split.focus, exercises: split.exs.map(ex => ({ name: ex, sets: setsCount, reps, weight: w(ex) })) };
-  });
-}
+const DAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
 // ─── Icons ────────────────────────────────────────────────────
-function IconDumbbell({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 28 28" fill="none"><Rect x="2" y="11" width="4" height="6" rx="1.5" fill={color} /><Rect x="22" y="11" width="4" height="6" rx="1.5" fill={color} /><Rect x="5" y="9" width="3" height="10" rx="1.5" fill={color} /><Rect x="20" y="9" width="3" height="10" rx="1.5" fill={color} /><Rect x="8" y="12.5" width="12" height="3" rx="1.5" fill={color} /></Svg>;
+function IconPlay({ color = '#FFFFFF', size = 18 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M6 4l15 8-15 8V4z" fill={color} /></Svg>;
 }
-function IconRun({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Circle cx={14} cy={4} r={2} stroke={color} strokeWidth={1.8} /><Path d="M6 20L10 13L13 16L16 10L19 13M5 10L10 13L13 8L16 10" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+function IconChevronRight({ color = '#7A6E63', size = 16 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M9 18l6-6-6-6" stroke={color} strokeWidth={2.2} strokeLinecap="round" /></Svg>;
 }
-function IconWatch({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Circle cx={12} cy={12} r={6} stroke={color} strokeWidth={1.8} /><Path d="M12 9V12L14 14M9 3H15L16 6H8L9 3ZM8 18L9 21H15L16 18H8Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+function IconChevronLeft({ color = '#5A4A3A', size = 20 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M15 18l-6-6 6-6" stroke={color} strokeWidth={2.2} strokeLinecap="round" /></Svg>;
 }
-function IconHistory({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M3 3V21M3 17L9 11L13 15L21 7" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+function IconClose({ color = '#5A4A3A', size = 15 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M18 6L6 18M6 6l12 12" stroke={color} strokeWidth={2} strokeLinecap="round" /></Svg>;
 }
-function IconChevronRight({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M9 18L15 12L9 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" /></Svg>;
-}
-function IconChevronLeft({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M15 18L9 12L15 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" /></Svg>;
-}
-function IconClose({ color, size = 16 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M18 6L6 18M6 6L18 18" stroke={color} strokeWidth={2} strokeLinecap="round" /></Svg>;
-}
-function IconTrophy({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M6 9H4C3.45 9 3 8.55 3 8V4C3 3.45 3.45 3 4 3H20C20.55 3 21 3.45 21 4V8C21 8.55 20.55 9 20 9H18M6 9C6 13 9 17 12 17C15 17 18 13 18 9M6 9H18M12 17V21M8 21H16" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
-}
-function IconSync({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M21 2V8H15M3 22V16H9M21 13C20.6 17.4 16.8 21 12 21C7.6 21 4 18 3 14M3 11C3.4 6.6 7.2 3 12 3C16.4 3 20 6 21 10" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
-}
-function IconPlus({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M12 5V19M5 12H19" stroke={color} strokeWidth={2} strokeLinecap="round" /></Svg>;
-}
-function IconSearch({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Circle cx={11} cy={11} r={7} stroke={color} strokeWidth={1.8} /><Path d="M16.5 16.5L21 21" stroke={color} strokeWidth={1.8} strokeLinecap="round" /></Svg>;
-}
-function IconPlay({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M6 4L20 12L6 20V4Z" fill={color} /></Svg>;
-}
-function IconList({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M8 6H21M8 12H21M8 18H21M3 6H3.01M3 12H3.01M3 18H3.01" stroke={color} strokeWidth={2} strokeLinecap="round" /></Svg>;
-}
-function IconPencil({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M11 4H4C3.45 4 3 4.45 3 5V20C3 20.55 3.45 21 4 21H19C19.55 21 20 20.55 20 19V12M18.5 2.5C19.33 1.67 20.67 1.67 21.5 2.5C22.33 3.33 22.33 4.67 21.5 5.5L12 15L8 16L9 12L18.5 2.5Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
-}
-function IconArrowUp({ color, size = 16 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M12 19V5M5 12L12 5L19 12" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
-}
-function IconArrowDown({ color, size = 16 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M12 5V19M5 12L12 19L19 12" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
-}
-function IconCheck({ color, size = 14 }: { color: string; size?: number }) {
+function IconCheck({ color = '#FFFFFF', size = 13 }: { color?: string; size?: number }) {
   return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M20 6L9 17L4 12" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
-function IconChevronsRight({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M7 17L12 12L7 7M13 17L18 12L13 7" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+function IconDumbbell({ color = '#7B4A2D', size = 22 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 28 28" fill="none"><Rect x="2" y="11" width="4" height="6" rx="1.5" fill={color} /><Rect x="22" y="11" width="4" height="6" rx="1.5" fill={color} /><Rect x="5" y="9" width="3" height="10" rx="1.5" fill={color} /><Rect x="20" y="9" width="3" height="10" rx="1.5" fill={color} /><Rect x="8" y="12.5" width="12" height="3" rx="1.5" fill={color} /></Svg>;
 }
-function IconTrash({ color, size = 18 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M3 6H21M8 6V4H16V6M19 6L18 20H6L5 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+function IconPencil({ color = '#3A7AC0', size = 22 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M11 4H4a1 1 0 00-1 1v15a1 1 0 001 1h15a1 1 0 001-1v-7M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
-function IconCalendar({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M8 2V5M16 2V5M3 8H21M5 4H19C20.1 4 21 4.9 21 6V20C21 21.1 20.1 22 19 22H5C3.9 22 3 21.1 3 20V6C3 4.9 3.9 4 5 4Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" /></Svg>;
+function IconTrophy({ color = '#8B6914', size = 22 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M6 9H4a1 1 0 01-1-1V4a1 1 0 011-1h16a1 1 0 011 1v4a1 1 0 01-1 1h-2m-10 0c0 4 3 8 6 8s6-4 6-8m-12 0h12M12 17v4m-4 0h8" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
-function IconBody({ color, size = 20 }: { color: string; size?: number }) {
-  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Circle cx={12} cy={4} r={2} stroke={color} strokeWidth={1.8} /><Path d="M9 12L7 22M15 12L17 22M6 8C6 8 8 10 12 10C16 10 18 8 18 8L17 14H7L6 8Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+function IconHistory({ color = '#7B4A2D', size = 22 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M3 3v18M3 17l6-6 4 4 8-8" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
 }
-
-// ─── Mini Body SVG for widget ─────────────────────────────────
-const SKIN = '#C8956C';
-const SKIN_DARK = '#A8754C';
-
-function MiniBodyFront({ muscles }: { muscles: MuscleMap }) {
-  const clr = (n: string) => getMuscleColor(muscles[n]?.level ?? 100);
-  const op = (n: string) => 0.3 + (muscles[n]?.level ?? 100) / 100 * 0.7;
+function IconPlus({ color = '#7B4A2D', size = 20 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M12 5v14M5 12h14" stroke={color} strokeWidth={2} strokeLinecap="round" /></Svg>;
+}
+function IconSearch({ color = '#7A6E63', size = 18 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Circle cx={11} cy={11} r={7} stroke={color} strokeWidth={1.8} /><Path d="M16.5 16.5L21 21" stroke={color} strokeWidth={1.8} strokeLinecap="round" /></Svg>;
+}
+function IconTrash({ color = '#C0392B', size = 17 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+}
+function IconArrowUp({ color = '#4A8C5C', size = 14 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M12 19V5M5 12l7-7 7 7" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+}
+function IconArrowDown({ color = '#C0392B', size = 14 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M12 5v14M5 12l7 7 7-7" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+}
+function IconSync({ color = '#FFFFFF', size = 18 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M21 2v6h-6M3 22v-6h6M21 13a9 9 0 01-15.66 5.34M3 11a9 9 0 0115.66-5.34" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+}
+function IconList({ color = '#7B4A2D', size = 22 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" stroke={color} strokeWidth={2} strokeLinecap="round" /></Svg>;
+}
+function IconChevronsRight({ color = '#FFFFFF', size = 22 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Path d="M7 17l5-5-5-5M13 17l5-5-5-5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+}
+function IconRun({ color = '#4A8C5C', size = 22 }: { color?: string; size?: number }) {
+  return <Svg width={size} height={size} viewBox="0 0 24 24" fill="none"><Circle cx={14} cy={4} r={2} stroke={color} strokeWidth={1.8} /><Path d="M6 20l4-7 3 3 3-6 3 3M5 10l5 3 3-5 3 2" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
+}
+function getMuscleRecoveryColor(level: number): string {
+  if (level >= 80) return '#4A8C5C';
+  if (level >= 60) return '#3A7AC0';
+  if (level >= 40) return '#8B6914';
+  if (level >= 20) return '#7B4A2D';
+  return '#C0392B';
+}
+// ─── Body SVG (front & back) ──────────────────────────────────
+function BodyFront({ muscles }: { muscles: MuscleMap }) {
+  const c = (n: string) => getMuscleRecoveryColor(muscles[n]?.level ?? 100);
+  const o = (n: string) => 0.22 + ((muscles[n]?.level ?? 100) / 100) * 0.66;
   return (
-    <Svg width={70} height={150} viewBox="0 0 170 380">
+    <Svg width={105} height={235} viewBox="0 0 105 235">
       <Defs>
-        <LinearGradient id="msk" x1="0" y1="0" x2="1" y2="0">
-          <Stop offset="0" stopColor={SKIN_DARK} /><Stop offset="0.5" stopColor={SKIN} /><Stop offset="1" stopColor={SKIN_DARK} />
-        </LinearGradient>
+        <RadialGradient id="skF" cx="50%" cy="38%" r="62%">
+          <Stop offset="0%" stopColor="#C88050" />
+          <Stop offset="100%" stopColor="#8A5228" />
+        </RadialGradient>
+        <RadialGradient id="bodyF" cx="50%" cy="30%" r="68%">
+          <Stop offset="0%" stopColor="#B07038" />
+          <Stop offset="100%" stopColor="#7A4220" />
+        </RadialGradient>
       </Defs>
-      <Ellipse cx={85} cy={26} rx={20} ry={24} fill="url(#msk)" />
-      <Rect x={78} y={48} width={14} height={16} rx={4} fill="url(#msk)" />
-      <Path d="M60 62 Q85 58 110 62 L114 136 Q85 144 56 136 Z" fill="url(#msk)" />
-      <Path d="M62 64 Q74 60 84 64 Q88 72 86 84 Q84 90 76 92 Q66 90 62 82 Q58 74 62 64Z" fill={clr('Brust')} opacity={op('Brust')} />
-      <Path d="M88 64 Q98 60 108 64 Q112 74 108 82 Q104 90 94 92 Q86 90 84 84 Q82 72 88 64Z" fill={clr('Brust')} opacity={op('Brust')} />
-      <Path d="M54 56 Q44 58 38 66 Q36 76 40 86 Q46 90 54 86 L60 70Z" fill={clr('Schultern')} opacity={op('Schultern')} />
-      <Path d="M116 56 Q126 58 132 66 Q134 76 130 86 Q124 90 116 86 L110 70Z" fill={clr('Schultern')} opacity={op('Schultern')} />
-      <Path d="M40 86 Q32 90 30 104 Q30 116 36 122 Q44 124 50 118 Q56 110 54 96Z" fill={clr('Bizeps')} opacity={op('Bizeps')} />
-      <Path d="M130 86 Q138 90 140 104 Q140 116 134 122 Q126 124 120 118 Q114 110 116 96Z" fill={clr('Bizeps')} opacity={op('Bizeps')} />
-      {[0,1,2].map(row => <G key={row}><Rect x={70} y={96 + row*13} width={12} height={10} rx={3} fill={clr('Core')} opacity={op('Core')} /><Rect x={87} y={96 + row*13} width={12} height={10} rx={3} fill={clr('Core')} opacity={op('Core')} /></G>)}
-      <Path d="M58 152 Q66 148 74 152 Q78 168 76 192 Q74 210 68 218 Q60 214 56 196 Q52 174 58 152Z" fill={clr('Quadrizeps')} opacity={op('Quadrizeps')} />
-      <Path d="M112 152 Q104 148 96 152 Q92 168 94 192 Q96 210 102 218 Q110 214 114 196 Q118 174 112 152Z" fill={clr('Quadrizeps')} opacity={op('Quadrizeps')} />
-      <Path d="M58 230 Q62 228 67 232 Q70 248 68 266 Q66 278 62 282 Q56 278 54 264 Q52 248 58 230Z" fill={clr('Waden')} opacity={op('Waden')} />
-      <Path d="M112 230 Q108 228 103 232 Q100 248 102 266 Q104 278 108 282 Q114 278 116 264 Q118 248 112 230Z" fill={clr('Waden')} opacity={op('Waden')} />
+      {/* Head */}
+      <Ellipse cx={52} cy={17} rx={14} ry={16} fill="url(#skF)" />
+      <Path d="M38,13 Q41,2 52,1 Q63,2 66,13 Q60,6 52,6 Q44,6 38,13Z" fill="#140A04" />
+      {/* Neck */}
+      <Rect x={46} y={31} width={12} height={9} rx={4} fill="#AA6832" />
+      {/* Torso */}
+      <Path d="M24,42 Q52,36 80,42 L83,115 Q52,124 21,115Z" fill="url(#bodyF)" />
+      {/* Chest */}
+      <Path d="M26,46 Q37,42 50,45 Q54,51 52,62 Q50,69 43,71 Q34,69 29,62 Q24,55 26,46Z" fill={c('Brust')} opacity={o('Brust')} />
+      <Path d="M78,46 Q67,42 54,45 Q50,51 52,62 Q54,69 61,71 Q70,69 75,62 Q80,55 78,46Z" fill={c('Brust')} opacity={o('Brust')} />
+      <Line x1={52} y1={45} x2={52} y2={72} stroke="rgba(0,0,0,0.13)" strokeWidth={0.8} />
+      {/* Shoulders */}
+      <Ellipse cx={18} cy={55} rx={10} ry={13} fill={c('Schultern')} opacity={o('Schultern')} />
+      <Ellipse cx={86} cy={55} rx={10} ry={13} fill={c('Schultern')} opacity={o('Schultern')} />
+      {/* Biceps */}
+      <Path d="M10,67 Q5,75 6,87 Q7,97 14,100 Q21,102 24,93 Q27,84 24,74Z" fill={c('Bizeps')} opacity={o('Bizeps')} />
+      <Path d="M94,67 Q99,75 98,87 Q97,97 90,100 Q83,102 80,93 Q77,84 80,74Z" fill={c('Bizeps')} opacity={o('Bizeps')} />
+      {/* Forearms */}
+      <Rect x={7} y={99} width={13} height={24} rx={6} fill="#9A5E28" opacity={0.55} />
+      <Rect x={85} y={99} width={13} height={24} rx={6} fill="#9A5E28" opacity={0.55} />
+      <Ellipse cx={10} cy={127} rx={6} ry={8} fill="#864E1E" opacity={0.7} />
+      <Ellipse cx={95} cy={127} rx={6} ry={8} fill="#864E1E" opacity={0.7} />
+      {/* Abs */}
+      <Path d="M38,73 Q52,77 66,73 L68,113 Q52,120 36,113Z" fill={c('Core')} opacity={o('Core') * 0.6} />
+      <Rect x={43} y={75} width={7} height={6} rx={2} fill={c('Core')} opacity={o('Core')} />
+      <Rect x={53} y={75} width={7} height={6} rx={2} fill={c('Core')} opacity={o('Core')} />
+      <Rect x={43} y={84} width={7} height={6} rx={2} fill={c('Core')} opacity={o('Core')} />
+      <Rect x={53} y={84} width={7} height={6} rx={2} fill={c('Core')} opacity={o('Core')} />
+      <Rect x={43} y={93} width={7} height={6} rx={2} fill={c('Core')} opacity={o('Core')} />
+      <Rect x={53} y={93} width={7} height={6} rx={2} fill={c('Core')} opacity={o('Core')} />
+      {/* Shorts */}
+      <Path d="M24,113 Q52,122 80,113 L82,127 Q52,136 22,127Z" fill="#141414" />
+      {/* Quads */}
+      <Path d="M28,131 Q21,135 19,151 Q17,165 23,177 Q29,185 36,183 Q43,179 45,163 Q46,147 41,135Z" fill={c('Quadrizeps')} opacity={o('Quadrizeps')} />
+      <Path d="M76,131 Q83,135 85,151 Q87,165 81,177 Q75,185 68,183 Q61,179 59,163 Q58,147 63,135Z" fill={c('Quadrizeps')} opacity={o('Quadrizeps')} />
+      {/* Knees */}
+      <Ellipse cx={32} cy={187} rx={10} ry={7} fill="#8A4E1E" opacity={0.42} />
+      <Ellipse cx={72} cy={187} rx={10} ry={7} fill="#8A4E1E" opacity={0.42} />
+      {/* Calves */}
+      <Path d="M24,193 Q19,201 20,213 Q21,222 28,226 Q34,228 37,219 Q39,208 37,197Z" fill={c('Waden')} opacity={o('Waden')} />
+      <Path d="M80,193 Q85,201 84,213 Q83,222 76,226 Q70,228 67,219 Q65,208 67,197Z" fill={c('Waden')} opacity={o('Waden')} />
     </Svg>
   );
 }
 
-function MiniBodyBack({ muscles }: { muscles: MuscleMap }) {
-  const clr = (n: string) => getMuscleColor(muscles[n]?.level ?? 100);
-  const op = (n: string) => 0.3 + (muscles[n]?.level ?? 100) / 100 * 0.7;
+function BodyBack({ muscles }: { muscles: MuscleMap }) {
+  const c = (n: string) => getMuscleRecoveryColor(muscles[n]?.level ?? 100);
+  const o = (n: string) => 0.22 + ((muscles[n]?.level ?? 100) / 100) * 0.66;
   return (
-    <Svg width={70} height={150} viewBox="0 0 170 380">
+    <Svg width={105} height={235} viewBox="0 0 105 235">
       <Defs>
-        <LinearGradient id="mskb" x1="0" y1="0" x2="1" y2="0">
-          <Stop offset="0" stopColor={SKIN_DARK} /><Stop offset="0.5" stopColor={SKIN} /><Stop offset="1" stopColor={SKIN_DARK} />
-        </LinearGradient>
+        <RadialGradient id="bodyB" cx="50%" cy="30%" r="68%">
+          <Stop offset="0%" stopColor="#AA6832" />
+          <Stop offset="100%" stopColor="#7A4220" />
+        </RadialGradient>
       </Defs>
-      <Ellipse cx={85} cy={26} rx={20} ry={24} fill="url(#mskb)" />
-      <Rect x={78} y={48} width={14} height={16} rx={4} fill="url(#mskb)" />
-      <Path d="M60 68 Q85 64 110 68 L112 138 Q85 146 58 138 Z" fill="url(#mskb)" />
-      <Path d="M64 50 Q85 44 106 50 Q114 58 112 70 Q98 66 85 68 Q72 66 58 70 Q56 58 64 50Z" fill={clr('Schultern')} opacity={op('Schultern')} />
-      <Path d="M60 68 Q50 74 46 90 Q44 106 48 120 Q54 130 62 128 Q66 118 66 104 Q64 88 62 76Z" fill={clr('Rücken')} opacity={op('Rücken')} />
-      <Path d="M110 68 Q120 74 124 90 Q126 106 122 120 Q116 130 108 128 Q104 118 104 104 Q106 88 108 76Z" fill={clr('Rücken')} opacity={op('Rücken')} />
-      <Path d="M62 70 Q85 66 108 70 Q106 88 85 92 Q64 88 62 70Z" fill={clr('Rücken')} opacity={op('Rücken') * 0.9} />
-      <Path d="M40 88 Q32 92 30 106 Q30 118 36 124 Q44 126 50 120 Q56 112 54 98Z" fill={clr('Trizeps')} opacity={op('Trizeps')} />
-      <Path d="M130 88 Q138 92 140 106 Q140 118 134 124 Q126 126 120 120 Q114 112 116 98Z" fill={clr('Trizeps')} opacity={op('Trizeps')} />
-      <Path d="M58 138 Q70 134 84 138 Q88 148 84 162 Q80 172 70 174 Q60 170 56 158 Q52 148 58 138Z" fill={clr('Gluteus')} opacity={op('Gluteus')} />
-      <Path d="M86 138 Q100 134 112 138 Q118 148 114 158 Q110 170 100 174 Q90 172 86 162 Q82 148 86 138Z" fill={clr('Gluteus')} opacity={op('Gluteus')} />
-      <Path d="M56 172 Q62 170 70 174 Q74 190 72 214 Q70 228 64 234 Q56 228 52 210 Q48 190 56 172Z" fill={clr('Hamstrings')} opacity={op('Hamstrings')} />
-      <Path d="M114 172 Q108 170 100 174 Q96 190 98 214 Q100 228 106 234 Q114 228 118 210 Q122 190 114 172Z" fill={clr('Hamstrings')} opacity={op('Hamstrings')} />
+      <Ellipse cx={52} cy={17} rx={14} ry={16} fill="#AA6832" />
+      <Path d="M38,13 Q41,2 52,1 Q63,2 66,13 Q60,6 52,6 Q44,6 38,13Z" fill="#140A04" />
+      <Rect x={46} y={31} width={12} height={9} rx={4} fill="#9A5E28" />
+      <Path d="M24,42 Q52,36 80,42 L83,115 Q52,124 21,115Z" fill="url(#bodyB)" />
+      {/* Traps */}
+      <Path d="M36,42 Q52,36 68,42 Q62,48 52,50 Q42,48 36,42Z" fill={c('Schultern')} opacity={o('Schultern')} />
+      {/* Rear delts */}
+      <Ellipse cx={17} cy={55} rx={10} ry={13} fill={c('Schultern')} opacity={o('Schultern')} />
+      <Ellipse cx={87} cy={55} rx={10} ry={13} fill={c('Schultern')} opacity={o('Schultern')} />
+      {/* Lats */}
+      <Path d="M26,50 Q18,58 17,76 Q16,94 24,106 Q32,114 40,108 Q45,100 43,80 Q41,62 36,52Z" fill={c('Rücken')} opacity={o('Rücken')} />
+      <Path d="M78,50 Q86,58 87,76 Q88,94 80,106 Q72,114 64,108 Q59,100 61,80 Q63,62 68,52Z" fill={c('Rücken')} opacity={o('Rücken')} />
+      <Path d="M40,52 Q52,48 64,52 Q64,70 52,74 Q40,70 40,52Z" fill={c('Rücken')} opacity={o('Rücken') * 0.8} />
+      <Line x1={52} y1={50} x2={52} y2={114} stroke="rgba(0,0,0,0.14)" strokeWidth={0.8} />
+      {/* Triceps */}
+      <Path d="M9,66 Q4,76 5,90 Q6,102 13,105 Q20,107 23,98 Q26,88 23,77Z" fill={c('Trizeps')} opacity={o('Trizeps')} />
+      <Path d="M95,66 Q100,76 99,90 Q98,102 91,105 Q84,107 81,98 Q78,88 81,77Z" fill={c('Trizeps')} opacity={o('Trizeps')} />
+      {/* Forearms */}
+      <Rect x={7} y={104} width={13} height={24} rx={6} fill="#9A5E28" opacity={0.5} />
+      <Rect x={85} y={104} width={13} height={24} rx={6} fill="#9A5E28" opacity={0.5} />
+      <Ellipse cx={10} cy={132} rx={6} ry={8} fill="#864E1E" opacity={0.65} />
+      <Ellipse cx={95} cy={132} rx={6} ry={8} fill="#864E1E" opacity={0.65} />
+      {/* Shorts */}
+      <Path d="M22,115 Q52,125 82,115 L84,130 Q52,140 20,130Z" fill="#141414" />
+      {/* Glutes */}
+      <Path d="M24,128 Q17,134 17,150 Q17,164 26,171 Q35,176 41,166 Q46,154 44,140Z" fill={c('Gluteus')} opacity={o('Gluteus')} />
+      <Path d="M80,128 Q87,134 87,150 Q87,164 78,171 Q69,176 63,166 Q58,154 60,140Z" fill={c('Gluteus')} opacity={o('Gluteus')} />
+      {/* Hamstrings */}
+      <Path d="M26,173 Q20,182 20,196 Q20,208 28,214 Q35,217 39,208 Q42,196 40,182Z" fill={c('Hamstrings')} opacity={o('Hamstrings')} />
+      <Path d="M78,173 Q84,182 84,196 Q84,208 76,214 Q69,217 65,208 Q62,196 64,182Z" fill={c('Hamstrings')} opacity={o('Hamstrings')} />
+      {/* Knees */}
+      <Ellipse cx={32} cy={216} rx={9} ry={6} fill="#864E1E" opacity={0.38} />
+      <Ellipse cx={72} cy={216} rx={9} ry={6} fill="#864E1E" opacity={0.38} />
+      {/* Calves */}
+      <Path d="M24,221 Q19,229 20,241 Q21,250 28,253 Q34,255 37,246 Q39,235 37,224Z" fill={c('Waden')} opacity={o('Waden')} />
+      <Path d="M80,221 Q85,229 84,241 Q83,250 76,253 Q70,255 67,246 Q65,235 67,224Z" fill={c('Waden')} opacity={o('Waden')} />
     </Svg>
   );
 }
 
-// ─── Body Recovery Widget (compact) ───────────────────────────
-function BodyRecoveryWidget({ muscles, onPress }: { muscles: MuscleMap; onPress: () => void }) {
-  const warnings = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) < 40);
-  const ready = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80);
-
+// ─── Shared UI ────────────────────────────────────────────────
+function Divider({ label }: { label: string }) {
+  const { colors } = useAppTheme();
+  const T = getT(colors);
   return (
-    <TouchableOpacity onPress={onPress} activeOpacity={0.88}
-      style={{ marginHorizontal: 16, marginBottom: 10, backgroundColor: theme.card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: theme.border }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-        <View>
-          <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: theme.textTertiary, marginBottom: 3 }}>Muskel Recovery</Text>
-          <Text style={{ fontSize: 17, fontWeight: '700', color: theme.textPrimary }}>Körper</Text>
-        </View>
-        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-          {warnings.length > 0 && (
-            <View style={{ backgroundColor: theme.redLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.red + '40' }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: theme.red }}>⚠ {warnings.length} schonen</Text>
-            </View>
-          )}
-          {ready.length > 0 && (
-            <View style={{ backgroundColor: theme.greenLight, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: theme.green + '40' }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: theme.green }}>✓ {ready.length} bereit</Text>
-            </View>
-          )}
-          <IconChevronRight color={theme.textTertiary} size={16} />
-        </View>
-      </View>
-
-      <View style={{ flexDirection: 'row', gap: 16 }}>
-        {/* Mini figures */}
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <MiniBodyFront muscles={muscles} />
-          <MiniBodyBack muscles={muscles} />
-        </View>
-
-        {/* Recovery bars for top muscles */}
-        <View style={{ flex: 1, gap: 6, justifyContent: 'center' }}>
-          {MUSCLE_GROUPS.slice(0, 6).map(m => {
-            const level = muscles[m]?.level ?? 100;
-            const color = getMuscleColor(level);
-            return (
-              <View key={m} style={{ gap: 2 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                  <Text style={{ fontSize: 9, color: theme.textSecondary, fontWeight: '500' }}>{m}</Text>
-                  <Text style={{ fontSize: 9, color, fontWeight: '700' }}>{level}%</Text>
-                </View>
-                <View style={{ height: 3, backgroundColor: theme.cardSecondary, borderRadius: 2 }}>
-                  <View style={{ height: 3, borderRadius: 2, backgroundColor: color, width: `${level}%` as any }} />
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-// ─── Full Body Screen (modal) ─────────────────────────────────
-function BodyScreenModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => void }) {
-  const [view, setView] = useState<'front' | 'back'>('front');
-
-  const warnings = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) < 40);
-  const ready = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80);
-
-  // Full body SVG paths - reuse from body.tsx logic inline
-  const BodyFull = view === 'front'
-    ? <MiniBodyFrontFull muscles={muscles} />
-    : <MiniBodyBackFull muscles={muscles} />;
-
-  return (
-    <Modal visible animationType="slide">
-      <View style={{ flex: 1, backgroundColor: theme.bg }}>
-        <View style={{ backgroundColor: theme.card, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 16, borderBottomWidth: 0.5, borderBottomColor: theme.border, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
-          <View>
-            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', color: theme.orange, marginBottom: 3 }}>Körper</Text>
-            <Text style={{ fontSize: 26, fontWeight: '800', color: theme.textPrimary }}>Muskel Recovery</Text>
-          </View>
-          <TouchableOpacity style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: theme.cardSecondary, alignItems: 'center', justifyContent: 'center' }} onPress={onClose}>
-            <IconClose color={theme.textPrimary} size={16} />
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
-          {/* Toggle */}
-          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-            {(['front','back'] as const).map(v => (
-              <TouchableOpacity key={v} onPress={() => setView(v)} activeOpacity={0.8}
-                style={{ flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: 'center', backgroundColor: view === v ? theme.blueLight : theme.card, borderWidth: 1.5, borderColor: view === v ? theme.blue : theme.border }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: view === v ? theme.blue : theme.textSecondary }}>
-                  {v === 'front' ? '▶ Vorderseite' : '◀ Rückseite'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16, alignItems: 'flex-start', justifyContent: 'center' }}>
-            <View style={{ backgroundColor: theme.card, borderRadius: 20, padding: 10, borderWidth: 0.5, borderColor: theme.border }}>
-              {BodyFull}
-            </View>
-            {/* Legend */}
-            <View style={{ gap: 12, paddingTop: 16, flex: 1 }}>
-              <Text style={{ fontSize: 10, color: theme.textTertiary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Recovery</Text>
-              {[{ color: theme.green, label: '80–100%', note: 'Bereit' }, { color: theme.blue, label: '60–79%', note: 'Fast' }, { color: theme.yellow, label: '40–59%', note: 'Mittel' }, { color: theme.orange, label: '20–39%', note: 'Niedrig' }, { color: theme.red, label: '0–19%', note: 'Schonen' }].map(item => (
-                <View key={item.note} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.color }} />
-                  <View><Text style={{ fontSize: 12, fontWeight: '500', color: theme.textPrimary }}>{item.note}</Text><Text style={{ fontSize: 10, color: theme.textSecondary }}>{item.label}</Text></View>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          {warnings.length > 0 && (
-            <View style={{ backgroundColor: theme.redLight, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: theme.red + '30' }}>
-              <Text style={{ color: theme.red, fontSize: 13, fontWeight: '700', marginBottom: 4 }}>⚠ Noch nicht erholt</Text>
-              <Text style={{ color: theme.red, fontSize: 12, opacity: 0.8 }}>{warnings.join(', ')} – heute schonen.</Text>
-            </View>
-          )}
-          {ready.length > 0 && (
-            <View style={{ backgroundColor: theme.greenLight, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: theme.green + '30' }}>
-              <Text style={{ color: theme.green, fontSize: 13, fontWeight: '700', marginBottom: 4 }}>✓ Bereit</Text>
-              <Text style={{ color: theme.green, fontSize: 12, opacity: 0.8 }}>{ready.join(', ')}</Text>
-            </View>
-          )}
-
-          <Text style={{ fontSize: 13, fontWeight: '700', color: theme.textPrimary, marginBottom: 10 }}>Alle Muskelgruppen</Text>
-          {MUSCLE_GROUPS.map(m => {
-            const muscle = muscles[m];
-            if (!muscle) return null;
-            const color = getMuscleColor(muscle.level);
-            const exData = EXERCISE_DB.filter(e => e.muscleGroup === m || e.secondary.some(s => s.muscle === m));
-            const hoursLeft = muscle.lastTrained ? Math.max(0, (MUSCLE_RECOVERY_HOURS[m] ?? 48) - (Date.now() - new Date(muscle.lastTrained).getTime()) / 3600000) : 0;
-            const isPrimary = EXERCISE_DB.some(e => e.muscleGroup === m && muscle.lastTrained);
-            return (
-              <View key={m} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: theme.border }}>
-                <View style={{ width: 110 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '500', color: theme.textPrimary }}>{m}</Text>
-                  <Text style={{ fontSize: 10, color: theme.textSecondary, marginTop: 2 }}>
-                    {muscle.lastTrained ? hoursLeft > 0 ? `noch ${Math.round(hoursLeft)}h` : 'Erholt ✓' : 'Nie trainiert'}
-                    {muscle.lastTrained && !isPrimary ? ' (sekundär)' : ''}
-                  </Text>
-                </View>
-                <View style={{ flex: 1, height: 4, backgroundColor: theme.cardSecondary, borderRadius: 2, overflow: 'hidden' }}>
-                  <View style={{ height: 4, borderRadius: 2, backgroundColor: color, width: `${muscle.level}%` as any }} />
-                </View>
-                <Text style={{ fontSize: 12, fontWeight: '500', color, width: 36, textAlign: 'right' }}>{muscle.level}%</Text>
-              </View>
-            );
-          })}
-          <View style={{ height: 60 }} />
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-// Full-size body for modal
-function MiniBodyFrontFull({ muscles }: { muscles: MuscleMap }) {
-  const clr = (n: string) => getMuscleColor(muscles[n]?.level ?? 100);
-  const op = (n: string) => 0.3 + (muscles[n]?.level ?? 100) / 100 * 0.7;
-  return (
-    <Svg width={160} height={340} viewBox="0 0 170 380">
-      <Defs><LinearGradient id="fs" x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={SKIN_DARK} /><Stop offset="0.5" stopColor={SKIN} /><Stop offset="1" stopColor={SKIN_DARK} /></LinearGradient></Defs>
-      <Ellipse cx={85} cy={26} rx={20} ry={24} fill="url(#fs)" />
-      <Path d="M65 16 Q85 4 105 16 Q100 6 85 4 Q70 4 65 16Z" fill="#3D2B1F" />
-      <Rect x={78} y={48} width={14} height={16} rx={4} fill="url(#fs)" />
-      <Path d="M60 62 Q85 58 110 62 L114 136 Q85 144 56 136 Z" fill="url(#fs)" />
-      <Path d="M62 64 Q74 60 84 64 Q88 72 86 84 Q84 90 76 92 Q66 90 62 82 Q58 74 62 64Z" fill={clr('Brust')} opacity={op('Brust')} />
-      <Path d="M88 64 Q98 60 108 64 Q112 74 108 82 Q104 90 94 92 Q86 90 84 84 Q82 72 88 64Z" fill={clr('Brust')} opacity={op('Brust')} />
-      <Path d="M54 56 Q44 58 38 66 Q36 76 40 86 Q46 90 54 86 Q58 80 60 70 Q62 62 54 56Z" fill={clr('Schultern')} opacity={op('Schultern')} />
-      <Path d="M116 56 Q126 58 132 66 Q134 76 130 86 Q124 90 116 86 Q112 80 110 70 Q108 62 116 56Z" fill={clr('Schultern')} opacity={op('Schultern')} />
-      <Path d="M40 86 Q32 90 30 104 Q30 116 36 122 Q44 124 50 118 Q56 110 54 96 Q52 88 40 86Z" fill={clr('Bizeps')} opacity={op('Bizeps')} />
-      <Path d="M130 86 Q138 90 140 104 Q140 116 134 122 Q126 124 120 118 Q114 110 116 96 Q118 88 130 86Z" fill={clr('Bizeps')} opacity={op('Bizeps')} />
-      <Path d="M36 122 Q28 128 26 144 Q28 156 34 158 Q42 158 46 150 Q50 140 50 128 Q46 122 36 122Z" fill={SKIN} />
-      <Path d="M134 122 Q142 128 144 144 Q142 156 136 158 Q128 158 124 150 Q120 140 120 128 Q124 122 134 122Z" fill={SKIN} />
-      <Path d="M66 94 Q85 98 104 94 L106 136 Q85 140 64 136 Z" fill={clr('Core')} opacity={op('Core') * 0.4} />
-      {[0,1,2].map(row => <G key={row}><Rect x={70} y={96+row*13} width={12} height={10} rx={3} fill={clr('Core')} opacity={op('Core')} /><Rect x={87} y={96+row*13} width={12} height={10} rx={3} fill={clr('Core')} opacity={op('Core')} /></G>)}
-      <Path d="M62 134 Q85 142 108 134 L112 152 Q85 158 58 152 Z" fill={SKIN_DARK} opacity={0.5} />
-      <Path d="M58 152 Q66 148 74 152 Q78 168 76 192 Q74 210 68 218 Q60 214 56 196 Q52 174 58 152Z" fill={clr('Quadrizeps')} opacity={op('Quadrizeps')} />
-      <Path d="M112 152 Q104 148 96 152 Q92 168 94 192 Q96 210 102 218 Q110 214 114 196 Q118 174 112 152Z" fill={clr('Quadrizeps')} opacity={op('Quadrizeps')} />
-      <Ellipse cx={67} cy={222} rx={11} ry={9} fill={SKIN_DARK} opacity={0.6} />
-      <Ellipse cx={103} cy={222} rx={11} ry={9} fill={SKIN_DARK} opacity={0.6} />
-      <Path d="M58 230 Q62 228 67 232 Q70 248 68 266 Q66 278 62 282 Q56 278 54 264 Q52 248 58 230Z" fill={clr('Waden')} opacity={op('Waden')} />
-      <Path d="M112 230 Q108 228 103 232 Q100 248 102 266 Q104 278 108 282 Q114 278 116 264 Q118 248 112 230Z" fill={clr('Waden')} opacity={op('Waden')} />
-    </Svg>
-  );
-}
-function MiniBodyBackFull({ muscles }: { muscles: MuscleMap }) {
-  const clr = (n: string) => getMuscleColor(muscles[n]?.level ?? 100);
-  const op = (n: string) => 0.3 + (muscles[n]?.level ?? 100) / 100 * 0.7;
-  return (
-    <Svg width={160} height={340} viewBox="0 0 170 380">
-      <Defs><LinearGradient id="bs" x1="0" y1="0" x2="1" y2="0"><Stop offset="0" stopColor={SKIN_DARK} /><Stop offset="0.5" stopColor={SKIN} /><Stop offset="1" stopColor={SKIN_DARK} /></LinearGradient></Defs>
-      <Ellipse cx={85} cy={26} rx={20} ry={24} fill="url(#bs)" />
-      <Path d="M65 16 Q85 4 105 16 Q100 6 85 4 Q70 4 65 16Z" fill="#3D2B1F" />
-      <Rect x={78} y={48} width={14} height={16} rx={4} fill="url(#bs)" />
-      <Path d="M60 68 Q85 64 110 68 L112 138 Q85 146 58 138 Z" fill="url(#bs)" />
-      <Path d="M64 50 Q85 44 106 50 Q114 58 112 70 Q98 66 85 68 Q72 66 58 70 Q56 58 64 50Z" fill={clr('Schultern')} opacity={op('Schultern')} />
-      <Path d="M54 58 Q44 60 38 70 Q36 80 40 88 Q46 92 54 88 Q60 82 60 70 Q62 64 54 58Z" fill={clr('Schultern')} opacity={op('Schultern')} />
-      <Path d="M116 58 Q126 60 132 70 Q134 80 130 88 Q124 92 116 88 Q110 82 110 70 Q108 64 116 58Z" fill={clr('Schultern')} opacity={op('Schultern')} />
-      <Path d="M60 68 Q50 74 46 90 Q44 106 48 120 Q54 130 62 128 Q66 118 66 104 Q64 88 62 76 Q62 72 60 68Z" fill={clr('Rücken')} opacity={op('Rücken')} />
-      <Path d="M110 68 Q120 74 124 90 Q126 106 122 120 Q116 130 108 128 Q104 118 104 104 Q106 88 108 76 Q108 72 110 68Z" fill={clr('Rücken')} opacity={op('Rücken')} />
-      <Path d="M62 70 Q85 66 108 70 Q106 88 85 92 Q64 88 62 70Z" fill={clr('Rücken')} opacity={op('Rücken') * 0.9} />
-      <Path d="M40 88 Q32 92 30 106 Q30 118 36 124 Q44 126 50 120 Q56 112 54 98 Q52 90 40 88Z" fill={clr('Trizeps')} opacity={op('Trizeps')} />
-      <Path d="M130 88 Q138 92 140 106 Q140 118 134 124 Q126 126 120 120 Q114 112 116 98 Q118 90 130 88Z" fill={clr('Trizeps')} opacity={op('Trizeps')} />
-      <Path d="M36 124 Q28 130 26 146 Q28 158 34 160 Q42 160 46 152 Q50 142 50 130 Q46 124 36 124Z" fill={SKIN} />
-      <Path d="M134 124 Q142 130 144 146 Q142 158 136 160 Q128 160 124 152 Q120 142 120 130 Q124 124 134 124Z" fill={SKIN} />
-      <Path d="M58 138 Q70 134 84 138 Q88 148 84 162 Q80 172 70 174 Q60 170 56 158 Q52 148 58 138Z" fill={clr('Gluteus')} opacity={op('Gluteus')} />
-      <Path d="M86 138 Q100 134 112 138 Q118 148 114 158 Q110 170 100 174 Q90 172 86 162 Q82 148 86 138Z" fill={clr('Gluteus')} opacity={op('Gluteus')} />
-      <Path d="M56 172 Q62 170 70 174 Q74 190 72 214 Q70 228 64 234 Q56 228 52 210 Q48 190 56 172Z" fill={clr('Hamstrings')} opacity={op('Hamstrings')} />
-      <Path d="M114 172 Q108 170 100 174 Q96 190 98 214 Q100 228 106 234 Q114 228 118 210 Q122 190 114 172Z" fill={clr('Hamstrings')} opacity={op('Hamstrings')} />
-      <Path d="M56 242 Q60 240 67 244 Q72 260 70 278 Q68 290 62 294 Q54 290 52 274 Q50 258 56 242Z" fill={clr('Waden')} opacity={op('Waden')} />
-      <Path d="M114 242 Q110 240 103 244 Q98 260 100 278 Q102 290 108 294 Q116 290 118 274 Q120 258 114 242Z" fill={clr('Waden')} opacity={op('Waden')} />
-    </Svg>
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 24, marginTop: 28, marginBottom: 14, gap: 12 }}>
+      <View style={{ flex: 1, height: 1, backgroundColor: T.borderSoft }} />
+      <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4 }}>{label}</Text>
+      <View style={{ flex: 1, height: 1, backgroundColor: T.borderSoft }} />
+    </View>
   );
 }
 
 // ─── SwipeToStart ─────────────────────────────────────────────
 function SwipeToStart({ onStart }: { onStart: () => void }) {
-  const THUMB_SIZE = 56;
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const sw = { track: { backgroundColor: T.card, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 50, padding: 6, height: 68, overflow: 'hidden' as const, justifyContent: 'center' as const }, thumb: { width: 56, height: 56, borderRadius: 28, backgroundColor: T.orange, alignItems: 'center' as const, justifyContent: 'center' as const, zIndex: 2 }, label: { position: 'absolute' as const, left: 0, right: 0, textAlign: 'center' as const, fontSize: 13, fontWeight: '600' as const, color: T.text3 } };
+  const THUMB = 56;
   const [trackWidth, setTrackWidth] = useState(SW - 64);
-  const MAX_DRAG = trackWidth - THUMB_SIZE - 12;
-  const translateX = useRef(new Animated.Value(0)).current;
-  const completed = useRef(false);
-  const panResponder = useRef(PanResponder.create({
+  const MAX = trackWidth - THUMB - 12;
+  const tx = useRef(new Animated.Value(0)).current;
+  const done = useRef(false);
+  const pan = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dx) > 5,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { completed.current = false; },
-    onPanResponderMove: (_, gs) => { translateX.setValue(Math.max(0, Math.min(gs.dx, MAX_DRAG))); },
+    onPanResponderGrant: () => { done.current = false; },
+    onPanResponderMove: (_, gs) => { tx.setValue(Math.max(0, Math.min(gs.dx, MAX))); },
     onPanResponderRelease: (_, gs) => {
-      if (gs.dx > MAX_DRAG * 0.7 && !completed.current) {
-        completed.current = true;
-        Animated.timing(translateX, { toValue: MAX_DRAG, duration: 100, useNativeDriver: true }).start(() => {
+      if (gs.dx > MAX * 0.7 && !done.current) {
+        done.current = true;
+        Animated.timing(tx, { toValue: MAX, duration: 100, useNativeDriver: true }).start(() => {
           onStart();
-          setTimeout(() => { translateX.setValue(0); completed.current = false; }, 500);
+          setTimeout(() => { tx.setValue(0); done.current = false; }, 500);
         });
       } else {
-        Animated.spring(translateX, { toValue: 0, useNativeDriver: true, tension: 80, friction: 12 }).start();
+        Animated.spring(tx, { toValue: 0, useNativeDriver: true, tension: 80, friction: 12 }).start();
       }
     },
   })).current;
-  const opacity = translateX.interpolate({ inputRange: [0, MAX_DRAG * 0.4], outputRange: [1, 0], extrapolate: 'clamp' });
+  const labelOpacity = tx.interpolate({ inputRange: [0, MAX * 0.4], outputRange: [1, 0], extrapolate: 'clamp' });
   return (
     <View onLayout={e => setTrackWidth(e.nativeEvent.layout.width)} style={sw.track}>
-      <Animated.Text style={[sw.label, { opacity }]}>schieben zum starten</Animated.Text>
-      <Animated.View style={[sw.thumb, { transform: [{ translateX }] }]} {...panResponder.panHandlers}>
+      <Animated.Text style={[sw.label, { opacity: labelOpacity }]}>schieben zum starten</Animated.Text>
+      <Animated.View style={[sw.thumb, { transform: [{ translateX: tx }] }]} {...pan.panHandlers}>
         <IconChevronsRight color="#fff" size={22} />
       </Animated.View>
     </View>
   );
 }
 
-
-// ─── Workout Timer Hooks ──────────────────────────────────────
-function useWorkoutTimer(timerKey: string) {
+// ─── Timers ───────────────────────────────────────────────────
+function useWorkoutTimer(key: string) {
   const [seconds, setSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
-  const intervalRef = useRef<any>(null);
-  const startAtRef = useRef<number | null>(null);
+  const startRef = useRef<number | null>(null);
+  const interval = useRef<any>(null);
   useEffect(() => {
-    AsyncStorage.getItem(timerKey).then(raw => {
+    AsyncStorage.getItem(key).then(raw => {
       if (!raw) return;
-      try { const { startedAt } = JSON.parse(raw); if (startedAt) { startAtRef.current = startedAt; setSeconds(Math.floor((Date.now()-startedAt)/1000)); setIsRunning(true); } } catch {}
+      try { const { startedAt } = JSON.parse(raw); if (startedAt) { startRef.current = startedAt; setSeconds(Math.floor((Date.now() - startedAt) / 1000)); setIsRunning(true); } } catch {}
     });
-    const sub = AppState.addEventListener('change', (next: AppStateStatus) => { if (next==='active' && startAtRef.current) setSeconds(Math.floor((Date.now()-startAtRef.current)/1000)); });
-    return () => { sub.remove(); clearInterval(intervalRef.current); };
-  }, [timerKey]);
+    const sub = AppState.addEventListener('change', (s: AppStateStatus) => { if (s === 'active' && startRef.current) setSeconds(Math.floor((Date.now() - startRef.current) / 1000)); });
+    return () => { sub.remove(); clearInterval(interval.current); };
+  }, [key]);
   useEffect(() => {
-    if (isRunning && startAtRef.current) { intervalRef.current = setInterval(() => { if (startAtRef.current) setSeconds(Math.floor((Date.now()-startAtRef.current)/1000)); }, 1000); }
-    else clearInterval(intervalRef.current);
-    return () => clearInterval(intervalRef.current);
+    if (isRunning && startRef.current) { interval.current = setInterval(() => { if (startRef.current) setSeconds(Math.floor((Date.now() - startRef.current) / 1000)); }, 1000); }
+    else clearInterval(interval.current);
+    return () => clearInterval(interval.current);
   }, [isRunning]);
-  const startNow = useCallback(async () => { const now=Date.now(); startAtRef.current=now; await AsyncStorage.setItem(timerKey, JSON.stringify({startedAt:now})); setIsRunning(true); }, [timerKey]);
-  const stop = useCallback(async () => { clearInterval(intervalRef.current); startAtRef.current=null; setIsRunning(false); setSeconds(0); await AsyncStorage.removeItem(timerKey); }, [timerKey]);
-  const getDuration = useCallback(() => { if (!startAtRef.current) return 0; return Math.max(1, Math.round((Date.now()-startAtRef.current)/60000)); }, []);
+  const startNow = useCallback(async () => { const now = Date.now(); startRef.current = now; await AsyncStorage.setItem(key, JSON.stringify({ startedAt: now })); setIsRunning(true); }, [key]);
+  const stop = useCallback(async () => { clearInterval(interval.current); startRef.current = null; setIsRunning(false); setSeconds(0); await AsyncStorage.removeItem(key); }, [key]);
+  const getDuration = useCallback(() => { if (!startRef.current) return 0; return Math.max(1, Math.round((Date.now() - startRef.current) / 60000)); }, []);
   return { seconds, isRunning, startNow, stop, getDuration };
 }
 
 function useRestTimer() {
   const [seconds, setSeconds] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
-  const [targetSeconds, setTargetSeconds] = useState(90);
-  const startAtRef = useRef<number | null>(null);
-  const intervalRef = useRef<any>(null);
-  const STORE_KEY = 'restTimerData';
+  const [target, setTarget] = useState(90);
+  const startRef = useRef<number | null>(null);
+  const interval = useRef<any>(null);
+  const KEY = 'restTimerData';
   useEffect(() => {
-    AsyncStorage.getItem(STORE_KEY).then(raw => {
+    AsyncStorage.getItem(KEY).then(raw => {
       if (!raw) return;
-      try { const { startedAt, target } = JSON.parse(raw); if (startedAt&&target) { const rem=Math.max(0,target-Math.floor((Date.now()-startedAt)/1000)); if(rem>0){startAtRef.current=startedAt;setTargetSeconds(target);setSeconds(rem);setIsRunning(true);}else AsyncStorage.removeItem(STORE_KEY); } } catch {}
+      try { const { startedAt, t } = JSON.parse(raw); if (startedAt && t) { const rem = Math.max(0, t - Math.floor((Date.now() - startedAt) / 1000)); if (rem > 0) { startRef.current = startedAt; setTarget(t); setSeconds(rem); setIsRunning(true); } else AsyncStorage.removeItem(KEY); } } catch {}
     });
-    const sub = AppState.addEventListener('change', (next: AppStateStatus) => { if (next==='active'&&startAtRef.current&&isRunning){const rem=Math.max(0,targetSeconds-Math.floor((Date.now()-startAtRef.current)/1000));setSeconds(rem);if(rem===0){setIsRunning(false);AsyncStorage.removeItem(STORE_KEY);}} });
-    return () => sub.remove();
   }, []);
   useEffect(() => {
-    if (isRunning&&startAtRef.current) { intervalRef.current=setInterval(()=>{if(!startAtRef.current)return;const rem=Math.max(0,targetSeconds-Math.floor((Date.now()-startAtRef.current)/1000));setSeconds(rem);if(rem===0){setIsRunning(false);startAtRef.current=null;AsyncStorage.removeItem(STORE_KEY);clearInterval(intervalRef.current);}},1000); }
-    else clearInterval(intervalRef.current);
-    return () => clearInterval(intervalRef.current);
-  }, [isRunning, targetSeconds]);
-  function startFor(secs: number) { const now=Date.now(); startAtRef.current=now; setTargetSeconds(secs); setSeconds(secs); setIsRunning(true); AsyncStorage.setItem(STORE_KEY,JSON.stringify({startedAt:now,target:secs})); }
-  function stopRest() { setIsRunning(false); setSeconds(0); startAtRef.current=null; AsyncStorage.removeItem(STORE_KEY); }
-  return { seconds, isRunning, startFor, stop: stopRest, pct: targetSeconds>0?Math.max(0,seconds/targetSeconds):0 };
+    if (isRunning && startRef.current) {
+      interval.current = setInterval(() => {
+        if (!startRef.current) return;
+        const rem = Math.max(0, target - Math.floor((Date.now() - startRef.current) / 1000));
+        setSeconds(rem);
+        if (rem === 0) { setIsRunning(false); startRef.current = null; AsyncStorage.removeItem(KEY); clearInterval(interval.current); }
+      }, 1000);
+    } else clearInterval(interval.current);
+    return () => clearInterval(interval.current);
+  }, [isRunning, target]);
+  const startFor = (secs: number) => { const now = Date.now(); startRef.current = now; setTarget(secs); setSeconds(secs); setIsRunning(true); AsyncStorage.setItem(KEY, JSON.stringify({ startedAt: now, t: secs })); };
+  const stopRest = () => { setIsRunning(false); setSeconds(0); startRef.current = null; AsyncStorage.removeItem(KEY); };
+  return { seconds, isRunning, startFor, stop: stopRest, pct: target > 0 ? Math.max(0, seconds / target) : 0 };
 }
 
-// ─── Exercise Picker (with equipment) ────────────────────────
+// ─── Exercise Picker ──────────────────────────────────────────
 function ExercisePicker({ onSelect, onClose }: {
   onSelect: (name: string, muscleGroup: string, equipment: string) => void;
   onClose: () => void;
 }) {
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const modal = { overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'flex-end' as const }, sheet: { backgroundColor: T.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24 }, title: { fontSize: 20, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.5, marginBottom: 6 }, searchBox: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16, borderWidth: 1, borderColor: T.border }, searchInput: { flex: 1, fontSize: 14, color: T.text1 }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }, rowText: { flex: 1, fontSize: 14, color: T.text1, fontWeight: '500' as const }, cancelBtn: { padding: 14, alignItems: 'center' as const, marginTop: 4 }, cancelText: { fontSize: 14, color: T.text3 } };
   const [search, setSearch] = useState('');
-  const [selectedEx, setSelectedEx] = useState<ExerciseData | null>(null);
-  const filtered = EXERCISE_DB.filter(e => search === '' || e.name.toLowerCase().includes(search.toLowerCase()));
-
-  if (selectedEx) {
-    return (
-      <Modal visible transparent animationType="slide">
-        <View style={s.modalOverlay}>
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>{selectedEx.name}</Text>
-            <Text style={[s.inputLabel, { marginBottom: 12 }]}>Gerät / Variante wählen</Text>
-            {selectedEx.equipment.map(eq => (
-              <TouchableOpacity key={eq} style={{ backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 14, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: theme.border }}
-                onPress={() => { onSelect(selectedEx.name, selectedEx.muscleGroup, eq); }}>
-                <Text style={{ fontSize: 15, color: theme.textPrimary, fontWeight: '500' }}>{eq}</Text>
-                <IconChevronRight color={theme.textTertiary} size={16} />
-              </TouchableOpacity>
-            ))}
-            {/* Secondary muscle info */}
-            {selectedEx.secondary.length > 0 && (
-              <View style={{ backgroundColor: theme.blueLight, borderRadius: 10, padding: 10, marginTop: 4, borderWidth: 1, borderColor: theme.blue + '30' }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: theme.blue, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.8 }}>Auch beansprucht</Text>
-                {selectedEx.secondary.map(s => (
-                  <Text key={s.muscle} style={{ fontSize: 12, color: theme.textSecondary, marginBottom: 2 }}>
-                    {s.muscle} – {Math.round(s.weight * 100)}% Belastung
-                  </Text>
-                ))}
-              </View>
-            )}
-            <TouchableOpacity style={[s.cancelBtn, { marginTop: 8 }]} onPress={() => setSelectedEx(null)}><Text style={s.cancelBtnText}>← Zurück</Text></TouchableOpacity>
-            <TouchableOpacity style={s.cancelBtn} onPress={onClose}><Text style={s.cancelBtnText}>Abbrechen</Text></TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    );
-  }
-
+  const exercises = ALL_EXERCISES ?? [];
+  const filtered = search.length > 0 ? exercises.filter(e => e.name.toLowerCase().includes(search.toLowerCase())) : exercises.slice(0, 30);
   return (
     <Modal visible transparent animationType="slide">
-      <View style={s.modalOverlay}>
-        <ScrollView>
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>Übung wählen</Text>
-            <TextInput style={[s.input, { marginBottom: 16 }]} placeholder="Suchen..." placeholderTextColor={theme.textTertiary} value={search} onChangeText={setSearch} />
-            {MUSCLE_GROUPS.map(mg => {
-              const exs = filtered.filter(e => e.muscleGroup === mg);
-              if (exs.length === 0) return null;
-              return (
-                <View key={mg} style={{ marginBottom: 14 }}>
-                  <Text style={[s.inputLabel, { color: MUSCLE_COLORS[mg], marginBottom: 8 }]}>{mg}</Text>
-                  <View style={{ gap: 6 }}>
-                    {exs.map(ex => (
-                      <TouchableOpacity key={ex.name} style={{ backgroundColor: theme.cardSecondary, borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: theme.border }}
-                        onPress={() => ex.equipment.length === 1 ? onSelect(ex.name, ex.muscleGroup, ex.equipment[0]) : setSelectedEx(ex)}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>{ex.name}</Text>
-                          {ex.secondary.length > 0 && (
-                            <Text style={{ fontSize: 10, color: theme.textTertiary, marginTop: 2 }}>
-                              + {ex.secondary.map(s => s.muscle).join(', ')}
-                            </Text>
-                          )}
-                        </View>
-                        <Text style={{ fontSize: 11, color: theme.textSecondary, marginRight: 8 }}>{ex.equipment.length > 1 ? `${ex.equipment.length} Varianten` : ex.equipment[0]}</Text>
-                        <IconChevronRight color={theme.textTertiary} size={14} />
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-              );
-            })}
-            <TouchableOpacity style={s.cancelBtn} onPress={onClose}><Text style={s.cancelBtnText}>Abbrechen</Text></TouchableOpacity>
+      <View style={modal.overlay}>
+        <View style={[modal.sheet, { maxHeight: '85%' }]}>
+          <Text style={modal.title}>Übung hinzufügen</Text>
+          <View style={modal.searchBox}>
+            <IconSearch />
+            <TextInput style={modal.searchInput} placeholder="Übung suchen..." placeholderTextColor={T.text4} value={search} onChangeText={setSearch} autoFocus />
           </View>
-        </ScrollView>
+          <ScrollView showsVerticalScrollIndicator={false}>
+            {filtered.map(ex => (
+              <TouchableOpacity key={ex.id} style={modal.row} onPress={() => onSelect(ex.name, ex.category, '')}>
+                <View style={{ flex: 1 }}>
+                  <Text style={modal.rowText}>{ex.name}</Text>
+                  <Text style={{ fontSize: 11, color: T.text4, marginTop: 2 }}>{ex.category}</Text>
+                </View>
+                <IconChevronRight />
+              </TouchableOpacity>
+            ))}
+            {search === '' && <Text style={{ color: T.text4, textAlign: 'center', padding: 16, fontSize: 12 }}>Tippe um alle {exercises.length} Übungen zu suchen</Text>}
+          </ScrollView>
+          <TouchableOpacity style={modal.cancelBtn} onPress={onClose}>
+            <Text style={modal.cancelText}>Abbrechen</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </Modal>
   );
 }
 
-// ─── PREntryScreen ────────────────────────────────────────────
-function PREntryScreen({ onClose, onSave }: { onClose: () => void; onSave: (name: string, weight: number, reps: number) => void }) {
-  const [step, setStep] = useState<'exercise'|'entry'>('exercise');
-  const [selectedExercise, setSelectedExercise] = useState('');
-  const [selectedReps, setSelectedReps] = useState(1);
-  const [weight, setWeight] = useState('');
-  const [search, setSearch] = useState('');
-  const filtered = EXERCISE_DB.filter(e => search === '' || e.name.toLowerCase().includes(search.toLowerCase()));
-  function handleSave() {
-    const w = parseFloat(weight);
-    if (!w || w <= 0) { Alert.alert('Bitte Gewicht eingeben'); return; }
-    onSave(selectedExercise, w, selectedReps); onClose();
-  }
+// ─── PR Screen ────────────────────────────────────────────────
+function PRScreen({ prHistory, onClose, onAdd, onEdit }: {
+  prHistory: PRHistory;
+  onClose: () => void;
+  onAdd: () => void;
+  onEdit: (name: string, weight: number, reps: number) => void;
+}) {
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const entries = Object.entries(prHistory).sort(
+    (a, b) => (b[1][b[1].length - 1]?.estimated1RM ?? 0) - (a[1][a[1].length - 1]?.estimated1RM ?? 0)
+  );
+  const rankColors = ['#FFD700', '#999999', '#CD7F32'];
+  const rankBg = ['rgba(255,215,0,0.08)', 'rgba(192,192,192,0.06)', 'rgba(205,127,50,0.08)'];
+  const rankBorder = ['rgba(255,215,0,0.2)', 'rgba(192,192,192,0.15)', 'rgba(205,127,50,0.2)'];
   return (
     <Modal visible animationType="slide">
-      <View style={{ flex: 1, backgroundColor: theme.bg }}>
-        <View style={prEntry.header}>
-          <TouchableOpacity onPress={onClose} style={prEntry.closeBtn}><IconClose color={theme.textPrimary} size={16} /></TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={prEntry.eyebrow}>Personal Record</Text>
-            <Text style={prEntry.title}>{step === 'exercise' ? 'Übung wählen' : selectedExercise}</Text>
+      <View style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ paddingTop: 60, paddingHorizontal: 20, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: T.borderSoft, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+          <View>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 5 }}>Bestleistungen</Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }}>Records</Text>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            <TouchableOpacity onPress={onAdd} style={{ backgroundColor: T.orange, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: T.white }}>+ Eintragen</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onClose} style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: T.cardAlt, borderWidth: 1, borderColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
+              <IconClose />
+            </TouchableOpacity>
           </View>
         </View>
-        {step === 'exercise' ? (
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <View style={{ padding: 16 }}>
-              <View style={prEntry.searchBox}>
-                <IconSearch color={theme.textTertiary} size={18} />
-                <TextInput style={prEntry.searchInput} placeholder="Übung suchen..." placeholderTextColor={theme.textTertiary} value={search} onChangeText={setSearch} />
-              </View>
-              {MUSCLE_GROUPS.map(mg => {
-                const exs = filtered.filter(e => e.muscleGroup === mg);
-                if (exs.length === 0) return null;
-                return (
-                  <View key={mg} style={{ marginBottom: 16 }}>
-                    <Text style={[prEntry.muscleLabel, { color: MUSCLE_COLORS[mg] }]}>{mg}</Text>
-                    {exs.map(ex => (
-                      <TouchableOpacity key={ex.name} style={prEntry.exRow} onPress={() => { setSelectedExercise(ex.name); setStep('entry'); }} activeOpacity={0.8}>
-                        <View style={[prEntry.exDot, { backgroundColor: MUSCLE_COLORS[mg] }]} />
-                        <Text style={prEntry.exName}>{ex.name}</Text>
-                        <IconChevronRight color={theme.textTertiary} size={16} />
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                );
-              })}
-              <View style={{ height: 60 }} />
-            </View>
-          </ScrollView>
+        {entries.length === 0 ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+            <IconTrophy size={40} color={T.text4} />
+            <Text style={{ fontSize: 18, fontWeight: '700', color: T.text1 }}>Noch keine PRs</Text>
+            <Text style={{ fontSize: 13, color: T.text3 }}>Trage deinen ersten PR ein</Text>
+          </View>
         ) : (
-          <ScrollView showsVerticalScrollIndicator={false}>
-            <View style={{ padding: 16 }}>
-              <Text style={prEntry.sectionLabel}>Wiederholungen</Text>
-              <View style={prEntry.repsRow}>
-                {[1,2,3].map(r => (
-                  <TouchableOpacity key={r} style={[prEntry.repsBtn, selectedReps===r && prEntry.repsBtnActive]} onPress={() => setSelectedReps(r)} activeOpacity={0.8}>
-                    <Text style={[prEntry.repsBtnNum, selectedReps===r && { color:'#fff' }]}>{r}</Text>
-                    <Text style={[prEntry.repsBtnLabel, selectedReps===r && { color:'rgba(255,255,255,0.6)' }]}>{r===1?'Rep':'Reps'}</Text>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 60 }}>
+            {entries.map(([name, history], i) => {
+              const latest = history[history.length - 1];
+              const prev = history.length > 1 ? history[history.length - 2] : null;
+              const delta = prev ? Math.round(latest.estimated1RM - prev.estimated1RM) : null;
+              return (
+                <View key={name} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: T.borderSoft }}>
+                  <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: rankBg[i] ?? T.cardAlt, borderWidth: 1, borderColor: rankBorder[i] ?? T.border, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: rankColors[i] ?? T.text4 }}>#{i + 1}</Text>
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: T.text1 }} numberOfLines={1}>{name}</Text>
+                    <Text style={{ fontSize: 11, color: T.text4, marginTop: 2 }}>{latest.weight} kg × {latest.reps} · {new Date(latest.date).toLocaleDateString('de', { day: '2-digit', month: '2-digit', year: '2-digit' })}</Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end', marginRight: 8, flexShrink: 0 }}>
+                    <Text style={{ fontSize: 17, fontWeight: '800', color: T.text1, letterSpacing: -0.3 }}>{Math.round(latest.estimated1RM)} kg</Text>
+                    <Text style={{ fontSize: 9, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 1 }}>1RM</Text>
+                  </View>
+                  {delta !== null && (
+                    <View style={{ backgroundColor: delta >= 0 ? 'rgba(52,199,89,0.08)' : 'rgba(255,59,48,0.08)', borderWidth: 1, borderColor: delta >= 0 ? 'rgba(52,199,89,0.15)' : 'rgba(255,59,48,0.15)', borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4, flexShrink: 0 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: delta >= 0 ? T.green : T.red }}>{delta >= 0 ? '+' : ''}{delta} kg</Text>
+                    </View>
+                  )}
+                  <TouchableOpacity onPress={() => onEdit(name, latest.weight, latest.reps)} style={{ width: 30, height: 30, borderRadius: 8, backgroundColor: T.cardAlt, borderWidth: 1, borderColor: T.border, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <IconEdit size={13} color={T.text4} />
                   </TouchableOpacity>
-                ))}
-              </View>
-              <Text style={[prEntry.sectionLabel, { marginTop: 24 }]}>Gewicht</Text>
-              <View style={prEntry.weightRow}>
-                <TextInput style={prEntry.weightInput} value={weight} onChangeText={setWeight} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={theme.textTertiary} autoFocus />
-                <Text style={prEntry.weightUnit}>kg</Text>
-              </View>
-              {weight!==''&&parseFloat(weight)>0&&(
-                <View style={prEntry.previewCard}>
-                  <Text style={prEntry.previewLabel}>Est. 1RM</Text>
-                  <Text style={prEntry.previewVal}>{calc1RM(parseFloat(weight),selectedReps)} kg</Text>
                 </View>
-              )}
-              <TouchableOpacity style={prEntry.saveBtn} onPress={handleSave} activeOpacity={0.85}><Text style={prEntry.saveBtnText}>PR speichern</Text></TouchableOpacity>
-              <TouchableOpacity style={{ padding:14,alignItems:'center' }} onPress={() => setStep('exercise')}><Text style={{ fontSize:14,color:theme.textSecondary }}>Andere Übung</Text></TouchableOpacity>
-              <View style={{ height: 60 }} />
-            </View>
+              );
+            })}
           </ScrollView>
         )}
       </View>
@@ -953,55 +854,86 @@ function PREntryScreen({ onClose, onSave }: { onClose: () => void; onSave: (name
   );
 }
 
-// ─── PRScreen ─────────────────────────────────────────────────
-function PRScreen({ prHistory, onClose, onAddPR }: { prHistory: PRHistory; onClose: () => void; onAddPR: () => void }) {
-  const entries = Object.entries(prHistory).sort((a,b) => (b[1][b[1].length-1]?.estimated1RM??0)-(a[1][a[1].length-1]?.estimated1RM??0));
+// ─── PR Entry Screen ──────────────────────────────────────────
+function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: {
+  onClose: () => void;
+  onSave: (name: string, weight: number, reps: number) => void;
+  editExercise?: string;
+  editWeight?: number;
+  editReps?: number;
+}) {
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const isEdit = !!editExercise;
+  const [step, setStep] = useState<'exercise' | 'entry'>(isEdit ? 'entry' : 'exercise');
+  const [exercise, setExercise] = useState(editExercise ?? '');
+  const [reps, setReps] = useState<1 | 2 | 3>((editReps === 1 || editReps === 2 || editReps === 3) ? editReps : 1);
+  const [weight, setWeight] = useState(editWeight ? String(editWeight) : '');
+  const [search, setSearch] = useState('');
+  const filtered = ALL_EXERCISES.filter(e => search === '' || e.name.toLowerCase().includes(search.toLowerCase()));
+  const estimated1RM = weight !== '' && parseFloat(weight) > 0 ? calc1RM(parseFloat(weight), reps) : null;
   return (
     <Modal visible animationType="slide">
-      <View style={{ flex: 1, backgroundColor: theme.bg }}>
-        <View style={hist.header}>
-          <View><Text style={hist.eyebrow}>Bestleistungen</Text><Text style={hist.title}>Personal Records</Text></View>
-          <TouchableOpacity style={hist.closeBtn} onPress={onClose}><IconClose color={theme.textPrimary} size={16} /></TouchableOpacity>
-        </View>
-        <TouchableOpacity style={prSt.addBtn} onPress={onAddPR} activeOpacity={0.85}>
-          <IconPlus color="#fff" size={18} /><Text style={prSt.addBtnText}>PR eintragen</Text>
-        </TouchableOpacity>
-        {entries.length===0 ? (
-          <View style={{ flex:1,alignItems:'center',justifyContent:'center',gap:14 }}>
-            <IconTrophy color={theme.textTertiary} size={40} />
-            <Text style={{ fontSize:20,fontWeight:'700',color:theme.textPrimary }}>Noch keine PRs</Text>
+      <View style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ paddingTop: 60, paddingHorizontal: 20, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: T.borderSoft, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', backgroundColor: T.card }}>
+          <View>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 5 }}>{isEdit ? 'PR bearbeiten' : 'Personal Record'}</Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }}>{step === 'exercise' ? 'Übung wählen' : exercise}</Text>
           </View>
-        ) : (
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding:16 }}>
-            {entries.map(([name,history],i) => {
-              const latest=history[history.length-1];
-              const prev=history.length>1?history[history.length-2]:null;
-              const delta=prev?latest.estimated1RM-prev.estimated1RM:null;
-              const rankColors=['#FFD700','#C0C0C0','#CD7F32'];
-              const rankColor=i<3?rankColors[i]:theme.border;
-              return (
-                <View key={name} style={prSt.card}>
-                  <View style={{ flexDirection:'row',alignItems:'center',gap:12,marginBottom:14 }}>
-                    <View style={[prSt.rankBadge,{backgroundColor:rankColor+'25',borderColor:rankColor}]}>
-                      <Text style={[prSt.rankText,{color:i<3?rankColor:theme.textSecondary}]}>#{i+1}</Text>
-                    </View>
-                    <View style={{ flex:1 }}>
-                      <Text style={prSt.exerciseName}>{name}</Text>
-                      <Text style={prSt.exerciseDate}>{new Date(latest.date).toLocaleDateString('de',{day:'2-digit',month:'2-digit',year:'numeric'})}</Text>
-                    </View>
-                    <View style={{ alignItems:'flex-end' }}>
-                      <Text style={prSt.oneRMVal}>{latest.estimated1RM} kg</Text>
-                      <Text style={prSt.oneRMLabel}>Est. 1RM</Text>
-                    </View>
-                  </View>
-                  <View style={{ flexDirection:'row',gap:8,marginBottom:12 }}>
-                    <View style={prSt.prStat}><Text style={prSt.prStatVal}>{latest.weight} kg</Text><Text style={prSt.prStatLbl}>Gewicht</Text></View>
-                    <View style={prSt.prStat}><Text style={prSt.prStatVal}>{latest.reps} Wdh.</Text><Text style={prSt.prStatLbl}>Wiederholungen</Text></View>
-                    {delta!==null&&(<View style={[prSt.deltaChip,{backgroundColor:delta>0?'rgba(52,199,89,0.12)':'rgba(255,69,58,0.12)'}]}>{delta>0?<IconArrowUp color={theme.green} size={12}/>:<IconArrowDown color={theme.red} size={12}/>}<Text style={[prSt.deltaText,{color:delta>0?theme.green:theme.red}]}>{delta>=0?'+':''}{delta} kg</Text></View>)}
-                  </View>
+          <TouchableOpacity onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, borderWidth: 1, borderColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
+            <IconClose />
+          </TouchableOpacity>
+        </View>
+        {step === 'exercise' ? (
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 20, borderWidth: 1, borderColor: T.border }}>
+              <IconSearch />
+              <TextInput style={{ flex: 1, fontSize: 14, color: T.text1 }} placeholder="Übung suchen..." placeholderTextColor={T.text4} value={search} onChangeText={setSearch} />
+            </View>
+            {filtered.map(ex => (
+              <TouchableOpacity key={ex.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }} onPress={() => { setExercise(ex.name); setStep('entry'); }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 14, color: T.text1, fontWeight: '500' }}>{ex.name}</Text>
+                  <Text style={{ fontSize: 11, color: T.text4, marginTop: 2 }}>{ex.category}</Text>
                 </View>
-              );
-            })}
+                <IconChevronRight />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        ) : (
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.cardAlt, borderRadius: 14, padding: 14, marginBottom: 28, borderWidth: 1, borderColor: T.border }} onPress={() => !isEdit && setStep('exercise')}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: T.orange }} />
+              <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: T.text1 }}>{exercise}</Text>
+              {!isEdit && <IconChevronRight color={T.text4} size={14} />}
+            </TouchableOpacity>
+            <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, color: T.text4, marginBottom: 12 }}>Wiederholungen</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 28 }}>
+              {([1, 2, 3] as const).map(r => {
+                const active = reps === r;
+                return (
+                  <TouchableOpacity key={r} style={{ flex: 1, backgroundColor: active ? T.orangeAlpha : T.cardAlt, borderRadius: 16, borderWidth: 1, borderColor: active ? T.orange : T.border, paddingVertical: 18, alignItems: 'center' }} onPress={() => setReps(r)} activeOpacity={0.75}>
+                    <Text style={{ fontSize: 34, fontWeight: '700', letterSpacing: -0.5, color: active ? T.orange : T.text2, marginBottom: 3 }}>{r}</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '600', color: active ? T.orange : T.text4, textTransform: 'uppercase', letterSpacing: 0.8 }}>{r === 1 ? 'Rep' : 'Reps'}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, color: T.text4, marginBottom: 12 }}>Gewicht</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, backgroundColor: T.cardAlt, borderRadius: 16, paddingHorizontal: 20, paddingVertical: 16, borderWidth: 1, borderColor: T.border, marginBottom: 14 }}>
+              <TextInput style={{ fontSize: 56, fontWeight: '800', color: T.text1, letterSpacing: -2, flex: 1, padding: 0 }} value={weight} onChangeText={setWeight} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={T.text4} autoFocus={!isEdit} returnKeyType="done" />
+              <Text style={{ fontSize: 20, color: T.text4, fontWeight: '600' }}>kg</Text>
+            </View>
+            {estimated1RM !== null && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: T.orangeAlpha, borderRadius: 12, borderWidth: 1, borderColor: T.orangeBorder, paddingHorizontal: 16, paddingVertical: 12, marginBottom: 24 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2, color: T.orange }}>Est. 1RM</Text>
+                <Text style={{ fontSize: 20, fontWeight: '800', color: T.orange }}>{estimated1RM} kg</Text>
+              </View>
+            )}
+            <TouchableOpacity style={{ backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center', justifyContent: 'center' }} onPress={() => { const w = parseFloat(weight); if (!w || w <= 0) { Alert.alert('Bitte Gewicht eingeben'); return; } onSave(exercise, w, reps); onClose(); }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: T.white }}>{isEdit ? 'PR aktualisieren' : 'PR speichern'}</Text>
+            </TouchableOpacity>
+            {!isEdit && <TouchableOpacity style={{ padding: 14, alignItems: 'center', marginTop: 4 }} onPress={() => setStep('exercise')}><Text style={{ fontSize: 13, color: T.text3 }}>Andere Übung wählen</Text></TouchableOpacity>}
             <View style={{ height: 60 }} />
           </ScrollView>
         )}
@@ -1010,265 +942,74 @@ function PRScreen({ prHistory, onClose, onAddPR }: { prHistory: PRHistory; onClo
   );
 }
 
-// ─── WorkoutDetailScreen ──────────────────────────────────────
-function WorkoutDetailScreen({ item, onClose }: { item: any; onClose: () => void }) {
-  const isRun = item._kind === 'run';
-  const r = isRun ? item.data as RunData : null;
-  const w = !isRun ? item.data as Workout : null;
-  return (
-    <Modal visible animationType="slide">
-      <View style={{ flex:1,backgroundColor:theme.bg }}>
-        <View style={{ backgroundColor:theme.card,paddingTop:56,paddingHorizontal:16,paddingBottom:16,borderBottomWidth:0.5,borderBottomColor:theme.border }}>
-          <View style={{ flexDirection:'row',alignItems:'flex-start',gap:12,marginBottom:14 }}>
-            <TouchableOpacity style={{ width:36,height:36,borderRadius:18,backgroundColor:theme.cardSecondary,alignItems:'center',justifyContent:'center',marginTop:4 }} onPress={onClose}>
-              <IconChevronLeft color={theme.textPrimary} size={20} />
-            </TouchableOpacity>
-            <View style={{ flex:1 }}>
-              <Text style={{ fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 }}>{isRun?'Lauf':'Kraft'} · {formatDateLabel(item.data.date)}</Text>
-              <Text style={{ fontSize:22,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.5 }}>{isRun?'Lauftraining':w?.name}</Text>
-            </View>
-            {!isRun&&w?.score!==undefined&&(<View style={{ backgroundColor:theme.orangeLight,borderRadius:20,paddingHorizontal:12,paddingVertical:6,borderWidth:1,borderColor:theme.orangeBorder }}><Text style={{ fontSize:12,fontWeight:'700',color:theme.orange }}>Score {w.score}</Text></View>)}
-          </View>
-          <View style={{ flexDirection:'row',gap:6 }}>
-            {isRun&&r?(<><View style={detailStat}><Text style={{ fontSize:16,fontWeight:'700',color:theme.green }}>{r.distance.toFixed(2)}</Text><Text style={detailStatLbl}>km</Text></View><View style={detailStat}><Text style={{ fontSize:16,fontWeight:'700',color:theme.blue }}>{formatTime(r.duration)}</Text><Text style={detailStatLbl}>Zeit</Text></View><View style={detailStat}><Text style={{ fontSize:16,fontWeight:'700',color:theme.orange }}>{r.pace}</Text><Text style={detailStatLbl}>/km</Text></View></>)
-            :w?(<><View style={detailStat}><Text style={{ fontSize:16,fontWeight:'700',color:theme.orange }}>{w.exercises?.length??0}</Text><Text style={detailStatLbl}>Übungen</Text></View><View style={detailStat}><Text style={{ fontSize:16,fontWeight:'700',color:theme.blue }}>{w.exercises?.reduce((s,ex)=>s+ex.sets.length,0)??0}</Text><Text style={detailStatLbl}>Sets</Text></View><View style={detailStat}><Text style={{ fontSize:16,fontWeight:'700',color:theme.pink }}>{Math.round(w.exercises?.reduce((t,ex)=>t+ex.sets.reduce((s,set)=>s+parseFloat(set.reps||'0')*parseFloat(set.weight||'0'),0),0)??0).toLocaleString()}</Text><Text style={detailStatLbl}>kg Vol.</Text></View></>):null}
-          </View>
-        </View>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding:14 }}>
-          {!isRun&&w?.exercises?.map((exercise,i)=>{
-            const mc=MUSCLE_COLORS[exercise.muscleGroup]||'#888';
-            const best1RM=getBest1RM(exercise.sets);
-            const exData=EXERCISE_DB.find(e=>e.name===exercise.name);
-            return (
-              <View key={i} style={{ backgroundColor:theme.card,borderRadius:16,padding:14,marginBottom:8,borderWidth:0.5,borderColor:theme.border }}>
-                <View style={{ flexDirection:'row',alignItems:'center',gap:8,marginBottom:8 }}>
-                  <View style={{ backgroundColor:mc+'22',borderRadius:20,paddingHorizontal:10,paddingVertical:3 }}><Text style={{ fontSize:10,fontWeight:'600',color:mc }}>{exercise.muscleGroup}</Text></View>
-                  <Text style={{ flex:1,fontSize:14,fontWeight:'700',color:theme.textPrimary }}>{exercise.name}</Text>
-                  {exercise.equipment&&<View style={{ backgroundColor:theme.cardSecondary,borderRadius:8,paddingHorizontal:8,paddingVertical:3 }}><Text style={{ fontSize:10,color:theme.textTertiary }}>{exercise.equipment}</Text></View>}
-                  {best1RM>0&&<Text style={{ fontSize:11,color:theme.textSecondary }}>1RM: <Text style={{ color:theme.blue,fontWeight:'600' }}>{best1RM} kg</Text></Text>}
-                </View>
-                {exData&&exData.secondary.length>0&&(
-                  <Text style={{ fontSize:10,color:theme.textTertiary,marginBottom:8 }}>
-                    + {exData.secondary.map(s=>`${s.muscle} (${Math.round(s.weight*100)}%)`).join(' · ')}
-                  </Text>
-                )}
-                {exercise.sets.map((set,si)=>{
-                  const oneRM=calc1RM(parseFloat(set.weight||'0'),parseFloat(set.reps||'0'));
-                  const isBest=oneRM===best1RM&&best1RM>0;
-                  return (
-                    <View key={si} style={{ flexDirection:'row',gap:4,marginBottom:4 }}>
-                      <Text style={{ fontSize:12,color:theme.textTertiary,width:20,textAlign:'center' }}>{si+1}</Text>
-                      <Text style={{ fontSize:12,fontWeight:'600',color:theme.textPrimary,flex:1,textAlign:'center' }}>{set.reps||'—'}</Text>
-                      <Text style={{ fontSize:12,fontWeight:'600',color:theme.textPrimary,flex:1,textAlign:'center' }}>{set.weight||'—'}</Text>
-                      <Text style={{ fontSize:12,fontWeight:'600',flex:1,textAlign:'center',color:isBest?theme.green:theme.blue }}>{oneRM>0?oneRM:'—'}{isBest?' ↑':''}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            );
-          })}
-          <View style={{ height:60 }} />
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-const detailStat: any = { flex:1,backgroundColor:'rgba(255,255,255,0.04)',borderRadius:10,padding:10,alignItems:'center' };
-const detailStatLbl: any = { fontSize:8,color:'rgba(245,240,238,0.3)',textTransform:'uppercase',letterSpacing:0.4,marginTop:2 };
-
-// ─── HistoryScreen ────────────────────────────────────────────
-function HistoryScreen({ onClose, prHistory, onDelete }: { onClose: () => void; prHistory: PRHistory; onDelete: (id: string) => void }) {
-  const [filter, setFilter] = useState<'alle'|'kraft'|'judo'|'lauf'>('alle');
+// ─── History Screen ───────────────────────────────────────────
+function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (id: string) => void }) {
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border }, backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border, marginTop: 4 } };
+  const hist = { card: { backgroundColor: T.card, borderRadius: 18, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }, stat: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border }, statVal: { fontSize: 13, fontWeight: '700' as const }, statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.3, marginTop: 2 } };
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [runs, setRuns] = useState<RunData[]>([]);
-  const [selectedItem, setSelectedItem] = useState<any>(null);
   useEffect(() => {
-    AsyncStorage.getItem('workouts').then(r=>r&&setWorkouts(JSON.parse(r)));
-    AsyncStorage.getItem('runs').then(r=>r&&setRuns(JSON.parse(r)));
+    AsyncStorage.getItem('workouts').then(r => r && setWorkouts(JSON.parse(r)));
+    AsyncStorage.getItem('runs').then(r => r && setRuns(JSON.parse(r)));
   }, []);
-  const FILTERS = [{ key:'alle',label:'Alle' },{ key:'kraft',label:'Kraft' },{ key:'judo',label:'Judo' },{ key:'lauf',label:'Lauf' }] as const;
-  type HItem = { _kind:'workout';data:Workout }|{ _kind:'run';data:RunData };
-  const allItems: HItem[] = [...workouts.map(w=>({_kind:'workout' as const,data:w})),...runs.map(r=>({_kind:'run' as const,data:r}))].sort((a,b)=>new Date(b.data.date).getTime()-new Date(a.data.date).getTime());
-  const filtered = allItems.filter(item=>{
-    if(filter==='alle')return true;
-    if(item._kind==='run')return filter==='lauf';
-    if(filter==='kraft')return item.data.type==='gym';
-    if(filter==='judo')return item.data.type==='judo';
-    return true;
-  });
-  async function handleDelete(item: HItem) {
-    Alert.alert('Training löschen','Wirklich löschen?',[{text:'Abbrechen',style:'cancel'},{text:'Löschen',style:'destructive',onPress:async()=>{
-      if(item._kind==='workout'){const u=workouts.filter(w=>w.id!==item.data.id);setWorkouts(u);await AsyncStorage.setItem('workouts',JSON.stringify(u));onDelete(item.data.id);}
-      else{const u=runs.filter(r=>r.id!==item.data.id);setRuns(u);await AsyncStorage.setItem('runs',JSON.stringify(u));}
+  type Item = { _kind: 'workout'; data: Workout } | { _kind: 'run'; data: RunData };
+  const all: Item[] = [...workouts.map(w => ({ _kind: 'workout' as const, data: w })), ...runs.map(r => ({ _kind: 'run' as const, data: r }))].sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
+  async function handleDelete(item: Item) {
+    Alert.alert('Training löschen', 'Wirklich löschen?', [{ text: 'Abbrechen', style: 'cancel' }, { text: 'Löschen', style: 'destructive', onPress: async () => {
+      if (item._kind === 'workout') { const u = workouts.filter(w => w.id !== item.data.id); setWorkouts(u); await AsyncStorage.setItem('workouts', JSON.stringify(u)); onDelete(item.data.id); }
+      else { const u = runs.filter(r => r.id !== item.data.id); setRuns(u); await AsyncStorage.setItem('runs', JSON.stringify(u)); }
     }}]);
   }
-  const typeConfig: Record<string,{color:string;label:string}> = { gym:{color:theme.orange,label:'Kraft'},judo:{color:theme.blue,label:'Judo'},manual:{color:theme.textSecondary,label:'Sonstiges'},run:{color:theme.green,label:'Lauf'} };
-  if (selectedItem) return <WorkoutDetailScreen item={selectedItem} onClose={()=>setSelectedItem(null)} />;
   return (
     <Modal visible animationType="slide">
-      <View style={{ flex:1,backgroundColor:theme.bg }}>
-        <View style={{ backgroundColor:theme.card,paddingTop:60,paddingHorizontal:20,paddingBottom:16,borderBottomWidth:0.5,borderBottomColor:theme.border }}>
-          <View style={{ flexDirection:'row',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14 }}>
-            <View><Text style={{ fontSize:10,fontWeight:'700',letterSpacing:1.2,textTransform:'uppercase',color:theme.orange,marginBottom:4 }}>Training</Text><Text style={{ fontSize:26,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.6 }}>Verlauf</Text></View>
-            <TouchableOpacity style={{ width:36,height:36,borderRadius:18,backgroundColor:theme.cardSecondary,alignItems:'center',justifyContent:'center' }} onPress={onClose}><IconClose color={theme.textPrimary} size={16} /></TouchableOpacity>
+      <View style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={screen.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={screen.eyebrow}>Training</Text>
+            <Text style={screen.title}>Verlauf</Text>
           </View>
-          <View style={{ flexDirection:'row',gap:6 }}>
-            <View style={{ backgroundColor:theme.orangeLight,borderRadius:20,paddingHorizontal:12,paddingVertical:6,borderWidth:1,borderColor:theme.orangeBorder }}><Text style={{ fontSize:12,fontWeight:'700',color:theme.orange }}>{workouts.filter(w=>w.type==='gym').length} Kraft</Text></View>
-            <View style={{ backgroundColor:theme.greenLight,borderRadius:20,paddingHorizontal:12,paddingVertical:6,borderWidth:1,borderColor:theme.green+'40' }}><Text style={{ fontSize:12,fontWeight:'700',color:theme.green }}>{runs.length} Läufe</Text></View>
-            <View style={{ backgroundColor:theme.cardSecondary,borderRadius:20,paddingHorizontal:12,paddingVertical:6,borderWidth:1,borderColor:theme.border }}><Text style={{ fontSize:12,fontWeight:'700',color:theme.textSecondary }}>{allItems.length} Total</Text></View>
-          </View>
+          <TouchableOpacity style={screen.closeBtn} onPress={onClose}><IconClose /></TouchableOpacity>
         </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border,maxHeight:50 }} contentContainerStyle={{ paddingHorizontal:16,paddingVertical:10,gap:6,flexDirection:'row' }}>
-          {FILTERS.map(f=>(<TouchableOpacity key={f.key} style={{ borderRadius:20,paddingHorizontal:14,paddingVertical:6,backgroundColor:filter===f.key?theme.orange:theme.cardSecondary }} onPress={()=>setFilter(f.key)}><Text style={{ fontSize:12,fontWeight:'600',color:filter===f.key?'#fff':theme.textSecondary }}>{f.label}</Text></TouchableOpacity>))}
-        </ScrollView>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding:14 }}>
-          {filtered.length===0&&(<View style={{ alignItems:'center',paddingVertical:60,gap:12 }}><View style={{ width:72,height:72,borderRadius:36,backgroundColor:theme.cardSecondary,alignItems:'center',justifyContent:'center' }}><IconHistory color={theme.textTertiary} size={32} /></View><Text style={{ fontSize:17,fontWeight:'700',color:theme.textPrimary }}>Keine Trainings gefunden</Text></View>)}
-          {filtered.map((item,i)=>{
-            const isRun=item._kind==='run';
-            const r=isRun?item.data as RunData:null;
-            const w=!isRun?item.data as Workout:null;
-            const tc=isRun?typeConfig.run:typeConfig[w?.type??'manual'];
-            const totalVolume=w?.exercises?.reduce((t,ex)=>t+ex.sets.reduce((s,set)=>s+parseFloat(set.reps||'0')*parseFloat(set.weight||'0'),0),0)??0;
-            const totalSets=w?.exercises?.reduce((s,ex)=>s+ex.sets.length,0)??0;
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
+          {all.length === 0 && <Text style={{ color: T.text3, textAlign: 'center', marginTop: 60 }}>Noch keine Einheiten</Text>}
+          {all.map((item, i) => {
+            const isRun = item._kind === 'run';
+            const w = !isRun ? item.data as Workout : null;
+            const r = isRun ? item.data as RunData : null;
+            const vol = w?.exercises?.reduce((t, ex) => t + ex.sets.reduce((s, set) => s + parseFloat(set.reps || '0') * parseFloat(set.weight || '0'), 0), 0) ?? 0;
             return (
-              <TouchableOpacity key={i} activeOpacity={0.88} onPress={()=>setSelectedItem(item)} style={{ backgroundColor:theme.card,borderRadius:18,padding:14,marginBottom:8,borderWidth:0.5,borderColor:theme.border }}>
-                <View style={{ flexDirection:'row',alignItems:'center',gap:8,marginBottom:10 }}>
-                  <View style={{ width:8,height:8,borderRadius:4,backgroundColor:tc.color }} />
-                  <Text style={{ fontSize:10,fontWeight:'700',color:tc.color,textTransform:'uppercase',letterSpacing:0.4 }}>{tc.label}</Text>
-                  <Text style={{ fontSize:11,color:theme.textSecondary }}>{formatDateLabel(item.data.date)}</Text>
-                  {!isRun&&w?.score!==undefined&&w.score>0&&(<View style={{ marginLeft:'auto' as any,flexDirection:'row',alignItems:'center',gap:3,backgroundColor:theme.orangeLight,borderRadius:20,paddingHorizontal:8,paddingVertical:3,borderWidth:1,borderColor:theme.orangeBorder }}><Text style={{ fontSize:10,fontWeight:'700',color:theme.orange }}>⚡ {w.score}</Text></View>)}
-                  <TouchableOpacity style={{ marginLeft:'auto' as any,width:28,height:28,borderRadius:14,backgroundColor:'rgba(255,69,58,0.1)',alignItems:'center',justifyContent:'center' }} onPress={e=>{e.stopPropagation?.();handleDelete(item);}}><IconTrash color={theme.red} size={14} /></TouchableOpacity>
+              <View key={i} style={hist.card}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: isRun ? T.green : T.orange }} />
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: isRun ? T.green : T.orange, textTransform: 'uppercase', letterSpacing: 0.4 }}>{isRun ? 'Lauf' : 'Kraft'}</Text>
+                  <Text style={{ fontSize: 11, color: T.text3 }}>{formatDateLabel(item.data.date)}</Text>
+                  <TouchableOpacity style={{ marginLeft: 'auto' as any, width: 28, height: 28, borderRadius: 14, backgroundColor: T.redAlpha, alignItems: 'center', justifyContent: 'center' }} onPress={() => handleDelete(item)}>
+                    <IconTrash size={14} />
+                  </TouchableOpacity>
                 </View>
-                <Text style={{ fontSize:16,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.3,marginBottom:10 }}>{isRun?'Lauftraining':w?.name}</Text>
-                <View style={{ flexDirection:'row',gap:5 }}>
-                  {isRun&&r?(<><View style={histStat}><Text style={[histStatVal,{color:theme.green}]}>{r.distance.toFixed(1)}</Text><Text style={histStatLbl}>km</Text></View><View style={histStat}><Text style={[histStatVal,{color:theme.blue}]}>{formatTime(r.duration)}</Text><Text style={histStatLbl}>Zeit</Text></View><View style={histStat}><Text style={[histStatVal,{color:theme.orange}]}>{r.pace}</Text><Text style={histStatLbl}>/km</Text></View></>)
-                  :(<><View style={histStat}><Text style={[histStatVal,{color:theme.orange}]}>{w?.duration}</Text><Text style={histStatLbl}>min</Text></View><View style={histStat}><Text style={[histStatVal,{color:theme.blue}]}>{Math.round(totalVolume).toLocaleString()}</Text><Text style={histStatLbl}>kg Vol.</Text></View><View style={histStat}><Text style={[histStatVal,{color:theme.pink}]}>{totalSets}</Text><Text style={histStatLbl}>Sets</Text></View><View style={histStat}><Text style={[histStatVal,{color:theme.green}]}>{w?.exercises?.length??0}</Text><Text style={histStatLbl}>Üb.</Text></View></>)}
+                <Text style={{ fontSize: 16, fontWeight: '800', color: T.text1, letterSpacing: -0.3, marginBottom: 10 }}>{isRun ? 'Lauftraining' : w?.name}</Text>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {isRun && r ? (
+                    <>
+                      <View style={hist.stat}><Text style={[hist.statVal, { color: T.green }]}>{r.distance.toFixed(1)}</Text><Text style={hist.statLbl}>km</Text></View>
+                      <View style={hist.stat}><Text style={[hist.statVal, { color: T.blue }]}>{formatTime(r.duration)}</Text><Text style={hist.statLbl}>Zeit</Text></View>
+                      <View style={hist.stat}><Text style={[hist.statVal, { color: T.orange }]}>{r.pace}</Text><Text style={hist.statLbl}>/km</Text></View>
+                    </>
+                  ) : (
+                    <>
+                      <View style={hist.stat}><Text style={[hist.statVal, { color: T.orange }]}>{w?.duration}</Text><Text style={hist.statLbl}>min</Text></View>
+                      <View style={hist.stat}><Text style={[hist.statVal, { color: T.blue }]}>{Math.round(vol).toLocaleString()}</Text><Text style={hist.statLbl}>kg Vol.</Text></View>
+                      <View style={hist.stat}><Text style={[hist.statVal, { color: T.green }]}>{w?.exercises?.length ?? 0}</Text><Text style={hist.statLbl}>Üb.</Text></View>
+                    </>
+                  )}
                 </View>
-              </TouchableOpacity>
+              </View>
             );
           })}
           <View style={{ height: 60 }} />
         </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-const histStat: any = { flex:1,backgroundColor:'rgba(255,255,255,0.04)',borderRadius:8,padding:7,alignItems:'center' };
-const histStatVal: any = { fontSize:13,fontWeight:'700' };
-const histStatLbl: any = { fontSize:8,color:'rgba(245,240,238,0.25)',textTransform:'uppercase',letterSpacing:0.3,marginTop:2 };
-
-// ─── TrainingPlanScreen ───────────────────────────────────────
-function TrainingPlanScreen({ onClose, userMaxes }: { onClose: () => void; userMaxes: UserMaxes }) {
-  const currentWeek = getISOWeek(new Date());
-  const isMonday = new Date().getDay() === 1;
-  const [step, setStep] = useState<'loading'|'exercises'|'days'|'plan'>('loading');
-  const [selectedExercises, setSelectedExercises] = useState<string[]>([]);
-  const [selectedDays, setSelectedDays] = useState<number[]>([]);
-  const [goal, setGoal] = useState('hypertrophie');
-  const [plan, setPlan] = useState<PlanDay[]>([]);
-  useEffect(() => {
-    AsyncStorage.getItem(PLAN_STORE_KEY).then(raw => {
-      if (!raw) { setStep('exercises'); return; }
-      const saved: PlanConfig = JSON.parse(raw);
-      if (isMonday && saved.generatedWeek !== currentWeek) { setSelectedExercises(saved.exercises); setSelectedDays(saved.trainingDays); setGoal(saved.goal); setStep('exercises'); }
-      else { setPlan(buildPlan(saved, userMaxes)); setStep('plan'); }
-    });
-  }, []);
-  async function savePlan() {
-    const cfg: PlanConfig = { exercises: selectedExercises, trainingDays: selectedDays, goal, generatedWeek: currentWeek };
-    await AsyncStorage.setItem(PLAN_STORE_KEY, JSON.stringify(cfg));
-    setPlan(buildPlan(cfg, userMaxes)); setStep('plan');
-  }
-  const goals = [{ key:'hypertrophie',label:'Muskelaufbau',emoji:'💪',desc:'10 Wdh., 72% 1RM' },{ key:'kraft',label:'Stärker werden',emoji:'🏋️',desc:'4 Wdh., 85% 1RM' },{ key:'ausdauer',label:'Ausdauer',emoji:'🏃',desc:'15 Wdh., 60% 1RM' }];
-  return (
-    <Modal visible animationType="slide">
-      <View style={{ flex:1,backgroundColor:theme.bg }}>
-        <View style={hist.header}>
-          <View><Text style={hist.eyebrow}>{step==='exercises'?'Schritt 1/2':step==='days'?'Schritt 2/2':'Dein Plan'}</Text><Text style={hist.title}>{step==='exercises'?'Übungen':step==='days'?'Trainingstage':'Trainingsplan'}</Text></View>
-          <TouchableOpacity style={hist.closeBtn} onPress={onClose}><IconClose color={theme.textPrimary} size={16} /></TouchableOpacity>
-        </View>
-        {step==='exercises'&&(
-          <>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16,paddingBottom:120,paddingTop:12 }}>
-              <Text style={{ color:theme.textSecondary,fontSize:12,marginBottom:16 }}>Welche Übungen sollen im Plan sein? ({selectedExercises.length} gewählt)</Text>
-              {MUSCLE_GROUPS.map(mg=>{
-                const exs=EXERCISE_DB.filter(e=>e.muscleGroup===mg);
-                return (
-                  <View key={mg} style={{ marginBottom:16 }}>
-                    <Text style={{ color:MUSCLE_COLORS[mg],fontSize:10,fontWeight:'700',textTransform:'uppercase',letterSpacing:0.8,marginBottom:8 }}>{mg}</Text>
-                    <View style={{ flexDirection:'row',flexWrap:'wrap',gap:8 }}>
-                      {exs.map(ex=>{
-                        const active=selectedExercises.includes(ex.name);
-                        return <TouchableOpacity key={ex.name} style={{ paddingHorizontal:12,paddingVertical:8,borderRadius:20,backgroundColor:active?theme.orangeLight:theme.card,borderWidth:1.5,borderColor:active?theme.orange:theme.border,flexDirection:'row',alignItems:'center',gap:6 }} onPress={()=>setSelectedExercises(prev=>prev.includes(ex.name)?prev.filter(e=>e!==ex.name):[...prev,ex.name])} activeOpacity={0.8}>
-                          {active&&<Text style={{ fontSize:10,color:theme.orange }}>✓</Text>}
-                          <Text style={{ fontSize:13,color:active?theme.orange:theme.textPrimary,fontWeight:active?'600':'400' }}>{ex.name}</Text>
-                          {userMaxes[ex.name]&&<Text style={{ fontSize:9,color:theme.green }}>PR</Text>}
-                        </TouchableOpacity>;
-                      })}
-                    </View>
-                  </View>
-                );
-              })}
-            </ScrollView>
-            <View style={{ position:'absolute',bottom:0,left:0,right:0,padding:16,paddingBottom:34,backgroundColor:theme.bg,borderTopWidth:0.5,borderTopColor:theme.border }}>
-              <TouchableOpacity style={{ backgroundColor:selectedExercises.length>0?theme.orange:theme.cardSecondary,borderRadius:14,padding:15,alignItems:'center' }} onPress={()=>selectedExercises.length>0&&setStep('days')} activeOpacity={0.85}>
-                <Text style={{ fontSize:15,fontWeight:'700',color:selectedExercises.length>0?'#fff':theme.textTertiary }}>Weiter → {selectedExercises.length>0?`${selectedExercises.length} Übungen`:''}</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
-        {step==='days'&&(
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding:16,paddingBottom:120 }}>
-            <Text style={{ color:theme.textSecondary,fontSize:12,marginBottom:20 }}>An welchen Tagen kannst du trainieren? ({selectedDays.length} Tage)</Text>
-            <View style={{ gap:8,marginBottom:24 }}>
-              {DAY_NAMES.map((d,i)=>{
-                const active=selectedDays.includes(i);
-                return <TouchableOpacity key={i} style={{ backgroundColor:active?theme.orangeLight:theme.card,borderRadius:14,padding:16,borderWidth:1.5,borderColor:active?theme.orange:theme.border,flexDirection:'row',alignItems:'center',gap:14 }} onPress={()=>setSelectedDays(prev=>prev.includes(i)?prev.filter(x=>x!==i):[...prev,i].sort())} activeOpacity={0.85}>
-                  <View style={{ width:36,height:36,borderRadius:18,backgroundColor:active?theme.orange:theme.cardSecondary,alignItems:'center',justifyContent:'center' }}><Text style={{ fontSize:12,fontWeight:'800',color:active?'#fff':theme.textTertiary }}>{d}</Text></View>
-                  <Text style={{ flex:1,fontSize:15,fontWeight:'600',color:active?theme.textPrimary:theme.textSecondary }}>{FULL_DAY_NAMES[i]}</Text>
-                  {active&&<IconCheck color={theme.orange} size={18} />}
-                </TouchableOpacity>;
-              })}
-            </View>
-            <Text style={{ color:theme.textSecondary,fontSize:11,textTransform:'uppercase',letterSpacing:0.8,marginBottom:12,fontWeight:'600' }}>Ziel</Text>
-            <View style={{ gap:8,marginBottom:24 }}>
-              {goals.map(g=>(
-                <TouchableOpacity key={g.key} style={{ backgroundColor:goal===g.key?theme.orangeLight:theme.card,borderRadius:14,padding:14,borderWidth:1.5,borderColor:goal===g.key?theme.orange:theme.border,flexDirection:'row',alignItems:'center',gap:12 }} onPress={()=>setGoal(g.key)} activeOpacity={0.85}>
-                  <Text style={{ fontSize:24 }}>{g.emoji}</Text>
-                  <View style={{ flex:1 }}><Text style={{ fontSize:14,fontWeight:'700',color:theme.textPrimary }}>{g.label}</Text><Text style={{ fontSize:11,color:theme.textSecondary }}>{g.desc}</Text></View>
-                  {goal===g.key&&<IconCheck color={theme.orange} size={16} />}
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={{ flexDirection:'row',gap:10 }}>
-              <TouchableOpacity style={{ flex:1,backgroundColor:theme.card,borderRadius:14,padding:15,alignItems:'center',borderWidth:1,borderColor:theme.border }} onPress={()=>setStep('exercises')} activeOpacity={0.85}><Text style={{ fontSize:15,fontWeight:'600',color:theme.textSecondary }}>← Zurück</Text></TouchableOpacity>
-              <TouchableOpacity style={{ flex:2,backgroundColor:selectedDays.length>0?theme.orange:theme.cardSecondary,borderRadius:14,padding:15,alignItems:'center' }} onPress={()=>selectedDays.length>0&&savePlan()} activeOpacity={0.85}><Text style={{ fontSize:15,fontWeight:'700',color:selectedDays.length>0?'#fff':theme.textTertiary }}>Plan erstellen ✓</Text></TouchableOpacity>
-            </View>
-          </ScrollView>
-        )}
-        {step==='plan'&&(
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding:16 }}>
-            {plan.map((day,i)=>(
-              <View key={i} style={{ backgroundColor:theme.card,borderRadius:16,padding:14,marginBottom:10,borderWidth:1.5,borderColor:day.exercises.length>0?theme.orangeBorder:theme.border }}>
-                <View style={{ flexDirection:'row',alignItems:'center',gap:10,marginBottom:day.exercises.length>0?12:0 }}>
-                  <View style={{ width:36,height:36,borderRadius:18,backgroundColor:day.exercises.length>0?theme.orangeLight:theme.cardSecondary,alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:day.exercises.length>0?theme.orangeBorder:theme.border }}><Text style={{ fontSize:11,fontWeight:'800',color:day.exercises.length>0?theme.orange:theme.textTertiary }}>{day.dayLabel}</Text></View>
-                  <View style={{ flex:1 }}><Text style={{ fontSize:15,fontWeight:'700',color:theme.textPrimary }}>{day.name}</Text><Text style={{ fontSize:11,color:theme.textSecondary }}>{day.focus}</Text></View>
-                  {day.exercises.length>0&&(<View style={{ backgroundColor:theme.orangeLight,borderRadius:20,paddingHorizontal:10,paddingVertical:4,borderWidth:1,borderColor:theme.orangeBorder }}><Text style={{ fontSize:10,fontWeight:'700',color:theme.orange }}>{day.exercises.length} Üb.</Text></View>)}
-                </View>
-                {day.exercises.map((ex,ei)=>(
-                  <View key={ei} style={{ flexDirection:'row',alignItems:'center',gap:10,paddingVertical:8,borderTopWidth:0.5,borderTopColor:theme.border }}>
-                    <View style={{ width:6,height:6,borderRadius:3,backgroundColor:MUSCLE_COLORS[EXERCISE_DB.find(d=>d.name===ex.name)?.muscleGroup??'']??theme.orange }} />
-                    <Text style={{ flex:1,fontSize:13,fontWeight:'600',color:theme.textPrimary }}>{ex.name}</Text>
-                    <Text style={{ fontSize:12,color:theme.textSecondary }}>{ex.sets}×{ex.reps}</Text>
-                    {ex.weight>0&&(<View style={{ backgroundColor:theme.orangeLight,borderRadius:20,paddingHorizontal:10,paddingVertical:4,borderWidth:1,borderColor:theme.orangeBorder }}><Text style={{ fontSize:11,fontWeight:'700',color:theme.orange }}>{ex.weight} kg</Text></View>)}
-                  </View>
-                ))}
-              </View>
-            ))}
-            <TouchableOpacity style={{ backgroundColor:theme.card,borderRadius:14,padding:14,alignItems:'center',borderWidth:1,borderColor:theme.border,marginTop:8 }} onPress={async()=>{await AsyncStorage.removeItem(PLAN_STORE_KEY);setStep('exercises');}} activeOpacity={0.85}><Text style={{ fontSize:13,fontWeight:'600',color:theme.textSecondary }}>Plan neu erstellen</Text></TouchableOpacity>
-            <View style={{ height: 80 }} />
-          </ScrollView>
-        )}
       </View>
     </Modal>
   );
@@ -1279,350 +1020,667 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
   routines: Routine[]; onSelectRoutine: (r: Routine) => void; onCreateRoutine: (r: Routine) => void;
   onUpdateRoutine: (r: Routine) => void; onDeleteRoutine: (id: string) => void; onBack: () => void;
 }) {
-  const [tab, setTab] = useState<'meine'|'suchen'>('meine');
-  const [search, setSearch] = useState('');
-  const [editMode, setEditMode] = useState<'create'|'edit'>('create');
-  const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border }, backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border, marginTop: 4 } };
+  const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
+  const field = { label: { fontSize: 10, fontWeight: '700' as const, textTransform: 'uppercase' as const, letterSpacing: 1.2, color: T.text4, marginBottom: 8, marginTop: 16 }, input: { backgroundColor: T.card, borderRadius: 14, padding: 14, color: T.text1, fontSize: 15, borderWidth: 1, borderColor: T.border }, list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12, borderWidth: 1, borderColor: T.border }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, padding: 14 }, rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft }, rowText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: T.text1 }, dot: { width: 8, height: 8, borderRadius: 4 } };
+  const tabSt = { btn: { flex: 1, borderRadius: 12, padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: T.border, alignItems: 'center' as const }, btnActive: { backgroundColor: T.orangeAlpha, borderColor: T.orangeBorder }, text: { fontSize: 12, fontWeight: '600' as const, color: T.text4 }, textActive: { color: T.orange } };
+  const rSt = { card: { backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12, borderWidth: 1, borderColor: T.border }, name: { fontSize: 16, fontWeight: '700' as const, color: T.text1, letterSpacing: -0.3, marginBottom: 4 }, meta: { fontSize: 11, color: T.text3, marginBottom: 8 }, chipRow: { flexDirection: 'row' as const, gap: 6 }, chip: { backgroundColor: T.orangeAlpha, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: T.orangeBorder }, chipText: { fontSize: 11, fontWeight: '600' as const, color: T.orange }, createCard: { backgroundColor: T.card, borderRadius: 18, padding: 16, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 14, marginBottom: 12, borderWidth: 1, borderColor: T.orangeBorder }, createIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.orangeAlpha, alignItems: 'center' as const, justifyContent: 'center' as const }, createTitle: { fontSize: 15, fontWeight: '700' as const, color: T.text1, marginBottom: 2 }, createSub: { fontSize: 11, color: T.text3 }, editBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: T.blueAlpha, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.blueBorder }, deleteBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: T.redAlpha, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.redBorder }, communityBadge: { backgroundColor: T.blueAlpha, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: T.blueBorder } };
+  const [tab, setTab] = useState<'mine' | 'discover'>('mine');
   const [showForm, setShowForm] = useState(false);
+  const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
   const [newName, setNewName] = useState('');
-  const [newExercises, setNewExercises] = useState<{ name: string; muscleGroup: string; defaultSets: number; equipment?: string }[]>([]);
+  const [newExercises, setNewExercises] = useState<Routine['exercises']>([]);
   const [showPicker, setShowPicker] = useState(false);
-  const communityFiltered = COMMUNITY_ROUTINES.filter(r => search===''||r.name.toLowerCase().includes(search.toLowerCase()));
-  function openCreate() { setEditMode('create'); setNewName(''); setNewExercises([]); setEditingRoutine(null); setShowForm(true); }
-  function openEdit(r: Routine) { setEditMode('edit'); setNewName(r.name); setNewExercises([...r.exercises]); setEditingRoutine(r); setShowForm(true); }
+  function openCreate() { setEditingRoutine(null); setNewName(''); setNewExercises([]); setShowForm(true); }
+  function openEdit(r: Routine) { setEditingRoutine(r); setNewName(r.name); setNewExercises([...r.exercises]); setShowForm(true); }
   function saveForm() {
     if (!newName.trim()) { Alert.alert('Bitte Namen eingeben'); return; }
-    if (newExercises.length===0) { Alert.alert('Bitte mindestens eine Übung hinzufügen'); return; }
-    if (editMode==='create') onCreateRoutine({ id:Date.now().toString(),name:newName.trim(),exercises:newExercises });
-    else if (editingRoutine) onUpdateRoutine({ ...editingRoutine,name:newName.trim(),exercises:newExercises });
+    if (newExercises.length === 0) { Alert.alert('Bitte mindestens eine Übung hinzufügen'); return; }
+    if (editingRoutine) onUpdateRoutine({ ...editingRoutine, name: newName.trim(), exercises: newExercises });
+    else onCreateRoutine({ id: Date.now().toString(), name: newName.trim(), exercises: newExercises });
     setShowForm(false);
   }
   if (showForm) return (
     <>
-      {showPicker && <ExercisePicker onSelect={(name,muscleGroup,equipment)=>{setNewExercises(prev=>[...prev,{name,muscleGroup,defaultSets:3,equipment}]);setShowPicker(false);}} onClose={()=>setShowPicker(false)} />}
-      <ScrollView style={{ flex:1,backgroundColor:theme.bg }} showsVerticalScrollIndicator={false}>
-        <View style={startSt.header}>
-          <TouchableOpacity onPress={()=>setShowForm(false)} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
-          <View><Text style={startSt.eyebrow}>{editMode==='create'?'Neue Routine':'Routine bearbeiten'}</Text><Text style={startSt.title}>{editMode==='create'?'Erstellen':newName}</Text></View>
+      {showPicker && <ExercisePicker onSelect={(n, mg, eq) => { setNewExercises(prev => [...prev, { name: n, muscleGroup: mg, defaultSets: 3, equipment: eq }]); setShowPicker(false); }} onClose={() => setShowPicker(false)} />}
+      <ScrollView style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={screen.header}>
+          <TouchableOpacity onPress={() => setShowForm(false)} style={screen.backBtn}><IconChevronLeft /></TouchableOpacity>
+          <View><Text style={screen.eyebrow}>{editingRoutine ? 'Bearbeiten' : 'Neue Routine'}</Text><Text style={screen.title}>{newName || 'Unbenannt'}</Text></View>
         </View>
-        <View style={{ paddingHorizontal:16 }}>
-          <Text style={s.inputLabel}>Name</Text>
-          <TextInput style={[s.input,{marginBottom:20}]} value={newName} onChangeText={setNewName} placeholder="z.B. Push Day" placeholderTextColor={theme.textTertiary} />
-          <Text style={s.inputLabel}>Übungen ({newExercises.length})</Text>
-          {newExercises.length>0&&(<View style={startSt.exListCard}>{newExercises.map((ex,i)=>(<View key={i} style={[startSt.exRow,i<newExercises.length-1&&startSt.exRowBorder]}><View style={[startSt.exDot,{backgroundColor:MUSCLE_COLORS[ex.muscleGroup]||'#888'}]} /><View style={{ flex:1 }}><Text style={startSt.exName}>{ex.name}</Text>{ex.equipment&&<Text style={{ fontSize:10,color:theme.textTertiary }}>{ex.equipment}</Text>}</View><TouchableOpacity onPress={()=>setNewExercises(prev=>prev.filter((_,idx)=>idx!==i))}><IconClose color={theme.textTertiary} size={14} /></TouchableOpacity></View>))}</View>)}
-          <TouchableOpacity style={startSt.addExBtn} onPress={()=>setShowPicker(true)}><IconPlus color={theme.orange} size={16} /><Text style={startSt.addExBtnText}>Übung hinzufügen</Text></TouchableOpacity>
-          <TouchableOpacity style={[s.saveBtn,{marginTop:20}]} onPress={saveForm} activeOpacity={0.85}><Text style={s.saveBtnText}>{editMode==='create'?'Routine speichern':'Änderungen speichern'}</Text></TouchableOpacity>
-          <View style={{ height:80 }} />
+        <View style={{ padding: 20 }}>
+          <Text style={field.label}>Name</Text>
+          <TextInput style={field.input} value={newName} onChangeText={setNewName} placeholder="z.B. Push Day" placeholderTextColor={T.text4} />
+          <Text style={field.label}>Übungen</Text>
+          {newExercises.map((ex, i) => (
+            <View key={i} style={field.row}>
+              <View style={[field.dot, { backgroundColor: MUSCLE_COLORS[ex.muscleGroup] }]} />
+              <View style={{ flex: 1 }}><Text style={field.rowText}>{ex.name}</Text>{ex.equipment && <Text style={{ fontSize: 10, color: T.text4 }}>{ex.equipment}</Text>}</View>
+              <TouchableOpacity onPress={() => setNewExercises(prev => prev.filter((_, idx) => idx !== i))}><IconClose /></TouchableOpacity>
+            </View>
+          ))}
+          <TouchableOpacity style={btn.outline} onPress={() => setShowPicker(true)}><IconPlus size={16} /><Text style={btn.outlineText}>Übung hinzufügen</Text></TouchableOpacity>
+          <TouchableOpacity style={[btn.primary, { marginTop: 16 }]} onPress={saveForm}><Text style={btn.primaryText}>Speichern</Text></TouchableOpacity>
         </View>
       </ScrollView>
     </>
   );
   return (
-    <ScrollView style={{ flex:1,backgroundColor:theme.bg }} showsVerticalScrollIndicator={false}>
-      <View style={startSt.header}>
-        <TouchableOpacity onPress={onBack} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
-        <View><Text style={startSt.eyebrow}>Krafttraining</Text><Text style={startSt.title}>Routinen</Text></View>
+    <ScrollView style={{ flex: 1, backgroundColor: T.bg }}>
+      <View style={screen.header}>
+        <TouchableOpacity onPress={onBack} style={screen.backBtn}><IconChevronLeft /></TouchableOpacity>
+        <View><Text style={screen.eyebrow}>Krafttraining</Text><Text style={screen.title}>Routinen</Text></View>
       </View>
-      <View style={{ paddingHorizontal:16 }}>
-        <View style={routineSt.tabRow}>
-          <TouchableOpacity style={[routineSt.tabBtn,tab==='meine'&&routineSt.tabBtnActive]} onPress={()=>setTab('meine')}><Text style={[routineSt.tabBtnText,tab==='meine'&&routineSt.tabBtnTextActive]}>Meine Routinen</Text></TouchableOpacity>
-          <TouchableOpacity style={[routineSt.tabBtn,tab==='suchen'&&routineSt.tabBtnActive]} onPress={()=>setTab('suchen')}><Text style={[routineSt.tabBtnText,tab==='suchen'&&routineSt.tabBtnTextActive]}>Entdecken</Text></TouchableOpacity>
-        </View>
-        {tab==='meine'?(
-          <>
-            <TouchableOpacity style={routineSt.createBtn} onPress={openCreate} activeOpacity={0.85}>
-              <View style={routineSt.createBtnIcon}><IconPlus color={theme.orange} size={20} /></View>
-              <View style={{ flex:1 }}><Text style={routineSt.createBtnTitle}>Neue Routine erstellen</Text><Text style={routineSt.createBtnSub}>Übungen selbst zusammenstellen</Text></View>
-              <IconChevronRight color={theme.textTertiary} size={18} />
+      <View style={{ paddingHorizontal: 18 }}>
+        <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
+          {(['mine', 'discover'] as const).map(t => (
+            <TouchableOpacity key={t} style={[tabSt.btn, tab === t && tabSt.btnActive]} onPress={() => setTab(t)}>
+              <Text style={[tabSt.text, tab === t && tabSt.textActive]}>{t === 'mine' ? 'Meine Routinen' : 'Entdecken'}</Text>
             </TouchableOpacity>
-            {routines.length===0?(<View style={startSt.emptyState}><IconDumbbell color={theme.textTertiary} size={36} /><Text style={startSt.emptyStateTitle}>Noch keine Routinen</Text></View>):routines.map(r=>(
-              <View key={r.id} style={[startSt.routineCard,{paddingRight:8}]}>
-                <TouchableOpacity style={{ flex:1 }} onPress={()=>onSelectRoutine(r)} activeOpacity={0.85}>
-                  <Text style={startSt.routineName}>{r.name}</Text>
-                  <Text style={startSt.routineMeta}>{r.exercises.map(e=>e.name).slice(0,3).join(' · ')}{r.exercises.length>3?` · +${r.exercises.length-3}`:''}</Text>
-                  <View style={startSt.routineChipRow}><View style={startSt.routineChip}><Text style={startSt.routineChipText}>{r.exercises.length} Übungen</Text></View></View>
+          ))}
+        </View>
+        {tab === 'mine' ? (
+          <>
+            <TouchableOpacity style={rSt.createCard} onPress={openCreate}>
+              <View style={rSt.createIcon}><IconPlus size={20} /></View>
+              <View style={{ flex: 1 }}><Text style={rSt.createTitle}>Neue Routine</Text><Text style={rSt.createSub}>Selbst zusammenstellen</Text></View>
+              <IconChevronRight />
+            </TouchableOpacity>
+            {routines.length === 0 && <Text style={{ color: T.text4, textAlign: 'center', marginTop: 40 }}>Noch keine Routinen</Text>}
+            {routines.map(r => (
+              <View key={r.id} style={rSt.card}>
+                <TouchableOpacity style={{ flex: 1 }} onPress={() => onSelectRoutine(r)}>
+                  <Text style={rSt.name}>{r.name}</Text>
+                  <Text style={rSt.meta}>{r.exercises.slice(0, 3).map(e => e.name).join(' · ')}{r.exercises.length > 3 ? ` +${r.exercises.length - 3}` : ''}</Text>
+                  <View style={rSt.chipRow}><View style={rSt.chip}><Text style={rSt.chipText}>{r.exercises.length} Übungen</Text></View></View>
                 </TouchableOpacity>
-                <View style={{ gap:6 }}>
-                  <TouchableOpacity onPress={()=>openEdit(r)} style={{ width:32,height:32,borderRadius:16,backgroundColor:theme.blueLight,alignItems:'center',justifyContent:'center' }}><IconPencil color={theme.blue} size={14} /></TouchableOpacity>
-                  <TouchableOpacity onPress={()=>Alert.alert('Löschen',`"${r.name}" löschen?`,[{text:'Abbrechen',style:'cancel'},{text:'Löschen',style:'destructive',onPress:()=>onDeleteRoutine(r.id)}])} style={{ width:32,height:32,borderRadius:16,backgroundColor:'rgba(255,69,58,0.12)',alignItems:'center',justifyContent:'center' }}><IconTrash color={theme.red} size={14} /></TouchableOpacity>
+                <View style={{ gap: 6 }}>
+                  <TouchableOpacity style={rSt.editBtn} onPress={() => openEdit(r)}><Text style={{ fontSize: 11, color: T.blue, fontWeight: '700' }}>Edit</Text></TouchableOpacity>
+                  <TouchableOpacity style={rSt.deleteBtn} onPress={() => Alert.alert('Löschen', `"${r.name}" löschen?`, [{ text: 'Abbrechen', style: 'cancel' }, { text: 'Löschen', style: 'destructive', onPress: () => onDeleteRoutine(r.id) }])}><IconTrash size={14} /></TouchableOpacity>
                 </View>
               </View>
             ))}
           </>
-        ):(
-          <>
-            <View style={routineSt.searchBox}><IconSearch color={theme.textTertiary} size={18} /><TextInput style={routineSt.searchInput} placeholder="Routine suchen..." placeholderTextColor={theme.textTertiary} value={search} onChangeText={setSearch} /></View>
-            {communityFiltered.map(r=>(<TouchableOpacity key={r.id} style={startSt.routineCard} onPress={()=>onSelectRoutine(r)} activeOpacity={0.85}><View style={{ flex:1 }}><View style={{ flexDirection:'row',alignItems:'center',gap:8,marginBottom:4 }}><Text style={startSt.routineName}>{r.name}</Text><View style={routineSt.communityBadge}><Text style={routineSt.communityBadgeText}>Community</Text></View></View><Text style={startSt.routineMeta}>{r.exercises.map(e=>e.name).slice(0,3).join(' · ')}{r.exercises.length>3?` · +${r.exercises.length-3}`:''}</Text><View style={startSt.routineChipRow}><View style={startSt.routineChip}><Text style={startSt.routineChipText}>{r.exercises.length} Übungen</Text></View></View></View><IconChevronRight color={theme.textTertiary} size={18} /></TouchableOpacity>))}
-          </>
+        ) : (
+          COMMUNITY_ROUTINES.map(r => (
+            <TouchableOpacity key={r.id} style={rSt.card} onPress={() => onSelectRoutine(r)}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                  <Text style={rSt.name}>{r.name}</Text>
+                  <View style={rSt.communityBadge}><Text style={{ fontSize: 10, color: T.blue, fontWeight: '700' }}>Community</Text></View>
+                </View>
+                <Text style={rSt.meta}>{r.exercises.map(e => e.name).slice(0, 3).join(' · ')}</Text>
+                <View style={rSt.chipRow}><View style={rSt.chip}><Text style={rSt.chipText}>{r.exercises.length} Übungen</Text></View></View>
+              </View>
+              <IconChevronRight />
+            </TouchableOpacity>
+          ))
         )}
-        <View style={{ height:100 }} />
+        <View style={{ height: 100 }} />
       </View>
     </ScrollView>
   );
 }
 
-function RoutineDetailScreen({ routine, onStart, onBack }: { routine: Routine; onStart: (r: Routine) => void; onBack: () => void }) {
-  const [extraExercises, setExtraExercises] = useState<{ name: string; muscleGroup: string; defaultSets: number; equipment?: string }[]>([]);
+function RoutineDetail({ routine, onStart, onBack }: { routine: Routine; onStart: (r: Routine) => void; onBack: () => void }) {
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border, marginTop: 4 } };
+  const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
+  const field = { list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12, borderWidth: 1, borderColor: T.border }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, padding: 14 }, rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft }, rowText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: T.text1 }, dot: { width: 8, height: 8, borderRadius: 4 } };
+  const [extras, setExtras] = useState<Routine['exercises']>([]);
   const [showPicker, setShowPicker] = useState(false);
-  const allEx = [...routine.exercises, ...extraExercises];
+  const all = [...routine.exercises, ...extras];
   return (
     <>
-      {showPicker&&<ExercisePicker onSelect={(name,muscleGroup,equipment)=>{setExtraExercises(prev=>[...prev,{name,muscleGroup,defaultSets:3,equipment}]);setShowPicker(false);}} onClose={()=>setShowPicker(false)} />}
-      <ScrollView style={{ flex:1,backgroundColor:theme.bg }} showsVerticalScrollIndicator={false}>
-        <View style={startSt.header}>
-          <TouchableOpacity onPress={onBack} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
-          <View><Text style={startSt.eyebrow}>Routine</Text><Text style={startSt.title}>{routine.name}</Text><Text style={{ fontSize:12,color:theme.textTertiary,marginTop:3 }}>{allEx.length} Übungen</Text></View>
+      {showPicker && <ExercisePicker onSelect={(n, mg, eq) => { setExtras(prev => [...prev, { name: n, muscleGroup: mg, defaultSets: 3, equipment: eq }]); setShowPicker(false); }} onClose={() => setShowPicker(false)} />}
+      <ScrollView style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={screen.header}>
+          <TouchableOpacity onPress={onBack} style={screen.backBtn}><IconChevronLeft /></TouchableOpacity>
+          <View><Text style={screen.eyebrow}>Routine</Text><Text style={screen.title}>{routine.name}</Text></View>
         </View>
-        <View style={{ paddingHorizontal:16 }}>
-          <View style={startSt.exListCard}>
-            {allEx.map((ex,i)=>(<View key={i} style={[startSt.exRow,i<allEx.length-1&&startSt.exRowBorder]}><View style={[startSt.exDot,{backgroundColor:MUSCLE_COLORS[ex.muscleGroup]||'#888'}]} /><View style={{ flex:1 }}><Text style={startSt.exName}>{ex.name}</Text>{ex.equipment&&<Text style={{ fontSize:10,color:theme.textTertiary }}>{ex.equipment}</Text>}</View><Text style={{ fontSize:11,color:theme.textTertiary }}>{ex.muscleGroup}</Text></View>))}
+        <View style={{ padding: 18 }}>
+          <View style={field.list}>
+            {all.map((ex, i) => (
+              <View key={i} style={[field.row, i < all.length - 1 && field.rowBorder]}>
+                <View style={[field.dot, { backgroundColor: MUSCLE_COLORS[ex.muscleGroup] ?? T.orange }]} />
+                <View style={{ flex: 1 }}><Text style={field.rowText}>{ex.name}</Text>{ex.equipment && <Text style={{ fontSize: 10, color: T.text4 }}>{ex.equipment}</Text>}</View>
+                <Text style={{ fontSize: 11, color: T.text4 }}>{ex.muscleGroup}</Text>
+              </View>
+            ))}
           </View>
-          <TouchableOpacity style={startSt.addExBtn} onPress={()=>setShowPicker(true)}><IconPlus color={theme.orange} size={16} /><Text style={startSt.addExBtnText}>Übung hinzufügen</Text></TouchableOpacity>
-          <View style={{ marginTop:12,marginBottom:40 }}><SwipeToStart onStart={()=>onStart({...routine,exercises:allEx})} /></View>
+          <TouchableOpacity style={btn.outline} onPress={() => setShowPicker(true)}><IconPlus size={16} /><Text style={btn.outlineText}>Übung hinzufügen</Text></TouchableOpacity>
+          <View style={{ marginTop: 16 }}><SwipeToStart onStart={() => onStart({ ...routine, exercises: all })} /></View>
         </View>
       </ScrollView>
     </>
   );
 }
 
-// ─── FreeWorkoutStartScreen ───────────────────────────────────
-function FreeWorkoutStartScreen({ onStart, onStartWithRecommendation, lastWorkout, onBack }: {
-  onStart: () => void; onStartWithRecommendation: () => void; lastWorkout: Workout | null; onBack: () => void;
-}) {
-  return (
-    <View style={{ flex:1,backgroundColor:theme.bg }}>
-      <View style={startSt.header}>
-        <TouchableOpacity onPress={onBack} style={startSt.backBtn}><IconChevronLeft color={theme.textSecondary} size={22} /></TouchableOpacity>
-        <View><Text style={startSt.eyebrow}>Krafttraining</Text><Text style={startSt.title}>Freies Training</Text></View>
-      </View>
-      <ScrollView style={{ flex:1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16 }}>
-        {lastWorkout&&(<TouchableOpacity style={startSt.recCard} onPress={onStartWithRecommendation} activeOpacity={0.88}><View style={startSt.recBadgeRow}><View style={startSt.recDot} /><Text style={startSt.recBadgeText}>Empfehlung für heute</Text></View><Text style={startSt.recTitle}>{lastWorkout.name}</Text><Text style={startSt.recSub}>{lastWorkout.exercises.slice(0,3).map(e=>e.name).join(' · ')}{lastWorkout.exercises.length>3?` · +${lastWorkout.exercises.length-3}`:''}</Text><View style={startSt.recBtn}><Text style={startSt.recBtnText}>Mit Empfehlung starten</Text></View></TouchableOpacity>)}
-        <View style={startSt.emptyCard}><Text style={startSt.emptyCardTitle}>Leeres Training</Text><Text style={startSt.emptyCardSub}>Selbst Übungen zusammenstellen</Text></View>
-        <View style={{ height:40 }} />
-      </ScrollView>
-      <View style={{ paddingHorizontal:16,paddingBottom:140 }}><SwipeToStart onStart={onStart} /></View>
-    </View>
-  );
-}
-
-// ─── ActiveGymWorkout ─────────────────────────────────────────
+// ─── Active Gym Workout ───────────────────────────────────────
 function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUpdate, onFinish }: {
-  workout: Workout; userMaxes: UserMaxes; prHistory: PRHistory;
-  lastWorkoutData: Record<string, WorkoutSet[]>; onUpdate: (w: Workout) => void; onFinish: () => void;
+  workout: Workout; userMaxes: UserMaxes; prHistory: PRHistory; lastWorkoutData: Record<string, WorkoutSet[]>; onUpdate: (w: Workout) => void; onFinish: () => void;
 }) {
-  const [showExercisePicker, setShowExercisePicker] = useState(false);
-  const [dismissedPRWarnings, setDismissedPRWarnings] = useState<globalThis.Set<string>>(new globalThis.Set());
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
+  const activeS = { header: { backgroundColor: T.card, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row' as const, alignItems: 'flex-start' as const, gap: 12, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, workoutTag: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 1.5, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, workoutTitle: { fontSize: 20, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.4 }, timerBadge: { backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border }, timerText: { fontSize: 18, fontWeight: '700' as const, color: T.text1, letterSpacing: 1 }, timerLabel: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, statsRow: { flexDirection: 'row' as const, gap: 8, padding: 12, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, statBox: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border }, statVal: { fontSize: 18, fontWeight: '700' as const }, statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, restCard: { backgroundColor: T.card, borderLeftWidth: 3, padding: 12, marginBottom: 12, marginTop: 12, borderRadius: 0 }, restLabel: { fontSize: 9, fontWeight: '700' as const, letterSpacing: 0.8, textTransform: 'uppercase' as const, marginBottom: 2 }, restTimer: { fontSize: 22, fontWeight: '800' as const, color: T.text1, letterSpacing: 1 }, restBtn: { backgroundColor: T.cardAlt, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: T.border }, restBtnText: { fontSize: 11, fontWeight: '600' as const, color: T.text3 }, exCard: { backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: T.border }, musclePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }, musclePillText: { fontSize: 11, fontWeight: '500' as const }, exName: { flex: 1, fontSize: 15, fontWeight: '700' as const, color: T.text1 }, recRow: { backgroundColor: T.blueAlpha, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: T.blueBorder }, recText: { fontSize: 12, color: T.blue, fontWeight: '500' as const }, lastRow: { flexDirection: 'row' as const, backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, marginBottom: 8 }, lastLabel: { fontSize: 11, color: T.text3 }, lastVal: { fontSize: 11, color: T.orange, fontWeight: '500' as const, flex: 1 }, oneRM: { fontSize: 11, color: T.text3, marginBottom: 10 }, setHdr: { fontSize: 9, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.8, textAlign: 'center' as const }, setRow: { flexDirection: 'row' as const, gap: 8, marginBottom: 8, alignItems: 'center' as const }, setNum: { fontSize: 13, color: T.text3, width: 24, textAlign: 'center' as const }, setInput: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 11, color: T.text1, fontSize: 15, textAlign: 'center' as const, borderWidth: 1, borderColor: T.border }, setInputDone: { borderColor: 'rgba(52,199,89,0.4)', color: T.green }, addSetBtn: { padding: 8, alignItems: 'center' as const }, addSetText: { fontSize: 13, color: T.orange, fontWeight: '500' as const } };
+  const [showPicker, setShowPicker] = useState(false);
   const workoutTimer = useWorkoutTimer('gymWorkoutTimer');
   const restTimer = useRestTimer();
-  useEffect(() => {
-    if (!workoutTimer.isRunning) workoutTimer.startNow();
-  }, []);
-
+  useEffect(() => { if (!workoutTimer.isRunning) workoutTimer.startNow(); }, []);
   async function addExercise(name: string, muscleGroup: string, equipment: string) {
     const lastSets = lastWorkoutData[name];
-    const sets = lastSets ? lastSets.map(()=>({reps:'',weight:''})) : [{ reps:'',weight:'' }];
-    const updated = { ...workout, exercises: [...workout.exercises, { id:Date.now().toString(), name, muscleGroup, equipment, sets }] };
-    onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated)); setShowExercisePicker(false);
+    const sets = lastSets ? lastSets.map(() => ({ reps: '', weight: '' })) : [{ reps: '', weight: '' }];
+    const updated = { ...workout, exercises: [...workout.exercises, { id: Date.now().toString(), name, muscleGroup, equipment, sets }] };
+    onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated)); setShowPicker(false);
   }
-
-  async function updateSet(exerciseId: string, setIndex: number, field: 'reps'|'weight', value: string) {
-    const updated = { ...workout, exercises: workout.exercises.map(ex => {
-      if (ex.id!==exerciseId) return ex;
-      const newSets=[...ex.sets]; newSets[setIndex]={...newSets[setIndex],[field]:value}; return {...ex,sets:newSets};
-    })};
+  async function updateSet(exId: string, si: number, f: 'reps' | 'weight', val: string) {
+    const updated = { ...workout, exercises: workout.exercises.map(ex => { if (ex.id !== exId) return ex; const s = [...ex.sets]; s[si] = { ...s[si], [f]: val }; return { ...ex, sets: s }; }) };
     onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
   }
-
-  async function addSet(exerciseId: string) {
-    const updated = { ...workout, exercises: workout.exercises.map(ex => {
-      if (ex.id!==exerciseId) return ex;
-      const prev=ex.sets[ex.sets.length-1];
-      return {...ex,sets:[...ex.sets,{reps:'',weight:prev?.weight||''}]};
-    })};
+  async function addSet(exId: string) {
+    const updated = { ...workout, exercises: workout.exercises.map(ex => { if (ex.id !== exId) return ex; const prev = ex.sets[ex.sets.length - 1]; return { ...ex, sets: [...ex.sets, { reps: '', weight: prev?.weight || '' }] }; }) };
     onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
   }
-
-  async function removeExercise(exerciseId: string) {
-    const updated = { ...workout, exercises: workout.exercises.filter(ex=>ex.id!==exerciseId) };
+  async function removeExercise(exId: string) {
+    const updated = { ...workout, exercises: workout.exercises.filter(ex => ex.id !== exId) };
     onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
   }
-
-  const totalSets = workout.exercises.reduce((s,ex)=>s+ex.sets.length, 0);
-  const totalVolume = workout.exercises.reduce((t,ex)=>t+ex.sets.reduce((s,set)=>s+parseFloat(set.reps||'0')*parseFloat(set.weight||'0'),0), 0);
-
+  const totalSets = workout.exercises.reduce((s, ex) => s + ex.sets.length, 0);
+  const totalVol = workout.exercises.reduce((t, ex) => t + ex.sets.reduce((s, set) => s + parseFloat(set.reps || '0') * parseFloat(set.weight || '0'), 0), 0);
   return (
     <>
-      {showExercisePicker&&<ExercisePicker onSelect={addExercise} onClose={()=>setShowExercisePicker(false)} />}
-      <ScrollView style={{ flex:1,backgroundColor:theme.bg }} showsVerticalScrollIndicator={false}>
-        {/* Clean header with timer */}
-        <View style={active.header}>
-          <View style={{ flex:1 }}>
-            <Text style={active.workoutLabel}>{workout.name} · Aktiv</Text>
-            <Text style={active.workoutTitle}>{workout.exercises.length > 0 ? workout.exercises[0].name : 'Training läuft'}</Text>
+      {showPicker && <ExercisePicker onSelect={addExercise} onClose={() => setShowPicker(false)} />}
+      <ScrollView style={{ flex: 1, backgroundColor: T.bg }} showsVerticalScrollIndicator={false}>
+        <View style={activeS.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={activeS.workoutTag}>{workout.name} · Aktiv</Text>
+            <Text style={activeS.workoutTitle}>{workout.exercises[0]?.name ?? 'Training läuft'}</Text>
           </View>
-          <View style={active.timerBadge}>
-            <Text style={active.timerText}>{formatTime(workoutTimer.seconds)}</Text>
-            <Text style={active.timerLabel}>Timer</Text>
+          <View style={activeS.timerBadge}>
+            <Text style={activeS.timerText}>{formatTime(workoutTimer.seconds)}</Text>
+            <Text style={activeS.timerLabel}>Timer</Text>
           </View>
         </View>
-
-        {/* Stats strip */}
-        <View style={active.statsRow}>
-          {[{val:workout.exercises.length,lbl:'Übungen',color:theme.orange},{val:totalSets,lbl:'Sets',color:theme.green},{val:Math.round(totalVolume),lbl:'kg Vol.',color:theme.blue}].map(stat=>(
-            <View key={stat.lbl} style={active.statBox}><Text style={[active.statVal,{color:stat.color}]}>{stat.val}</Text><Text style={active.statLbl}>{stat.lbl}</Text></View>
+        <View style={activeS.statsRow}>
+          {[{ v: workout.exercises.length, l: 'Übungen', c: T.orange }, { v: totalSets, l: 'Sets', c: T.green }, { v: Math.round(totalVol), l: 'kg Vol.', c: T.blue }].map(s => (
+            <View key={s.l} style={activeS.statBox}><Text style={[activeS.statVal, { color: s.c }]}>{s.v}</Text><Text style={activeS.statLbl}>{s.l}</Text></View>
           ))}
         </View>
-
-        <View style={{ paddingHorizontal:16 }}>
-          {/* Rest Timer */}
-          <View style={[active.pauseCard,{borderLeftColor:restTimer.isRunning?theme.orange:theme.cardSecondary}]}>
-            <View style={{ flexDirection:'row',justifyContent:'space-between',alignItems:'center' }}>
+        <View style={{ paddingHorizontal: 16 }}>
+          <View style={[activeS.restCard, { borderLeftColor: restTimer.isRunning ? T.orange : T.border }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <View>
-                <Text style={[active.pauseLabel,{color:restTimer.isRunning?theme.orange:theme.textTertiary}]}>{restTimer.isRunning?'Pause läuft':'Pause starten'}</Text>
-                {restTimer.isRunning&&<Text style={active.pauseTimer}>{formatTime(restTimer.seconds)}</Text>}
+                <Text style={[activeS.restLabel, { color: restTimer.isRunning ? T.orange : T.text4 }]}>{restTimer.isRunning ? 'Pause läuft' : 'Pause starten'}</Text>
+                {restTimer.isRunning && <Text style={activeS.restTimer}>{formatTime(restTimer.seconds)}</Text>}
               </View>
-              <View style={{ flexDirection:'row',gap:6 }}>
-                {[60,90,120,180].map(sec=>(
-                  <TouchableOpacity key={sec} style={[active.pauseBtn,restTimer.isRunning&&{borderColor:theme.orange}]} onPress={()=>restTimer.isRunning?restTimer.stop():restTimer.startFor(sec)}>
-                    <Text style={[active.pauseBtnText,restTimer.isRunning&&{color:theme.orange}]}>{sec<120?`${sec}s`:`${sec/60}m`}</Text>
+              <View style={{ flexDirection: 'row', gap: 6 }}>
+                {[60, 90, 120, 180].map(sec => (
+                  <TouchableOpacity key={sec} style={[activeS.restBtn, restTimer.isRunning && { borderColor: T.orange }]} onPress={() => restTimer.isRunning ? restTimer.stop() : restTimer.startFor(sec)}>
+                    <Text style={[activeS.restBtnText, restTimer.isRunning && { color: T.orange }]}>{sec < 120 ? `${sec}s` : `${sec / 60}m`}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
-            {restTimer.isRunning&&(<View style={{ height:3,backgroundColor:theme.cardSecondary,borderRadius:2,marginTop:10 }}><View style={{ height:3,borderRadius:2,backgroundColor:restTimer.pct>0.3?theme.green:restTimer.pct>0.1?theme.orange:theme.red,width:`${restTimer.pct*100}%` as any }} /></View>)}
+            {restTimer.isRunning && (
+              <View style={{ height: 3, backgroundColor: T.border, borderRadius: 2, marginTop: 10 }}>
+                <View style={{ height: 3, borderRadius: 2, backgroundColor: restTimer.pct > 0.3 ? T.green : restTimer.pct > 0.1 ? T.orange : T.red, width: `${restTimer.pct * 100}%` as any }} />
+              </View>
+            )}
           </View>
-
-          {workout.exercises.map(exercise=>{
-            const hasPR=!!(prHistory[exercise.name]?.length)||!!(userMaxes[exercise.name]);
-            const isDismissed=dismissedPRWarnings.has(exercise.id);
-            const best1RM=getBest1RM(exercise.sets);
-            const userMax=userMaxes[exercise.name];
-            const pctOfMax=userMax&&best1RM>0?Math.round((best1RM/userMax)*100):null;
-            const lastSets=lastWorkoutData[exercise.name];
-            const mc=MUSCLE_COLORS[exercise.muscleGroup]||'#888';
-            const recWeight=userMax?Math.round((userMax*0.75)/2.5)*2.5:0;
-            const recText=userMax?`Empfehlung: 4 × 8 @ ${recWeight} kg`:null;
-            const exData=EXERCISE_DB.find(e=>e.name===exercise.name);
-
+          {workout.exercises.map(exercise => {
+            const mc = MUSCLE_COLORS[exercise.muscleGroup] ?? '#888';
+            const best1RM = getBest1RM(exercise.sets);
+            const userMax = userMaxes[exercise.name];
+            const pct = userMax && best1RM > 0 ? Math.round((best1RM / userMax) * 100) : null;
+            const lastSets = lastWorkoutData[exercise.name];
+            const rec = userMax ? Math.round((userMax * 0.75) / 2.5) * 2.5 : 0;
             return (
-              <View key={exercise.id} style={active.exerciseCard}>
-                <View style={{ flexDirection:'row',alignItems:'center',gap:10,marginBottom:8 }}>
-                  <View style={[active.musclePill,{backgroundColor:mc+'22'}]}><Text style={[active.musclePillText,{color:mc}]}>{exercise.muscleGroup}</Text></View>
-                  <View style={{ flex:1 }}>
-                    <Text style={active.exerciseName}>{exercise.name}</Text>
-                    {exercise.equipment&&<Text style={{ fontSize:10,color:theme.textTertiary,marginTop:1 }}>{exercise.equipment}</Text>}
+              <View key={exercise.id} style={activeS.exCard}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <View style={[activeS.musclePill, { backgroundColor: mc + '22' }]}><Text style={[activeS.musclePillText, { color: mc }]}>{exercise.muscleGroup}</Text></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={activeS.exName}>{exercise.name}</Text>
+                    {exercise.equipment && <Text style={{ fontSize: 10, color: T.text4, marginTop: 1 }}>{exercise.equipment}</Text>}
                   </View>
-                  <TouchableOpacity onPress={()=>removeExercise(exercise.id)}><IconClose color={theme.textTertiary} size={16} /></TouchableOpacity>
+                  <TouchableOpacity onPress={() => removeExercise(exercise.id)}><IconClose /></TouchableOpacity>
                 </View>
-                {/* Secondary muscles info */}
-                {exData&&exData.secondary.length>0&&(
-                  <View style={{ flexDirection:'row',flexWrap:'wrap',gap:4,marginBottom:8 }}>
-                    {exData.secondary.map(sec=>(
-                      <View key={sec.muscle} style={{ backgroundColor:MUSCLE_COLORS[sec.muscle]+'18',borderRadius:20,paddingHorizontal:8,paddingVertical:2,borderWidth:1,borderColor:MUSCLE_COLORS[sec.muscle]+'40' }}>
-                        <Text style={{ fontSize:10,color:MUSCLE_COLORS[sec.muscle],fontWeight:'500' }}>+{sec.muscle} {Math.round(sec.weight*100)}%</Text>
-                      </View>
-                    ))}
-                  </View>
+                {rec > 0 && (
+                  <TouchableOpacity style={activeS.recRow} onPress={async () => {
+                    const newSets = Array.from({ length: Math.max(exercise.sets.length, 4) }, () => ({ reps: '8', weight: String(rec) }));
+                    const updated = { ...workout, exercises: workout.exercises.map(ex => ex.id !== exercise.id ? ex : { ...ex, sets: newSets }) };
+                    onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
+                  }}>
+                    <Text style={activeS.recText}>💡 4 × 8 @ {rec} kg — Tippen zum Übernehmen</Text>
+                  </TouchableOpacity>
                 )}
-                {!hasPR&&!isDismissed&&(
-                  <View style={active.prWarn}>
-                    <Text style={active.prWarnTitle}>Kein PR für {exercise.name}</Text>
-                    <View style={{ flexDirection:'row',gap:6,marginTop:8 }}>
-                      <TouchableOpacity style={active.prWarnBtn} onPress={()=>setDismissedPRWarnings((prev:globalThis.Set<string>)=>new globalThis.Set(prev).add(exercise.id))}><Text style={active.prWarnBtnText}>Trotzdem machen</Text></TouchableOpacity>
-                      <TouchableOpacity style={[active.prWarnBtn,{borderColor:theme.orange}]} onPress={()=>{removeExercise(exercise.id);setShowExercisePicker(true);}}><Text style={[active.prWarnBtnText,{color:theme.orange}]}>Übung wechseln</Text></TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-                {recText&&(<TouchableOpacity style={active.recRow} onPress={async()=>{const newSets=Array.from({length:Math.max(exercise.sets.length,4)},()=>({reps:'8',weight:String(recWeight)}));const updated={...workout,exercises:workout.exercises.map(ex=>ex.id!==exercise.id?ex:{...ex,sets:newSets})};onUpdate(updated);await AsyncStorage.setItem('activeWorkout',JSON.stringify(updated));}} activeOpacity={0.75}><Text style={active.recText}>💡 {recText}</Text><Text style={{ fontSize:10,color:theme.blue,fontWeight:'600',marginTop:3 }}>Tippen zum Übernehmen →</Text></TouchableOpacity>)}
-                {lastSets&&(<View style={active.lastRow}><Text style={active.lastLabel}>Letztes Mal: </Text><Text style={active.lastVal}>{lastSets.map(ls=>`${ls.weight}kg×${ls.reps}`).join(' · ')}</Text></View>)}
-                {best1RM>0&&(<View style={{ flexDirection:'row',gap:12,marginBottom:10 }}><Text style={active.oneRM}>Est. 1RM: <Text style={{ color:theme.orange,fontWeight:'600' }}>{best1RM} kg</Text></Text>{pctOfMax&&<Text style={active.oneRM}>% Max: <Text style={{ color:pctOfMax>=100?theme.green:pctOfMax>=85?theme.orange:theme.textSecondary,fontWeight:'600' }}>{pctOfMax}%</Text></Text>}</View>)}
-                <View style={{ flexDirection:'row',gap:8,marginBottom:8 }}>
-                  <Text style={[active.setHeaderText,{width:24}]}>#</Text>
-                  <Text style={[active.setHeaderText,{flex:1}]}>Wdh.</Text>
-                  <Text style={[active.setHeaderText,{flex:1}]}>kg</Text>
+                {lastSets && <View style={activeS.lastRow}><Text style={activeS.lastLabel}>Letztes Mal: </Text><Text style={activeS.lastVal}>{lastSets.map(ls => `${ls.weight}×${ls.reps}`).join(' · ')}</Text></View>}
+                {best1RM > 0 && <Text style={activeS.oneRM}>Est. 1RM: <Text style={{ color: T.orange, fontWeight: '600' }}>{best1RM} kg</Text>{pct ? `  ·  ${pct}% Max` : ''}</Text>}
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                  <Text style={[activeS.setHdr, { width: 24 }]}>#</Text>
+                  <Text style={[activeS.setHdr, { flex: 1 }]}>Wdh.</Text>
+                  <Text style={[activeS.setHdr, { flex: 1 }]}>kg</Text>
                 </View>
-                {exercise.sets.map((set,si)=>{
-                  const filled=set.reps!==''&&set.weight!=='';
+                {exercise.sets.map((set, si) => {
+                  const filled = set.reps !== '' && set.weight !== '';
                   return (
-                    <View key={si} style={active.setRow}>
-                      <Text style={active.setNumber}>{si+1}</Text>
-                      <TextInput style={[active.setInput,filled&&{borderColor:'rgba(52,199,89,0.4)',color:theme.green}]} placeholder={lastSets?.[si]?.reps||'0'} placeholderTextColor={theme.textTertiary} value={set.reps} onChangeText={v=>updateSet(exercise.id,si,'reps',v)} keyboardType="numeric" />
-                      <TextInput style={[active.setInput,filled&&{borderColor:'rgba(52,199,89,0.4)',color:theme.green}]} placeholder={lastSets?.[si]?.weight||'0'} placeholderTextColor={theme.textTertiary} value={set.weight} onChangeText={v=>updateSet(exercise.id,si,'weight',v)} keyboardType="decimal-pad" />
+                    <View key={si} style={activeS.setRow}>
+                      <Text style={activeS.setNum}>{si + 1}</Text>
+                      <TextInput style={[activeS.setInput, filled && activeS.setInputDone]} placeholder={lastSets?.[si]?.reps || '0'} placeholderTextColor={T.text4} value={set.reps} onChangeText={v => updateSet(exercise.id, si, 'reps', v)} keyboardType="numeric" />
+                      <TextInput style={[activeS.setInput, filled && activeS.setInputDone]} placeholder={lastSets?.[si]?.weight || '0'} placeholderTextColor={T.text4} value={set.weight} onChangeText={v => updateSet(exercise.id, si, 'weight', v)} keyboardType="decimal-pad" />
                     </View>
                   );
                 })}
-                <TouchableOpacity style={active.addSetBtn} onPress={()=>addSet(exercise.id)}><Text style={active.addSetBtnText}>+ Set hinzufügen</Text></TouchableOpacity>
+                <TouchableOpacity style={activeS.addSetBtn} onPress={() => addSet(exercise.id)}><Text style={activeS.addSetText}>+ Set</Text></TouchableOpacity>
               </View>
             );
           })}
-
-          <TouchableOpacity style={active.addExerciseBtn} onPress={()=>setShowExercisePicker(true)}>
-            <IconPlus color={theme.orange} size={18} /><Text style={active.addExerciseBtnText}>Übung hinzufügen</Text>
+          <TouchableOpacity style={btn.outline} onPress={() => setShowPicker(true)}><IconPlus size={18} /><Text style={btn.outlineText}>Übung hinzufügen</Text></TouchableOpacity>
+          <TouchableOpacity style={[btn.primary, { marginTop: 10, marginBottom: 20 }]} onPress={async () => { await workoutTimer.stop(); onFinish(); }}>
+            <Text style={btn.primaryText}>Training abschliessen</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={active.finishBtn} onPress={async()=>{await workoutTimer.stop();onFinish();}} activeOpacity={0.85}>
-            <Text style={active.finishBtnText}>Training abschliessen</Text>
-          </TouchableOpacity>
-          <View style={{ height:120 }} />
+          <View style={{ height: 100 }} />
         </View>
       </ScrollView>
     </>
   );
 }
 
-// ─── RunScreen ────────────────────────────────────────────────
+// ─── Run Screen ───────────────────────────────────────────────
 function RunScreen({ onStop }: { onStop: () => void }) {
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white } };
   const runTimer = useWorkoutTimer('activeRunTimer');
-  const [manualDist, setManualDist] = useState('');
-  const [heartRate, setHeartRate] = useState('');
-  const [calories, setCalories] = useState('');
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const [dist, setDist] = useState('');
+  const [hr, setHr] = useState('');
+  const [cal, setCal] = useState('');
+  const pulse = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     if (!runTimer.isRunning) runTimer.startNow();
-    const p = Animated.loop(Animated.sequence([Animated.timing(pulseAnim,{toValue:1.03,duration:1000,useNativeDriver:true}),Animated.timing(pulseAnim,{toValue:1,duration:1000,useNativeDriver:true})]));
-    p.start(); return ()=>p.stop();
+    const a = Animated.loop(Animated.sequence([Animated.timing(pulse, { toValue: 1.02, duration: 1000, useNativeDriver: true }), Animated.timing(pulse, { toValue: 1, duration: 1000, useNativeDriver: true })]));
+    a.start(); return () => a.stop();
   }, []);
-  const dist = parseFloat(manualDist)||0;
-  const paceSeconds = dist>0?runTimer.seconds/dist:0;
-  const estimatedCalories = parseInt(calories)||Math.round(runTimer.seconds/60*8);
-  async function finishRun() {
-    const dur=runTimer.getDuration()*60; await runTimer.stop();
-    const runData: RunData = { id:Date.now().toString(),distance:dist,duration:dur,pace:formatPace(dist>0?dur/dist:0),calories:estimatedCalories,heartRate:parseInt(heartRate)||0,date:new Date().toISOString() };
-    const raw=await AsyncStorage.getItem('runs'); const runs=raw?JSON.parse(raw):[];
-    runs.push(runData); await AsyncStorage.setItem('runs',JSON.stringify(runs));
+  const d = parseFloat(dist) || 0;
+  const pace = d > 0 ? runTimer.seconds / d : 0;
+  const kcal = parseInt(cal) || Math.round(runTimer.seconds / 60 * 8);
+  async function finish() {
+    const dur = runTimer.getDuration() * 60;
+    await runTimer.stop();
+    const run: RunData = { id: Date.now().toString(), distance: d, duration: dur, pace: formatPace(d > 0 ? dur / d : 0), calories: kcal, heartRate: parseInt(hr) || 0, date: new Date().toISOString() };
+    const raw = await AsyncStorage.getItem('runs'); const runs = raw ? JSON.parse(raw) : [];
+    runs.push(run); await AsyncStorage.setItem('runs', JSON.stringify(runs));
     await AsyncStorage.removeItem('activeWorkout');
-    Alert.alert('Lauf abgeschlossen!',`${dist.toFixed(2)} km · ${formatTime(dur)} · ${formatPace(dist>0?dur/dist:0)} /km`,[{text:'OK',onPress:onStop}]);
+    Alert.alert('Lauf abgeschlossen!', `${d.toFixed(2)} km · ${formatTime(dur)} · ${formatPace(d > 0 ? dur / d : 0)} /km`, [{ text: 'OK', onPress: onStop }]);
   }
   return (
-    <ScrollView style={s.container} showsVerticalScrollIndicator={false}>
-      <Text style={s.headerLabel}>Lauf</Text>
-      <Animated.View style={[s.runTimerCard,{transform:[{scale:pulseAnim}]}]}>
-        <Text style={s.runTimerLabel}>LAUFZEIT</Text>
-        <Text style={s.runTimerDisplay}>{formatTime(runTimer.seconds)}</Text>
+    <ScrollView style={{ flex: 1, backgroundColor: T.bg, padding: 20 }}>
+      <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.green, marginTop: 60, marginBottom: 20 }}>Lauf aktiv</Text>
+      <Animated.View style={{ backgroundColor: T.card, borderRadius: 24, padding: 28, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: T.green + '30', transform: [{ scale: pulse }] }}>
+        <Text style={{ fontSize: 10, color: T.text3, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 }}>Laufzeit</Text>
+        <Text style={{ fontSize: 60, fontWeight: '300', color: T.text1, letterSpacing: -2 }}>{formatTime(runTimer.seconds)}</Text>
       </Animated.View>
-      <View style={s.runStatsGrid}>
-        {[{val:dist.toFixed(2),lbl:'km',color:theme.green},{val:formatPace(paceSeconds),lbl:'/km Pace',color:theme.blue},{val:String(estimatedCalories),lbl:'kcal',color:theme.orange},{val:heartRate||'--',lbl:'bpm',color:theme.pink}].map(stat=>(
-          <View key={stat.lbl} style={s.runStatCard}><Text style={[s.runStatVal,{color:stat.color}]}>{stat.val}</Text><Text style={s.runStatLbl}>{stat.lbl}</Text></View>
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+        {[{ v: d.toFixed(2), l: 'km', c: T.green }, { v: formatPace(pace), l: '/km', c: T.blue }, { v: String(kcal), l: 'kcal', c: T.orange }].map(s => (
+          <View key={s.l} style={{ flex: 1, backgroundColor: T.card, borderRadius: 16, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: s.c }}>{s.v}</Text>
+            <Text style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{s.l}</Text>
+          </View>
         ))}
       </View>
-      <View style={s.card}>
-        <Text style={s.cardTitle}>Daten eingeben</Text>
-        <View style={{ flexDirection:'row',gap:10 }}>
-          {[{label:'Distanz (km)',value:manualDist,setter:setManualDist,kb:'decimal-pad' as const,ph:'0.00'},{label:'Herzfrequenz',value:heartRate,setter:setHeartRate,kb:'numeric' as const,ph:'bpm'},{label:'Kalorien',value:calories,setter:setCalories,kb:'numeric' as const,ph:'kcal'}].map(f=>(
-            <View key={f.label} style={{ flex:1 }}><Text style={s.inputLabel}>{f.label}</Text><TextInput style={s.input} value={f.value} onChangeText={f.setter} keyboardType={f.kb} placeholder={f.ph} placeholderTextColor={theme.textTertiary} /></View>
+      <View style={{ backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: T.border }}>
+        <Text style={{ fontSize: 10, color: T.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 12 }}>Daten</Text>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          {[{ lbl: 'Distanz (km)', val: dist, set: setDist, kb: 'decimal-pad' as const, ph: '0.00' }, { lbl: 'Herzfreq.', val: hr, set: setHr, kb: 'numeric' as const, ph: 'bpm' }, { lbl: 'Kalorien', val: cal, set: setCal, kb: 'numeric' as const, ph: 'kcal' }].map(f => (
+            <View key={f.lbl} style={{ flex: 1 }}>
+              <Text style={{ fontSize: 10, color: T.text3, marginBottom: 6 }}>{f.lbl}</Text>
+              <TextInput style={{ backgroundColor: T.cardAlt, borderRadius: 10, padding: 11, color: T.text1, fontSize: 15, borderWidth: 1, borderColor: T.border }} value={f.val} onChangeText={f.set} keyboardType={f.kb} placeholder={f.ph} placeholderTextColor={T.text4} />
+            </View>
           ))}
         </View>
       </View>
-      <TouchableOpacity style={s.finishRunBtn} onPress={finishRun} activeOpacity={0.85}><Text style={s.finishRunBtnText}>Lauf beenden</Text></TouchableOpacity>
-      <View style={{ height:100 }} />
+      <TouchableOpacity style={[btn.primary, { backgroundColor: T.green }]} onPress={finish}><Text style={btn.primaryText}>Lauf beenden</Text></TouchableOpacity>
+      <View style={{ height: 100 }} />
     </ScrollView>
   );
 }
 
-// ─── Main TrainingScreen ──────────────────────────────────────
-type Screen = 'home' | 'freeStart' | 'routineScreen' | 'routineDetail';
-const DAY_LABELS = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+// ─── Body Recovery Full Modal ─────────────────────────────────
+function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => void }) {
+  const { colors } = useAppTheme();
+  const T = getT(colors);
+  const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border } };
+  const tabSt = { btn: { flex: 1, borderRadius: 12, padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: T.border, alignItems: 'center' as const }, btnActive: { backgroundColor: T.orangeAlpha, borderColor: T.orangeBorder }, text: { fontSize: 12, fontWeight: '600' as const, color: T.text4 }, textActive: { color: T.orange } };
+  const [view, setView] = useState<'front' | 'back'>('front');
+  const ready = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80);
+  const warn = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) < 40);
+  return (
+    <Modal visible animationType="slide">
+      <View style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={screen.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={screen.eyebrow}>Körper</Text>
+            <Text style={screen.title}>Muskel Recovery</Text>
+          </View>
+          <TouchableOpacity style={screen.closeBtn} onPress={onClose}><IconClose /></TouchableOpacity>
+        </View>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            {(['front', 'back'] as const).map(v => (
+              <TouchableOpacity key={v} style={[tabSt.btn, view === v && tabSt.btnActive]} onPress={() => setView(v)}>
+                <Text style={[tabSt.text, view === v && tabSt.textActive]}>{v === 'front' ? 'Vorderseite' : 'Rückseite'}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'center', marginBottom: 16 }}>
+            <View style={{ backgroundColor: T.card, borderRadius: 20, padding: 10, borderWidth: 1, borderColor: T.border }}>
+              {view === 'front' ? <BodyFront muscles={muscles} /> : <BodyBack muscles={muscles} />}
+            </View>
+            <View style={{ gap: 8, paddingTop: 12 }}>
+              {[{ c: T.green, l: 'Erholt' }, { c: T.blue, l: 'Fast' }, { c: T.yellow, l: 'Mittel' }, { c: T.orange, l: 'Niedrig' }, { c: T.red, l: 'Schonen' }].map(item => (
+                <View key={item.l} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.c }} />
+                  <Text style={{ fontSize: 12, color: T.text2 }}>{item.l}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+          {warn.length > 0 && <View style={{ backgroundColor: T.redAlpha, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: T.redBorder }}><Text style={{ color: T.red, fontWeight: '700', marginBottom: 4 }}>Heute schonen</Text><Text style={{ color: T.red, opacity: 0.8, fontSize: 12 }}>{warn.join(', ')}</Text></View>}
+          {ready.length > 0 && <View style={{ backgroundColor: T.greenAlpha, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: T.greenBorder }}><Text style={{ color: T.green, fontWeight: '700', marginBottom: 4 }}>Bereit</Text><Text style={{ color: T.green, opacity: 0.8, fontSize: 12 }}>{ready.join(', ')}</Text></View>}
+          {MUSCLE_GROUPS.map(m => {
+            const lvl = muscles[m]?.level ?? 100;
+            const color = getMuscleRecoveryColor(lvl);
+            return (
+              <View key={m} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.borderSoft }}>
+                <Text style={{ fontSize: 13, fontWeight: '500', color: T.text1, width: 100 }}>{m}</Text>
+                <View style={{ flex: 1, height: 4, backgroundColor: T.card, borderRadius: 2 }}>
+                  <View style={{ height: 4, borderRadius: 2, backgroundColor: color, width: `${lvl}%` as any }} />
+                </View>
+                <Text style={{ fontSize: 12, fontWeight: '700', color, width: 36, textAlign: 'right' }}>{lvl}%</Text>
+              </View>
+            );
+          })}
+          <View style={{ height: 60 }} />
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+// ─── Progress Card (Mini) ─────────────────────────────────────
+function ProgressCard({ prHistory, T, onPress }: { prHistory: PRHistory; T: any; onPress: () => void }) {
+  const [period, setPeriod] = useState<'1M' | '6M' | '1J' | '2J' | 'Gesamt'>('1M');
+  const periods = ['1M', '6M', '1J', '2J', 'Gesamt'] as const;
+
+  const chartData = computeProgressData(prHistory, period);
+  const avgImprovement = chartData.length >= 2
+    ? Math.round(((chartData[chartData.length - 1].avg - chartData[0].avg) / Math.max(chartData[0].avg, 1)) * 100)
+    : 0;
+
+  const W = SW - 32 - 32;
+  const H = 90;
+  const PAD = 8;
+  const vals = chartData.map(d => d.avg);
+  const minV = Math.min(...vals, 0);
+  const maxV = Math.max(...vals, 1);
+  const range = maxV - minV || 1;
+  const pts = vals.map((v, i) => ({
+    x: PAD + (i / Math.max(vals.length - 1, 1)) * (W - PAD * 2),
+    y: H - PAD - ((v - minV) / range) * (H - PAD * 2),
+  }));
+  const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const areaD = pts.length >= 2
+    ? `${pathD} L${pts[pts.length - 1].x.toFixed(1)},${H} L${pts[0].x.toFixed(1)},${H} Z`
+    : '';
+
+  return (
+    <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+      <View style={{ backgroundColor: T.card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: T.border }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+          <View>
+            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 3 }}>Kraftentwicklung</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: T.text1 }}>Ø aller Muskelgruppen</Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: avgImprovement >= 0 ? T.green : T.red, letterSpacing: -0.5 }}>
+              {avgImprovement >= 0 ? '+' : ''}{avgImprovement}%
+            </Text>
+            <Text style={{ fontSize: 9, color: T.text4 }}>{period === 'Gesamt' ? 'gesamt' : period === '1M' ? 'diesen Monat' : period === '6M' ? 'in 6 Monaten' : period === '1J' ? 'dieses Jahr' : 'in 2 Jahren'}</Text>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', gap: 5, marginBottom: 12 }}>
+          {periods.map(p => (
+            <TouchableOpacity key={p} onPress={() => setPeriod(p)} style={{ flex: 1, paddingVertical: 5, borderRadius: 7, alignItems: 'center', backgroundColor: period === p ? T.orangeAlpha : T.cardAlt, borderWidth: 1, borderColor: period === p ? T.orangeBorder : T.border }}>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: period === p ? T.orange : T.text4 }}>{p}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {vals.length >= 2 ? (
+          <Svg width={W} height={H}>
+            {areaD ? <Path d={areaD} fill={T.orange + '18'} /> : null}
+            <Path d={pathD} fill="none" stroke={T.orange} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+            {pts.map((p, i) => <Circle key={i} cx={p.x} cy={p.y} r={i === pts.length - 1 ? 4 : 2.5} fill={T.orange} />)}
+          </Svg>
+        ) : (
+          <View style={{ height: H, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{ fontSize: 12, color: T.text4 }}>Noch nicht genug Daten</Text>
+          </View>
+        )}
+
+        <TouchableOpacity onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: T.orangeAlpha, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: T.orangeBorder, marginTop: 10 }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: T.orange }}>Detailansicht → Muskelgruppen</Text>
+          <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: T.orange, alignItems: 'center', justifyContent: 'center' }}>
+            <IconChevronRight color="#fff" size={12} />
+          </View>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// ─── Progress Detail Modal ────────────────────────────────────
+function ProgressDetailModal({ prHistory, T, onClose }: { prHistory: PRHistory; T: any; onClose: () => void }) {
+  const [period, setPeriod] = useState<'1M' | '6M' | '1J' | '2J' | 'Gesamt'>('1M');
+  const periods = ['1M', '6M', '1J', '2J', 'Gesamt'] as const;
+  const MG_COLORS: Record<string, string> = {
+    Brust: '#E8572A', Rücken: '#3A7AC0', Bizeps: '#4A8C5C',
+    Schultern: '#8B6914', Trizeps: '#7B4A2D', Quadrizeps: '#A03C78',
+    Hamstrings: '#06B6D4', Gluteus: '#F472B6', Waden: '#FB923C', Core: '#F59E0B',
+  };
+  const ALL_MG = Object.keys(MG_COLORS);
+  const [active, setActive] = useState<string[]>(ALL_MG.slice(0, 6));
+
+  const W = SW - 32 - 32;
+  const H = 200;
+  const PAD = 12;
+
+  const allData = ALL_MG.reduce<Record<string, { x: number; y: number }[]>>((acc, mg) => {
+    const data = computeMGProgressData(prHistory, mg, period);
+    const vals = data.map(d => d.val);
+    const minV = Math.min(...vals, 0);
+    const maxV = Math.max(...vals, 1);
+    const range = maxV - minV || 1;
+    acc[mg] = vals.map((v, i) => ({
+      x: PAD + (i / Math.max(vals.length - 1, 1)) * (W - PAD * 2),
+      y: H - PAD - ((v - minV) / range) * (H - PAD * 2),
+    }));
+    return acc;
+  }, {});
+
+  const improvements = ALL_MG.map(mg => {
+    const data = computeMGProgressData(prHistory, mg, period);
+    if (data.length < 2) return { mg, pct: 0 };
+    const pct = Math.round(((data[data.length - 1].val - data[0].val) / Math.max(data[0].val, 1)) * 100);
+    return { mg, pct };
+  }).filter(x => x.pct !== 0).sort((a, b) => b.pct - a.pct);
+
+  return (
+    <Modal visible animationType="slide">
+      <View style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ paddingTop: 60, paddingHorizontal: 20, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: T.borderSoft, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', backgroundColor: T.card }}>
+          <View>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 5 }}>Kraftentwicklung</Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }}>Fortschritt</Text>
+          </View>
+          <TouchableOpacity onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, borderWidth: 1, borderColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
+            <IconClose />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16 }}>
+          <View style={{ flexDirection: 'row', gap: 5, marginBottom: 16 }}>
+            {periods.map(p => (
+              <TouchableOpacity key={p} onPress={() => setPeriod(p)} style={{ flex: 1, paddingVertical: 6, borderRadius: 8, alignItems: 'center', backgroundColor: period === p ? T.orangeAlpha : T.card, borderWidth: 1, borderColor: period === p ? T.orangeBorder : T.border }}>
+                <Text style={{ fontSize: 11, fontWeight: '600', color: period === p ? T.orange : T.text4 }}>{p}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <View style={{ backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: T.border }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 12 }}>Verlauf nach Muskelgruppe</Text>
+            <Svg width={W} height={H}>
+              {active.map(mg => {
+                const pts = allData[mg];
+                if (!pts || pts.length < 2) return null;
+                const d = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+                return <Path key={mg} d={d} fill="none" stroke={MG_COLORS[mg]} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />;
+              })}
+              {active.map(mg => {
+                const pts = allData[mg];
+                if (!pts || pts.length < 2) return null;
+                return pts.map((p, i) => <Circle key={`${mg}-${i}`} cx={p.x} cy={p.y} r={i === pts.length - 1 ? 4 : 2.5} fill={MG_COLORS[mg]} />);
+              })}
+            </Svg>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+              {ALL_MG.map(mg => (
+                <View key={mg} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <View style={{ width: 12, height: 3, borderRadius: 2, backgroundColor: MG_COLORS[mg] }} />
+                  <Text style={{ fontSize: 9, color: T.text3 }}>{mg}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Ein-/Ausblenden</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+            {ALL_MG.map(mg => {
+              const on = active.includes(mg);
+              return (
+                <TouchableOpacity key={mg} onPress={() => setActive(prev => on ? prev.filter(x => x !== mg) : [...prev, mg])}
+                  style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, backgroundColor: on ? MG_COLORS[mg] + '18' : T.cardAlt, borderColor: on ? MG_COLORS[mg] + '44' : T.border }}>
+                  <Text style={{ fontSize: 11, fontWeight: '600', color: on ? MG_COLORS[mg] : T.text4 }}>{mg}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {improvements.length > 0 && (
+            <View style={{ backgroundColor: T.card, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: T.border }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 12 }}>Ranking — Verbesserung</Text>
+              {improvements.map(({ mg, pct }) => (
+                <View key={mg} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <Text style={{ fontSize: 11, color: T.text2, width: 80 }}>{mg}</Text>
+                  <View style={{ flex: 1, height: 7, backgroundColor: T.cardAlt, borderRadius: 4, overflow: 'hidden' }}>
+                    <View style={{ height: 7, borderRadius: 4, backgroundColor: MG_COLORS[mg], width: `${Math.min(Math.abs(pct), 100)}%` as any }} />
+                  </View>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: MG_COLORS[mg], width: 38, textAlign: 'right' }}>{pct >= 0 ? '+' : ''}{pct}%</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          <View style={{ height: 60 }} />
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Progress Helpers ─────────────────────────────────────────
+function computeProgressData(prHistory: PRHistory, period: string): { label: string; avg: number }[] {
+  const now = Date.now();
+  const msMap: Record<string, number> = { '1M': 30, '6M': 180, '1J': 365, '2J': 730, 'Gesamt': 9999 };
+  const days = msMap[period] ?? 30;
+  const cutoff = now - days * 24 * 3600000;
+  const buckets = period === '1M' ? 4 : period === '6M' ? 6 : period === '1J' ? 12 : period === '2J' ? 8 : 6;
+
+  return Array.from({ length: buckets }, (_, i) => {
+    const bucketEnd = now - ((buckets - 1 - i) / buckets) * days * 24 * 3600000;
+    const bucketStart = now - ((buckets - i) / buckets) * days * 24 * 3600000;
+    let total = 0, count = 0;
+    Object.values(prHistory).forEach(entries => {
+      entries.forEach(e => {
+        const t = new Date(e.date).getTime();
+        if (t >= bucketStart && t <= bucketEnd) { total += e.estimated1RM; count++; }
+      });
+    });
+    return { label: `${i + 1}`, avg: count > 0 ? Math.round(total / count) : 0 };
+  });
+}
+
+function computeMGProgressData(prHistory: PRHistory, muscleGroup: string, period: string): { label: string; val: number }[] {
+  const now = Date.now();
+  const msMap: Record<string, number> = { '1M': 30, '6M': 180, '1J': 365, '2J': 730, 'Gesamt': 9999 };
+  const days = msMap[period] ?? 30;
+  const buckets = period === '1M' ? 4 : period === '6M' ? 6 : period === '1J' ? 12 : period === '2J' ? 8 : 6;
+  const mgCats: Record<string, string[]> = {
+    Brust: ['Brust'], Rücken: ['Rücken (Breite)', 'Rücken (Dicke)', 'Rücken (Unterer)'],
+    Bizeps: ['Bizeps'], Schultern: ['Schultern'], Trizeps: ['Trizeps'],
+    Quadrizeps: ['Quadrizeps'], Hamstrings: ['Hamstrings'], Gluteus: ['Gesäß'],
+    Waden: ['Waden'], Core: ['Core', 'Bauch', 'Obliques'],
+  };
+  const cats = mgCats[muscleGroup] ?? [muscleGroup];
+  const relevantEntries = Object.entries(prHistory).filter(([name]) =>
+    ALL_EXERCISES.some(ex => ex.name === name && cats.includes(ex.category))
+  ).flatMap(([, entries]) => entries);
+
+  return Array.from({ length: buckets }, (_, i) => {
+    const bucketEnd = now - ((buckets - 1 - i) / buckets) * days * 24 * 3600000;
+    const bucketStart = now - ((buckets - i) / buckets) * days * 24 * 3600000;
+    let total = 0, count = 0;
+    relevantEntries.forEach(e => {
+      const t = new Date(e.date).getTime();
+      if (t >= bucketStart && t <= bucketEnd) { total += e.estimated1RM; count++; }
+    });
+    return { label: `${i + 1}`, val: count > 0 ? Math.round(total / count) : 0 };
+  });
+}
+// ─── Main Training Screen ─────────────────────────────────────
+type Screen = 'home' | 'routines' | 'routineDetail';
 
 export default function TrainingScreen() {
+  const { colors } = useAppTheme();
+const T = {
+  bg:           colors.bg,
+  card:         colors.card,
+  cardAlt:      colors.cardSecondary,
+  border:       'rgba(60,30,10,0.08)',
+  borderSoft:   'rgba(60,30,10,0.05)',
+  orange:       colors.accent,
+  orangeAlpha:  colors.accent + '26',
+  orangeBorder: colors.accent + '48',
+  blue:         '#3A7AC0',
+  blueAlpha:    'rgba(58,122,192,0.08)',
+  blueBorder:   'rgba(58,122,192,0.14)',
+  green:        '#4A8C5C',
+  greenAlpha:   'rgba(74,140,92,0.08)',
+  greenBorder:  'rgba(74,140,92,0.14)',
+  red:          '#C0392B',
+  redAlpha:     'rgba(192,57,43,0.07)',
+  redBorder:    'rgba(192,57,43,0.14)',
+  gold:         '#8B6914',
+  goldAlpha:    'rgba(139,105,20,0.08)',
+  goldBorder:   'rgba(139,105,20,0.18)',
+  yellow:       '#8B6914',
+  white:        '#FFFFFF',
+  text1:        '#2A1F14',
+  text2:        '#5A4A3A',
+  text3:        '#7A6E63',
+  text4:        '#B0A89E',
+};
   const [screen, setScreen] = useState<Screen>('home');
   const [selectedRoutine, setSelectedRoutine] = useState<Routine | null>(null);
   const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
@@ -1630,11 +1688,10 @@ export default function TrainingScreen() {
   const [showHistory, setShowHistory] = useState(false);
   const [showPRScreen, setShowPRScreen] = useState(false);
   const [showPREntry, setShowPREntry] = useState(false);
-  const [showPlan, setShowPlan] = useState(false);
-  const [showJudo, setShowJudo] = useState(false);
   const [showBodyModal, setShowBodyModal] = useState(false);
-  const [showNutritionModal, setShowNutritionModal] = useState(false);
-  const [showDeviceModal, setShowDeviceModal] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
+  const [editPR, setEditPR] = useState<{ name: string; weight: number; reps: number } | null>(null);
+  const [showNutrition, setShowNutrition] = useState(false);
   const [nutritionAdvice, setNutritionAdvice] = useState<ReturnType<typeof getNutritionAdvice> | null>(null);
   const [lastWorkoutScore, setLastWorkoutScore] = useState(0);
   const [userMaxes, setUserMaxes] = useState<UserMaxes>({});
@@ -1642,14 +1699,14 @@ export default function TrainingScreen() {
   const [lastWorkoutData, setLastWorkoutData] = useState<Record<string, WorkoutSet[]>>({});
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [workouts, setWorkouts] = useState<Workout[]>([]);
-  const [connectedDevice, setConnectedDevice] = useState<string | null>(null);
   const [muscles, setMuscles] = useState<MuscleMap>({});
+  const [bodyView, setBodyView] = useState<'front' | 'back'>('front');
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(useCallback(() => {
     loadAll();
     fadeAnim.setValue(0);
-    Animated.timing(fadeAnim, { toValue:1, duration:350, useNativeDriver:true }).start();
+    Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
   }, []));
 
   async function loadAll() {
@@ -1657,12 +1714,10 @@ export default function TrainingScreen() {
     if (rawW) {
       const ws: Workout[] = JSON.parse(rawW);
       setWorkouts(ws);
-      const lastData: Record<string,WorkoutSet[]> = {};
+      const lastData: Record<string, WorkoutSet[]> = {};
       [...ws].reverse().forEach(w => w.exercises?.forEach(ex => { if (!lastData[ex.name]) lastData[ex.name] = ex.sets; }));
       setLastWorkoutData(lastData);
-      // Calculate muscle recovery with secondary muscles
-      const newMuscles = calculateMuscleRecovery(ws, muscles);
-      setMuscles(newMuscles);
+      setMuscles(calculateMuscleRecovery(ws));
     } else {
       const def: MuscleMap = {};
       MUSCLE_GROUPS.forEach(m => { def[m] = { level: 100, lastTrained: null }; });
@@ -1671,7 +1726,7 @@ export default function TrainingScreen() {
     const rawActive = await AsyncStorage.getItem('activeWorkout');
     if (rawActive) {
       const w: Workout = JSON.parse(rawActive);
-      if (isToday(w.date)) { if (w.type==='run') setActiveRun(true); else setActiveWorkout(w); }
+      if (isToday(w.date)) { if (w.type === 'run') setActiveRun(true); else setActiveWorkout(w); }
       else { await AsyncStorage.removeItem('activeWorkout'); await AsyncStorage.removeItem('gymWorkoutTimer'); }
     }
     const rawMaxes = await AsyncStorage.getItem('userMaxes');
@@ -1680,451 +1735,579 @@ export default function TrainingScreen() {
     if (rawPR) setPRHistory(JSON.parse(rawPR));
     const rawRoutines = await AsyncStorage.getItem('routines');
     if (rawRoutines) setRoutines(JSON.parse(rawRoutines));
-    const rawDevice = await AsyncStorage.getItem('connectedDevice');
-    if (rawDevice) setConnectedDevice(rawDevice);
   }
 
-  async function saveRoutine(r: Routine) { const u=[...routines,r]; setRoutines(u); await AsyncStorage.setItem('routines',JSON.stringify(u)); }
-  async function updateRoutine(r: Routine) { const u=routines.map(x=>x.id===r.id?r:x); setRoutines(u); await AsyncStorage.setItem('routines',JSON.stringify(u)); }
-  async function deleteRoutine(id: string) { const u=routines.filter(r=>r.id!==id); setRoutines(u); await AsyncStorage.setItem('routines',JSON.stringify(u)); }
-
-  async function savePR(exerciseName: string, weight: number, reps: number) {
-    const estimated1RM=calc1RM(weight,reps);
-    const newPRH={...prHistory};
-    newPRH[exerciseName]=[...(newPRH[exerciseName]||[]),{date:new Date().toISOString(),weight,reps,estimated1RM}];
-    setPRHistory(newPRH); await AsyncStorage.setItem('prHistory',JSON.stringify(newPRH));
-    const newMaxes={...userMaxes};
-    if(estimated1RM>(newMaxes[exerciseName]||0)){newMaxes[exerciseName]=estimated1RM;setUserMaxes(newMaxes);await AsyncStorage.setItem('userMaxes',JSON.stringify(newMaxes));}
+  async function saveRoutine(r: Routine) { const u = [...routines, r]; setRoutines(u); await AsyncStorage.setItem('routines', JSON.stringify(u)); }
+  async function updateRoutine(r: Routine) { const u = routines.map(x => x.id === r.id ? r : x); setRoutines(u); await AsyncStorage.setItem('routines', JSON.stringify(u)); }
+  async function deleteRoutine(id: string) { const u = routines.filter(r => r.id !== id); setRoutines(u); await AsyncStorage.setItem('routines', JSON.stringify(u)); }
+  async function savePR(name: string, weight: number, reps: number) {
+    const est = calc1RM(weight, reps);
+    const newPRH = { ...prHistory, [name]: [...(prHistory[name] || []), { date: new Date().toISOString(), weight, reps, estimated1RM: est }] };
+    setPRHistory(newPRH); await AsyncStorage.setItem('prHistory', JSON.stringify(newPRH));
+    if (est > (userMaxes[name] || 0)) { const m = { ...userMaxes, [name]: est }; setUserMaxes(m); await AsyncStorage.setItem('userMaxes', JSON.stringify(m)); }
   }
 
-  const gymWorkouts = workouts.filter(w=>w.type==='gym');
-  const lastGymWorkout = [...gymWorkouts].sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime())[0];
-  const daysSinceGym = lastGymWorkout ? daysSince(lastGymWorkout.date) : -1;
-  const neverTrainedGym = daysSinceGym === -1;
+  const gymWorkouts = workouts.filter(w => w.type === 'gym');
+  const lastGym = [...gymWorkouts].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
   const weekDays = getWeekTrainings(workouts);
-  const todayDayIdx = (() => { const d=new Date().getDay(); return d===0?6:d-1; })();
+  const todayIdx = (() => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; })();
   const prCount = Object.keys(prHistory).length;
+  const bestPR = Object.entries(prHistory).sort((a, b) => (b[1][b[1].length - 1]?.estimated1RM ?? 0) - (a[1][a[1].length - 1]?.estimated1RM ?? 0))[0];
+  const readyCount = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80).length;
+  const warnCount = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) < 40).length;
+  const greetHour = new Date().getHours();
+  const greeting = greetHour < 12 ? 'Guten Morgen' : greetHour < 18 ? 'Guten Tag' : 'Guten Abend';
 
-  async function startFreeWorkout() {
-    const w: Workout = { id:Date.now().toString(),date:new Date().toISOString(),name:'Freies Training',exercises:[],duration:0,intensity:3,type:'gym' };
-    await AsyncStorage.setItem('activeWorkout',JSON.stringify(w)); setActiveWorkout(w); setScreen('home');
+  async function startFree() {
+    const w: Workout = { id: Date.now().toString(), date: new Date().toISOString(), name: 'Freies Training', exercises: [], duration: 0, intensity: 3, type: 'gym' };
+    await AsyncStorage.setItem('activeWorkout', JSON.stringify(w)); setActiveWorkout(w); setScreen('home');
   }
-  async function startFreeWithRecommendation() {
-    if (!lastGymWorkout) return startFreeWorkout();
-    const w: Workout = { id:Date.now().toString(),date:new Date().toISOString(),name:lastGymWorkout.name, exercises:lastGymWorkout.exercises.map(ex=>({...ex,id:Date.now().toString()+ex.name,sets:ex.sets.map(()=>({reps:'',weight:''}))})), duration:0,intensity:3,type:'gym' };
-    await AsyncStorage.setItem('activeWorkout',JSON.stringify(w)); setActiveWorkout(w); setScreen('home');
+  async function startWithLast() {
+    if (!lastGym) return startFree();
+    const w: Workout = { id: Date.now().toString(), date: new Date().toISOString(), name: lastGym.name, exercises: lastGym.exercises.map(ex => ({ ...ex, id: Date.now().toString() + ex.name, sets: ex.sets.map(() => ({ reps: '', weight: '' })) })), duration: 0, intensity: 3, type: 'gym' };
+    await AsyncStorage.setItem('activeWorkout', JSON.stringify(w)); setActiveWorkout(w); setScreen('home');
   }
-  async function startRoutineWorkout(routine: Routine) {
-    const w: Workout = { id:Date.now().toString(),date:new Date().toISOString(),name:routine.name, exercises:routine.exercises.map(re=>({id:Date.now().toString()+re.name,name:re.name,muscleGroup:re.muscleGroup,equipment:re.equipment,sets:Array.from({length:re.defaultSets},()=>({reps:'',weight:''}))})), duration:0,intensity:3,type:'gym' };
-    await AsyncStorage.setItem('activeWorkout',JSON.stringify(w)); setActiveWorkout(w); setScreen('home');
+  async function startRoutine(r: Routine) {
+    const w: Workout = { id: Date.now().toString(), date: new Date().toISOString(), name: r.name, exercises: r.exercises.map(re => ({ id: Date.now().toString() + re.name, name: re.name, muscleGroup: re.muscleGroup, equipment: re.equipment, sets: Array.from({ length: re.defaultSets }, () => ({ reps: '', weight: '' })) })), duration: 0, intensity: 3, type: 'gym' };
+    await AsyncStorage.setItem('activeWorkout', JSON.stringify(w)); setActiveWorkout(w); setScreen('home');
   }
-
   async function finishWorkout() {
     if (!activeWorkout) return;
-    const rawTimer = await AsyncStorage.getItem('gymWorkoutTimer');
+    const raw = await AsyncStorage.getItem('gymWorkoutTimer');
     let duration = 1;
-    if (rawTimer) { try { const {startedAt}=JSON.parse(rawTimer); if(startedAt) duration=Math.max(1,Math.round((Date.now()-startedAt)/60000)); } catch {} }
-    const score = calcWorkoutScore({...activeWorkout,duration}, userMaxes);
-    const finished: Workout = {...activeWorkout,duration,score};
-    const newPRH={...prHistory};
+    if (raw) { try { const { startedAt } = JSON.parse(raw); if (startedAt) duration = Math.max(1, Math.round((Date.now() - startedAt) / 60000)); } catch {} }
+    const score = calcWorkoutScore({ ...activeWorkout, duration }, userMaxes);
+    const finished: Workout = { ...activeWorkout, duration, score };
+    const newPRH = { ...prHistory };
     for (const ex of finished.exercises) {
-      const best=getBest1RM(ex.sets);
-      if(best>0){const cur=newPRH[ex.name]||[];const curMax=cur.length>0?cur[cur.length-1].estimated1RM:0;if(best>curMax){const bestSet=ex.sets.reduce((b,set)=>calc1RM(parseFloat(set.weight||'0'),parseFloat(set.reps||'0'))>calc1RM(parseFloat(b.weight||'0'),parseFloat(b.reps||'0'))?set:b,ex.sets[0]);newPRH[ex.name]=[...(newPRH[ex.name]||[]),{date:new Date().toISOString(),weight:parseFloat(bestSet.weight||'0'),reps:parseFloat(bestSet.reps||'0'),estimated1RM:best}];}}
+      const best = getBest1RM(ex.sets);
+      if (best > 0) { const cur = newPRH[ex.name] || []; const curMax = cur.length > 0 ? cur[cur.length - 1].estimated1RM : 0; if (best > curMax) { const bestSet = ex.sets.reduce((b, s) => calc1RM(parseFloat(s.weight || '0'), parseFloat(s.reps || '0')) > calc1RM(parseFloat(b.weight || '0'), parseFloat(b.reps || '0')) ? s : b, ex.sets[0]); newPRH[ex.name] = [...(newPRH[ex.name] || []), { date: new Date().toISOString(), weight: parseFloat(bestSet.weight || '0'), reps: parseFloat(bestSet.reps || '0'), estimated1RM: best }]; } }
     }
-    await AsyncStorage.setItem('prHistory',JSON.stringify(newPRH));
-    const newMaxes={...userMaxes};
-    for (const ex of finished.exercises) { const best=getBest1RM(ex.sets); if(best>(newMaxes[ex.name]||0)) newMaxes[ex.name]=best; }
-    await AsyncStorage.setItem('userMaxes',JSON.stringify(newMaxes));
-    const rawWH=await AsyncStorage.getItem('workouts'); const histArr=rawWH?JSON.parse(rawWH):[];
-    histArr.push(finished); await AsyncStorage.setItem('workouts',JSON.stringify(histArr));
+    await AsyncStorage.setItem('prHistory', JSON.stringify(newPRH));
+    const newMaxes = { ...userMaxes };
+    for (const ex of finished.exercises) { const best = getBest1RM(ex.sets); if (best > (newMaxes[ex.name] || 0)) newMaxes[ex.name] = best; }
+    await AsyncStorage.setItem('userMaxes', JSON.stringify(newMaxes));
+    const raw2 = await AsyncStorage.getItem('workouts'); const arr = raw2 ? JSON.parse(raw2) : [];
+    arr.push(finished); await AsyncStorage.setItem('workouts', JSON.stringify(arr));
     await AsyncStorage.removeItem('activeWorkout'); await AsyncStorage.removeItem('gymWorkoutTimer');
     setActiveWorkout(null);
-    const rawProfile=await AsyncStorage.getItem('profile');
-    const bodyWeight=rawProfile?JSON.parse(rawProfile).weight:75;
-    const advice=getNutritionAdvice(score,duration,parseFloat(bodyWeight)||75);
-    setNutritionAdvice(advice); setLastWorkoutScore(score); setShowNutritionModal(true);
+    const rawProfile = await AsyncStorage.getItem('profile');
+    const bw = rawProfile ? JSON.parse(rawProfile).weight : 75;
+    setNutritionAdvice(getNutritionAdvice(score, duration, parseFloat(bw) || 75));
+    setLastWorkoutScore(score);
+    setShowNutrition(true);
     await loadAll();
   }
-
   async function stopSession() {
     setActiveRun(false); setActiveWorkout(null);
     await AsyncStorage.removeItem('activeWorkout'); await AsyncStorage.removeItem('gymWorkoutTimer'); await AsyncStorage.removeItem('activeRunTimer');
     await loadAll();
   }
 
-  const greetingHour = new Date().getHours();
-  const greeting = greetingHour<12?'Guten Morgen':greetingHour<18?'Guten Tag':'Guten Abend';
+  // ─── Styles ───────────────────────────────────────────────────
+  const sw = StyleSheet.create({
+    track: { backgroundColor: T.card, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 50, padding: 6, height: 68, overflow: 'hidden', justifyContent: 'center' },
+    thumb: { width: 56, height: 56, borderRadius: 28, backgroundColor: T.orange, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+    label: { position: 'absolute', left: 0, right: 0, textAlign: 'center', fontSize: 13, fontWeight: '600', color: T.text3 },
+  });
 
+  const screenSt = StyleSheet.create({
+    header: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft },
+    eyebrow: { fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 4 },
+    title: { fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 },
+    closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border },
+    backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border, marginTop: 4 },
+  });
+
+  const modalSt = StyleSheet.create({
+    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'flex-end' },
+    sheet: { backgroundColor: T.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, gap: 0 },
+    title: { fontSize: 20, fontWeight: '800', color: T.text1, letterSpacing: -0.5, marginBottom: 6 },
+    sub: { fontSize: 13, color: T.text3, marginBottom: 16 },
+    searchBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16, borderWidth: 1, borderColor: T.border },
+    searchInput: { flex: 1, fontSize: 14, color: T.text1 },
+    groupLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 },
+    row: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border },
+    rowText: { flex: 1, fontSize: 14, color: T.text1, fontWeight: '500' },
+    cancelBtn: { padding: 14, alignItems: 'center', marginTop: 4 },
+    cancelText: { fontSize: 14, color: T.text3 },
+  });
+
+  const btn = StyleSheet.create({
+    primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+    primaryText: { fontSize: 15, fontWeight: '700', color: T.white },
+    ghost: { padding: 14, alignItems: 'center' },
+    ghostText: { fontSize: 14, color: T.text3 },
+    outline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed', padding: 13, marginTop: 10 },
+    outlineText: { fontSize: 13, fontWeight: '600', color: T.orange },
+  });
+
+  const field = StyleSheet.create({
+    label: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2, color: T.text4, marginBottom: 8, marginTop: 16 },
+    input: { backgroundColor: T.card, borderRadius: 14, padding: 14, color: T.text1, fontSize: 15, marginBottom: 0, borderWidth: 1, borderColor: T.border },
+    list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden', marginBottom: 12, borderWidth: 1, borderColor: T.border },
+    row: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 },
+    rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft },
+    rowText: { flex: 1, fontSize: 13, fontWeight: '600', color: T.text1 },
+    dot: { width: 8, height: 8, borderRadius: 4 },
+  });
+
+  const tabSt = StyleSheet.create({
+    btn: { flex: 1, borderRadius: 12, padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: T.border, alignItems: 'center' },
+    btnActive: { backgroundColor: T.orangeAlpha, borderColor: T.orangeBorder },
+    text: { fontSize: 12, fontWeight: '600', color: T.text4 },
+    textActive: { color: T.orange },
+  });
+
+  const rSt = StyleSheet.create({
+    card: { backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: T.border },
+    name: { fontSize: 16, fontWeight: '700', color: T.text1, letterSpacing: -0.3, marginBottom: 4 },
+    meta: { fontSize: 11, color: T.text3, marginBottom: 8 },
+    chipRow: { flexDirection: 'row', gap: 6 },
+    chip: { backgroundColor: T.orangeAlpha, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: T.orangeBorder },
+    chipText: { fontSize: 11, fontWeight: '600', color: T.orange },
+    createCard: { backgroundColor: T.card, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 12, borderWidth: 1, borderColor: T.orangeBorder },
+    createIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.orangeAlpha, alignItems: 'center', justifyContent: 'center' },
+    createTitle: { fontSize: 15, fontWeight: '700', color: T.text1, marginBottom: 2 },
+    createSub: { fontSize: 11, color: T.text3 },
+    editBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: T.blueAlpha, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.blueBorder },
+    deleteBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: T.redAlpha, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.redBorder },
+    communityBadge: { backgroundColor: T.blueAlpha, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: T.blueBorder },
+  });
+
+  const pr = StyleSheet.create({
+    sectionLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2, color: T.text4, marginBottom: 12 },
+    repBtn: { flex: 1, backgroundColor: T.card, borderRadius: 16, padding: 16, alignItems: 'center', borderWidth: 1, borderColor: T.border },
+    repBtnActive: { backgroundColor: T.orange, borderColor: T.orange },
+    repNum: { fontSize: 30, fontWeight: '800', color: T.text1, marginBottom: 2 },
+    repLbl: { fontSize: 11, color: T.text3 },
+    weightBox: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: T.card, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: T.border, marginBottom: 16 },
+    weightInput: { flex: 1, fontSize: 52, fontWeight: '800', color: T.text1, letterSpacing: -1 },
+    weightUnit: { fontSize: 20, fontWeight: '600', color: T.text4 },
+    previewCard: { backgroundColor: T.orangeAlpha, borderRadius: 14, padding: 16, marginBottom: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: T.orangeBorder },
+    previewLabel: { fontSize: 11, fontWeight: '700', color: T.orange, textTransform: 'uppercase', letterSpacing: 0.8 },
+    previewVal: { fontSize: 30, fontWeight: '800', color: T.orange },
+  });
+
+  const prCard = StyleSheet.create({
+    card: { backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: T.border },
+    rank: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
+    rankText: { fontSize: 12, fontWeight: '800' },
+    name: { fontSize: 16, fontWeight: '700', color: T.text1, letterSpacing: -0.3 },
+    date: { fontSize: 12, color: T.text4, marginTop: 2 },
+    rm: { fontSize: 20, fontWeight: '800', color: T.text1, letterSpacing: -0.5 },
+    rmLabel: { fontSize: 10, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.5 },
+    stat: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: T.border },
+    statVal: { fontSize: 15, fontWeight: '700', color: T.text1 },
+    statLbl: { fontSize: 9, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 2 },
+    delta: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  });
+
+  const hist = StyleSheet.create({
+    card: { backgroundColor: T.card, borderRadius: 18, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border },
+    stat: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, alignItems: 'center', borderWidth: 1, borderColor: T.border },
+    statVal: { fontSize: 13, fontWeight: '700' },
+    statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.3, marginTop: 2 },
+  });
+
+  const activeS = StyleSheet.create({
+    header: { backgroundColor: T.card, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderBottomWidth: 1, borderBottomColor: T.borderSoft },
+    workoutTag: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', color: T.orange, marginBottom: 4 },
+    workoutTitle: { fontSize: 20, fontWeight: '800', color: T.text1, letterSpacing: -0.4 },
+    timerBadge: { backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: T.border },
+    timerText: { fontSize: 18, fontWeight: '700', color: T.text1, letterSpacing: 1 },
+    timerLabel: { fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
+    statsRow: { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft },
+    statBox: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: T.border },
+    statVal: { fontSize: 18, fontWeight: '700' },
+    statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
+    restCard: { backgroundColor: T.card, borderLeftWidth: 3, padding: 12, marginBottom: 12, marginTop: 12, borderRadius: 0 },
+    restLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 2 },
+    restTimer: { fontSize: 22, fontWeight: '800', color: T.text1, letterSpacing: 1 },
+    restBtn: { backgroundColor: T.cardAlt, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: T.border },
+    restBtnText: { fontSize: 11, fontWeight: '600', color: T.text3 },
+    exCard: { backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: T.border },
+    musclePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+    musclePillText: { fontSize: 11, fontWeight: '500' },
+    exName: { flex: 1, fontSize: 15, fontWeight: '700', color: T.text1 },
+    recRow: { backgroundColor: T.blueAlpha, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: T.blueBorder },
+    recText: { fontSize: 12, color: T.blue, fontWeight: '500' },
+    lastRow: { flexDirection: 'row', backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, marginBottom: 8 },
+    lastLabel: { fontSize: 11, color: T.text3 },
+    lastVal: { fontSize: 11, color: T.orange, fontWeight: '500', flex: 1 },
+    oneRM: { fontSize: 11, color: T.text3, marginBottom: 10 },
+    setHdr: { fontSize: 9, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, textAlign: 'center' },
+    setRow: { flexDirection: 'row', gap: 8, marginBottom: 8, alignItems: 'center' },
+    setNum: { fontSize: 13, color: T.text3, width: 24, textAlign: 'center' },
+    setInput: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 11, color: T.text1, fontSize: 15, textAlign: 'center', borderWidth: 1, borderColor: T.border },
+    setInputDone: { borderColor: 'rgba(52,199,89,0.4)', color: T.green },
+    addSetBtn: { padding: 8, alignItems: 'center' },
+    addSetText: { fontSize: 13, color: T.orange, fontWeight: '500' },
+  });
+
+  // Active states
   if (activeRun) return <RunScreen onStop={stopSession} />;
   if (activeWorkout) return <ActiveGymWorkout workout={activeWorkout} userMaxes={userMaxes} prHistory={prHistory} lastWorkoutData={lastWorkoutData} onUpdate={setActiveWorkout} onFinish={finishWorkout} />;
-  if (screen==='freeStart') return <FreeWorkoutStartScreen onStart={startFreeWorkout} onStartWithRecommendation={startFreeWithRecommendation} lastWorkout={lastGymWorkout??null} onBack={()=>setScreen('home')} />;
-  if (screen==='routineScreen') return <RoutineScreen routines={routines} onSelectRoutine={r=>{setSelectedRoutine(r);setScreen('routineDetail');}} onCreateRoutine={saveRoutine} onUpdateRoutine={updateRoutine} onDeleteRoutine={deleteRoutine} onBack={()=>setScreen('home')} />;
-  if (screen==='routineDetail'&&selectedRoutine) return <RoutineDetailScreen routine={selectedRoutine} onStart={startRoutineWorkout} onBack={()=>setScreen('routineScreen')} />;
+  if (screen === 'routines') return <RoutineScreen routines={routines} onSelectRoutine={r => { setSelectedRoutine(r); setScreen('routineDetail'); }} onCreateRoutine={saveRoutine} onUpdateRoutine={updateRoutine} onDeleteRoutine={deleteRoutine} onBack={() => setScreen('home')} />;
+  if (screen === 'routineDetail' && selectedRoutine) return <RoutineDetail routine={selectedRoutine} onStart={startRoutine} onBack={() => setScreen('routines')} />;
 
   return (
-    <View style={{ flex:1,backgroundColor:theme.bg }}>
+    <View style={{ flex: 1, backgroundColor: T.bg }}>
       {/* Modals */}
-      {showHistory && <HistoryScreen onClose={()=>{setShowHistory(false);loadAll();}} prHistory={prHistory} onDelete={()=>loadAll()} />}
-      {showPRScreen && <PRScreen prHistory={prHistory} onClose={()=>setShowPRScreen(false)} onAddPR={()=>{setShowPRScreen(false);setShowPREntry(true);}} />}
-      {showPREntry && <PREntryScreen onClose={()=>setShowPREntry(false)} onSave={savePR} />}
-      {showPlan && <TrainingPlanScreen onClose={()=>setShowPlan(false)} userMaxes={userMaxes} />}
-      {showJudo && <JudoTrackingScreen onClose={()=>setShowJudo(false)} />}
-      {showBodyModal && <BodyScreenModal muscles={muscles} onClose={()=>setShowBodyModal(false)} />}
+      {showHistory && <HistoryScreen onClose={() => { setShowHistory(false); loadAll(); }} onDelete={() => loadAll()} />}
+      
+{editPR && <PREntryScreen onClose={() => setEditPR(null)} onSave={savePR} editExercise={editPR.name} editWeight={editPR.weight} editReps={editPR.reps} />}
+      {showPREntry && <PREntryScreen onClose={() => setShowPREntry(false)} onSave={savePR} />}
+      {showBodyModal && <BodyModal muscles={muscles} onClose={() => setShowBodyModal(false)} />}
+        {showProgress && <ProgressDetailModal prHistory={prHistory} T={T} onClose={() => setShowProgress(false)} />}
 
       {/* Nutrition Modal */}
-      <Modal visible={showNutritionModal} transparent animationType="slide">
-        <View style={{ flex:1,backgroundColor:'rgba(0,0,0,0.7)',justifyContent:'flex-end' }}>
-          <View style={{ backgroundColor:theme.card,borderTopLeftRadius:24,borderTopRightRadius:24,padding:24 }}>
-            <View style={{ flexDirection:'row',justifyContent:'space-between',alignItems:'flex-start',marginBottom:20 }}>
-              <View><Text style={{ fontSize:10,fontWeight:'700',textTransform:'uppercase',letterSpacing:1,color:theme.orange,marginBottom:4 }}>Training abgeschlossen</Text><Text style={{ fontSize:22,fontWeight:'800',color:theme.textPrimary }}>Ernährungsplan 🍗</Text></View>
-              <View style={{ backgroundColor:theme.orangeLight,borderRadius:20,paddingHorizontal:12,paddingVertical:6,borderWidth:1,borderColor:theme.orangeBorder }}><Text style={{ fontSize:13,fontWeight:'700',color:theme.orange }}>⚡ {lastWorkoutScore}</Text></View>
+      <Modal visible={showNutrition} transparent animationType="slide">
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: T.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+              <View><Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, color: T.orange, marginBottom: 4 }}>Fertig</Text><Text style={{ fontSize: 24, fontWeight: '800', color: T.text1, letterSpacing: -0.5 }}>Ernährung 🍗</Text></View>
+              <View style={{ backgroundColor: T.orangeAlpha, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: T.orangeBorder }}><Text style={{ fontSize: 14, fontWeight: '800', color: T.orange }}>⚡ {lastWorkoutScore}</Text></View>
             </View>
-            {nutritionAdvice&&(<>
-              <View style={{ backgroundColor:theme.greenLight,borderRadius:16,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.green+'40' }}>
-                <Text style={{ color:theme.green,fontSize:10,fontWeight:'700',textTransform:'uppercase',letterSpacing:0.8,marginBottom:8 }}>{nutritionAdvice.immediate.timing}</Text>
-                <View style={{ flexDirection:'row',gap:12 }}>
-                  <View style={{ flex:1,alignItems:'center' }}><Text style={{ fontSize:28,fontWeight:'800',color:theme.textPrimary }}>{nutritionAdvice.immediate.protein}g</Text><Text style={{ fontSize:11,color:theme.textSecondary,marginTop:2 }}>Protein</Text></View>
-                  <View style={{ width:1,backgroundColor:theme.border }} />
-                  <View style={{ flex:1,alignItems:'center' }}><Text style={{ fontSize:28,fontWeight:'800',color:theme.textPrimary }}>{nutritionAdvice.immediate.carbs}g</Text><Text style={{ fontSize:11,color:theme.textSecondary,marginTop:2 }}>Kohlenhydrate</Text></View>
+            {nutritionAdvice && <>
+              <View style={{ backgroundColor: T.greenAlpha, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: T.greenBorder }}>
+                <Text style={{ color: T.green, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{nutritionAdvice.immediate.timing}</Text>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.immediate.protein}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Protein</Text></View>
+                  <View style={{ width: 1, backgroundColor: T.border }} />
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.immediate.carbs}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Kohlenhydrate</Text></View>
                 </View>
               </View>
-              <View style={{ backgroundColor:theme.blueLight,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.blue+'40' }}>
-                <Text style={{ color:theme.blue,fontSize:10,fontWeight:'700',textTransform:'uppercase',letterSpacing:0.8,marginBottom:8 }}>{nutritionAdvice.later.timing}</Text>
-                <View style={{ flexDirection:'row',gap:12 }}>
-                  <View style={{ flex:1,alignItems:'center' }}><Text style={{ fontSize:28,fontWeight:'800',color:theme.textPrimary }}>{nutritionAdvice.later.protein}g</Text><Text style={{ fontSize:11,color:theme.textSecondary,marginTop:2 }}>Protein</Text></View>
-                  <View style={{ width:1,backgroundColor:theme.border }} />
-                  <View style={{ flex:1,alignItems:'center' }}><Text style={{ fontSize:28,fontWeight:'800',color:theme.textPrimary }}>{nutritionAdvice.later.carbs}g</Text><Text style={{ fontSize:11,color:theme.textSecondary,marginTop:2 }}>Kohlenhydrate</Text></View>
+              <View style={{ backgroundColor: T.blueAlpha, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: T.blueBorder }}>
+                <Text style={{ color: T.blue, fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>{nutritionAdvice.later.timing}</Text>
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.later.protein}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Protein</Text></View>
+                  <View style={{ width: 1, backgroundColor: T.border }} />
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.later.carbs}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Kohlenhydrate</Text></View>
                 </View>
               </View>
-            </>)}
-            <TouchableOpacity style={{ backgroundColor:theme.orange,borderRadius:14,padding:15,alignItems:'center',marginTop:16 }} onPress={()=>setShowNutritionModal(false)} activeOpacity={0.85}><Text style={{ fontSize:15,fontWeight:'700',color:'#fff' }}>Verstanden ✓</Text></TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Device Modal */}
-      <Modal visible={showDeviceModal} transparent animationType="slide">
-        <View style={s.modalOverlay}>
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>Gerät verbinden</Text>
-            {['Polar','Garmin','Apple Watch','Suunto'].map(device=>(
-              <TouchableOpacity key={device} style={[s.presetChip,{paddingVertical:14,marginBottom:8,borderRadius:12,flexDirection:'row',justifyContent:'space-between',alignItems:'center'}]}
-                onPress={async()=>{await AsyncStorage.setItem('connectedDevice',device);setConnectedDevice(device);setShowDeviceModal(false);Alert.alert('Verbunden',`${device} wurde erfolgreich verbunden.`);}}>
-                <Text style={[s.presetChipText,{fontSize:15}]}>{device}</Text>
-                <IconChevronRight color={theme.textTertiary} size={18} />
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={s.cancelBtn} onPress={()=>setShowDeviceModal(false)}><Text style={s.cancelBtnText}>Abbrechen</Text></TouchableOpacity>
+            </>}
+            <TouchableOpacity style={[btn.primary, { marginTop: 16 }]} onPress={() => setShowNutrition(false)}><Text style={btn.primaryText}>Verstanden ✓</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       <ScrollView showsVerticalScrollIndicator={false}>
         <Animated.View style={{ opacity: fadeAnim }}>
-
-          {/* ─── HEADER ─── */}
-          <View style={{ paddingTop: 60, paddingHorizontal: 16, paddingBottom: 8 }}>
-            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase', color: theme.orange, marginBottom: 3 }}>Training</Text>
-            <Text style={{ fontSize: 28, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.6 }}>{greeting}</Text>
+          {/* HEADER */}
+          <View style={{ paddingTop: 62, paddingHorizontal: 24, paddingBottom: 0 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 3, textTransform: 'uppercase', color: T.orange, marginBottom: 8 }}>Training</Text>
+            <Text style={{ fontSize: 36, fontWeight: '800', color: T.text1, letterSpacing: -1, lineHeight: 36 }}>{greeting}</Text>
+            <Text style={{ fontSize: 14, color: T.text3, marginTop: 6, fontWeight: '400' }}>
+              {DAY_LABELS[todayIdx]}tag · {lastGym ? `Letztes Training vor ${daysSince(lastGym.date)} Tagen` : 'Starte dein erstes Training'}
+            </Text>
           </View>
 
-          {/* ─── WEEK STRIP ─── */}
-          <View style={{ marginHorizontal: 16, marginBottom: 14, backgroundColor: theme.card, borderRadius: 16, borderWidth: 1, borderColor: theme.border, padding: 14 }}>
-            <Text style={{ fontSize: 9, color: theme.textTertiary, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Diese Woche · {weekDays.filter(Boolean).length} Trainings</Text>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          {/* WEEK BAR */}
+          <View style={{ margin: 20, marginBottom: 0, backgroundColor: T.card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: T.border }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4 }}>Diese Woche</Text>
+              <View style={{ backgroundColor: T.orangeAlpha, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 3, borderWidth: 1, borderColor: T.orangeBorder }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: T.orange }}>{weekDays.filter(Boolean).length} Trainings</Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 2 }}>
               {DAY_LABELS.map((lbl, idx) => {
-                const done=weekDays[idx], isToday2=idx===todayDayIdx;
+                const done = weekDays[idx], isNow = idx === todayIdx;
                 return (
-                  <View key={lbl} style={{ alignItems: 'center', gap: 4 }}>
-                    <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: done?theme.orange:isToday2?'rgba(232,87,42,0.14)':'rgba(255,255,255,0.04)', borderWidth: isToday2&&!done?2:done?0:1, borderColor: isToday2?theme.orange:'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' }}>
-                      {done?<IconCheck color="#fff" size={13} />:isToday2?<View style={{ width:7,height:7,borderRadius:4,backgroundColor:theme.orange }} />:null}
+                  <View key={lbl} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
+                    <View style={[{ width: 37, height: 37, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }, done ? { backgroundColor: T.orange } : isNow ? { borderWidth: 2, borderColor: T.orange } : { backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: T.border }]}>
+                      {done ? <IconCheck /> : isNow ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: T.orange }} /> : null}
                     </View>
-                    <Text style={{ fontSize: 9, fontWeight: isToday2?'800':'600', color: isToday2?theme.orange:done?'rgba(245,240,238,0.4)':'rgba(245,240,238,0.18)' }}>{lbl}</Text>
+                    <Text style={{ fontSize: 9, fontWeight: '700', color: isNow ? T.orange : T.text4 }}>{lbl}</Text>
                   </View>
                 );
               })}
             </View>
           </View>
 
-          {/* ─── HERO CARD ─── */}
-          <View style={{ marginHorizontal: 16, marginBottom: 10, backgroundColor: theme.card, borderRadius: 22, borderWidth: 1.5, borderColor: theme.orangeBorder, padding: 18 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-              <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: theme.orange }} />
-              <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: theme.orange }}>
-                {neverTrainedGym?'Starte dein erstes Training':daysSinceGym>=2?'Heute empfohlen':'Bereit für mehr?'}
-              </Text>
+          {/* HERO */}
+          {(() => {
+            // Muskel-Recovery basierte Logik
+            const readyMuscles = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 100);
+            const notReadyMuscles = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) < 100);
+            const allReady = notReadyMuscles.length === 0;
+            const noneReady = readyMuscles.length === 0;
+
+            // Workout-Typ bestimmen basierend auf bereiten Muskeln
+            const PUSH = ['Brust', 'Schultern', 'Trizeps'];
+            const PULL = ['Rücken', 'Bizeps'];
+            const LEGS = ['Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden'];
+
+            const pushReady = PUSH.filter(m => readyMuscles.includes(m));
+            const pullReady = PULL.filter(m => readyMuscles.includes(m));
+            const legsReady = LEGS.filter(m => readyMuscles.includes(m));
+
+            let workoutType = 'Freies Training';
+            let workoutColor = T.orange;
+            let workoutMuscles = readyMuscles;
+            if (allReady) {
+              workoutType = 'Full Body';
+              workoutColor = T.green;
+              workoutMuscles = MUSCLE_GROUPS;
+            } else if (pushReady.length >= 2 && pushReady.length >= pullReady.length && pushReady.length >= legsReady.length) {
+              workoutType = 'Push Day';
+              workoutColor = T.orange;
+              workoutMuscles = pushReady;
+            } else if (pullReady.length >= 2 && pullReady.length >= legsReady.length) {
+              workoutType = 'Pull Day';
+              workoutColor = T.blue;
+              workoutMuscles = pullReady;
+            } else if (legsReady.length >= 2) {
+              workoutType = 'Leg Day';
+              workoutColor = T.red;
+              workoutMuscles = legsReady;
+            } else if (readyMuscles.length > 0) {
+              workoutType = 'Fokus Training';
+              workoutColor = T.orange;
+              workoutMuscles = readyMuscles;
+            }
+
+            // Szenario 1: Alles erschöpft
+            if (noneReady) return (
+              <View style={{ margin: 16, backgroundColor: T.card, borderRadius: 28, borderWidth: 1, borderColor: T.redBorder, overflow: 'hidden' }}>
+                <View style={{ padding: 22, paddingBottom: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 14 }}>
+                    <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: T.red }} />
+                    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.red }}>Ruhetag empfohlen</Text>
+                  </View>
+                  <Text style={{ fontSize: 28, fontWeight: '800', color: T.text1, letterSpacing: -0.8, marginBottom: 6 }}>Erholung</Text>
+                  <Text style={{ fontSize: 13, color: T.text3, marginBottom: 14 }}>Kein Muskel ist bereit für intensives Training</Text>
+                  <View style={{ backgroundColor: T.redAlpha, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: T.redBorder, marginBottom: 14 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: T.red, marginBottom: 4 }}>Schone deinen Körper</Text>
+                    <Text style={{ fontSize: 11, color: T.text3, lineHeight: 17 }}>Deine Muskeln brauchen mehr Zeit. Mach heute leichtes Cardio, Stretching oder einen Ruhetag.</Text>
+                  </View>
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Alternative heute</Text>
+                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: 20 }}>
+                    {['Cardio', 'Stretching', 'Ruhe'].map(a => (
+                      <View key={a} style={{ flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+                        <Text style={{ fontSize: 11, fontWeight: '800', color: T.text1 }}>{a}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Regeneration</Text>
+                  <View style={{ gap: 6, marginBottom: 20 }}>
+                    {MUSCLE_GROUPS.slice(0, 4).map(m => {
+                      const lvl = muscles[m]?.level ?? 100;
+                      const col = getMuscleRecoveryColor(lvl);
+                      return (
+                        <View key={m} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={{ fontSize: 10, color: T.text2, width: 70 }}>{m}</Text>
+                          <View style={{ flex: 1, height: 5, backgroundColor: T.cardAlt, borderRadius: 3 }}>
+                            <View style={{ height: 5, borderRadius: 3, backgroundColor: col, width: `${lvl}%` as any }} />
+                          </View>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: col, width: 30, textAlign: 'right' }}>{lvl}%</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={{ backgroundColor: T.cardAlt, padding: 18, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: T.border }}
+                  onPress={startFree} activeOpacity={0.9}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
+                      <IconPlay size={16} color={T.text3} />
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 17, fontWeight: '800', color: T.text2, letterSpacing: -0.3 }}>Trotzdem trainieren</Text>
+                      <Text style={{ fontSize: 11, color: T.text4, marginTop: 2 }}>Leichtes Training möglich</Text>
+                    </View>
+                  </View>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
+                    <IconChevronRight color={T.text3} size={14} />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            );
+
+            // Szenario 2: Alle 100%
+            if (allReady) return (
+              <View style={{ margin: 16, backgroundColor: T.card, borderRadius: 28, borderWidth: 1, borderColor: T.greenBorder, overflow: 'hidden' }}>
+                <View style={{ padding: 22, paddingBottom: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 14 }}>
+                    <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: T.green }} />
+                    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.green }}>Vollständig erholt</Text>
+                  </View>
+                  <Text style={{ fontSize: 28, fontWeight: '800', color: T.text1, letterSpacing: -0.8, marginBottom: 6 }}>Full Body</Text>
+                  <Text style={{ fontSize: 13, color: T.text3, marginBottom: 14 }}>Alle Muskeln sind 100% erholt</Text>
+                  <View style={{ backgroundColor: T.greenAlpha, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: T.greenBorder, marginBottom: 14 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: T.green, marginBottom: 4 }}>Perfekter Zeitpunkt</Text>
+                    <Text style={{ fontSize: 11, color: T.text3, lineHeight: 17 }}>Kein Muskel ist erschöpft — nutze den Tag für ein intensives Ganzkörpertraining oder fokussiere dich auf eine Schwachstelle.</Text>
+                  </View>
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Vorschläge</Text>
+                  <View style={{ flexDirection: 'row', gap: 6, marginBottom: 20 }}>
+                    {['Full Body', 'Schwachstelle', 'Push Day'].map(a => (
+                      <View key={a} style={{ flex: 1, backgroundColor: T.greenAlpha, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: T.greenBorder }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: T.green }}>{a}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={{ backgroundColor: T.green, padding: 18, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: T.border }}
+                  onPress={startFree} activeOpacity={0.9}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
+                      <IconPlay size={16} color={T.white} />
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 17, fontWeight: '800', color: T.white, letterSpacing: -0.3 }}>Full Body starten</Text>
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>Maximales Training heute</Text>
+                    </View>
+                  </View>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.13)', alignItems: 'center', justifyContent: 'center' }}>
+                    <IconChevronRight color={T.white} size={14} />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            );
+
+            // Szenario 3: Gemischt — einige bereit
+            return (
+              <View style={{ margin: 16, backgroundColor: T.card, borderRadius: 28, borderWidth: 1, borderColor: workoutColor + '48', overflow: 'hidden' }}>
+                <View style={{ padding: 22, paddingBottom: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 14 }}>
+                    <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: workoutColor }} />
+                    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: workoutColor }}>Heutige Empfehlung</Text>
+                  </View>
+                  <Text style={{ fontSize: 28, fontWeight: '800', color: T.text1, letterSpacing: -0.8, marginBottom: 6 }}>{workoutType}</Text>
+                  <Text style={{ fontSize: 13, color: T.text3, marginBottom: 14 }}>Basierend auf deiner Muskelregeneration</Text>
+
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Bereit (100%)</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
+                    {readyMuscles.map(m => (
+                      <View key={m} style={{ backgroundColor: workoutColor + '18', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: workoutColor + '30' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: workoutColor }}>{m}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 8 }}>Schonen</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 14 }}>
+                    {notReadyMuscles.map(m => (
+                      <View key={m} style={{ backgroundColor: T.cardAlt, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: T.border }}>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: T.text4 }}>{m}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <View style={{ gap: 6, marginBottom: 20 }}>
+                    {workoutMuscles.slice(0, 3).map(m => {
+                      const lvl = muscles[m]?.level ?? 100;
+                      const col = getMuscleRecoveryColor(lvl);
+                      return (
+                        <View key={m} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={{ fontSize: 10, color: T.text2, width: 70 }}>{m}</Text>
+                          <View style={{ flex: 1, height: 5, backgroundColor: T.cardAlt, borderRadius: 3 }}>
+                            <View style={{ height: 5, borderRadius: 3, backgroundColor: col, width: `${lvl}%` as any }} />
+                          </View>
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: col, width: 30, textAlign: 'right' }}>{lvl}%</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={{ backgroundColor: workoutColor, padding: 18, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: T.border }}
+                  onPress={startFree} activeOpacity={0.9}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13 }}>
+                    <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' }}>
+                      <IconPlay size={16} color={T.white} />
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 17, fontWeight: '800', color: T.white, letterSpacing: -0.3 }}>{workoutType} starten</Text>
+                      <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{workoutMuscles.slice(0, 3).join(' · ')}</Text>
+                    </View>
+                  </View>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.13)', alignItems: 'center', justifyContent: 'center' }}>
+                    <IconChevronRight color={T.white} size={14} />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            );
+          })()}
+
+      {/* ROUTINEN */}
+          <View style={{ paddingHorizontal: 16, marginTop: 8 }}>
+            <TouchableOpacity onPress={() => setScreen('routines')} style={{ backgroundColor: T.card, borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: T.orange }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: T.orange, alignItems: 'center', justifyContent: 'center' }}>
+                  <IconDumbbell size={20} color={T.white} />
+                </View>
+                <View>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: T.text1, letterSpacing: -0.3 }}>Routinen</Text>
+                  <Text style={{ fontSize: 11, color: T.text3, marginTop: 1 }}>{routines.length} gespeicherte Pläne</Text>
+                </View>
+              </View>
+              <View style={{ backgroundColor: T.orangeAlpha, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: T.orangeBorder }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: T.orange }}>Neu →</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* FORTSCHRITT DIAGRAMM */}
+          <ProgressCard prHistory={prHistory} T={T} onPress={() => setShowProgress(true)} />
+
+          {/* PR SECTION */}
+          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4 }}>Persönliche Rekorde</Text>
             </View>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13, marginBottom: 16 }}>
-              <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: theme.orangeLight, borderWidth: 1, borderColor: theme.orangeBorder, alignItems: 'center', justifyContent: 'center' }}>
-                <IconDumbbell color={theme.orange} size={28} />
+            <TouchableOpacity onPress={() => router.push('/prs' as any)} style={{ backgroundColor: T.orange, borderRadius: 18, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14 }} activeOpacity={0.85}>
+              <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' }}>
+                <IconTrophy size={20} color={T.white} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 21, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.4, marginBottom: 3 }}>{neverTrainedGym?'Krafttraining':lastGymWorkout?.name??'Krafttraining'}</Text>
-                {!neverTrainedGym&&lastGymWorkout&&(<Text style={{ fontSize: 12, color: theme.textSecondary }}>{lastGymWorkout.exercises.slice(0,3).map(e=>e.name).join(' · ')}{lastGymWorkout.exercises.length>3?` · +${lastGymWorkout.exercises.length-3}`:''}</Text>)}
+                <Text style={{ fontSize: 16, fontWeight: '800', color: T.white, letterSpacing: -0.3 }}>Persönliche Rekorde</Text>
+                <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>{Object.keys(prHistory).length} Rekorde gespeichert</Text>
+              </View>
+              <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 20, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ color: T.white, fontSize: 18, fontWeight: '300' }}>→</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* RECOVERY */}
+          <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4 }}>Muskelregeneration</Text>
+              <TouchableOpacity onPress={() => setShowBodyModal(true)}><Text style={{ fontSize: 12, color: T.orange, fontWeight: '600' }}>Details →</Text></TouchableOpacity>
+            </View>
+            <View style={{ backgroundColor: T.card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: T.border }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                <View style={{ flex: 1, backgroundColor: 'rgba(52,199,89,0.15)', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(52,199,89,0.35)', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 26, fontWeight: '800', color: T.green }}>{readyCount}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(52,199,89,0.7)', marginTop: 3 }}>Bereit</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: 'rgba(232,87,42,0.15)', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(232,87,42,0.35)', alignItems: 'center' }}>
+                  <Text style={{ fontSize: 26, fontWeight: '800', color: T.orange }}>{warnCount}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: 'rgba(232,87,42,0.7)', marginTop: 3 }}>Erschöpft</Text>
+                </View>
+              </View>
+              <View style={{ flexDirection: 'row', gap: 4 }}>
+                {MUSCLE_GROUPS.slice(0, 8).map(m => {
+                  const lvl = muscles[m]?.level ?? 100;
+                  const col = lvl >= 80 ? T.green : lvl >= 60 ? T.blue : lvl >= 40 ? T.yellow : lvl >= 20 ? T.orange : T.red;
+                  return <View key={m} style={{ flex: 1, height: 7, borderRadius: 4, backgroundColor: col }} />;
+                })}
               </View>
             </View>
-            <TouchableOpacity style={{ backgroundColor: theme.orange, borderRadius: 14, padding: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 }}
-              onPress={()=>lastGymWorkout?startFreeWithRecommendation():setScreen('freeStart')} activeOpacity={0.85}>
-              <IconPlay color="#fff" size={15} />
-              <Text style={{ fontSize: 14, fontWeight: '800', color: '#fff' }}>Jetzt starten</Text>
-            </TouchableOpacity>
           </View>
 
-          {/* ─── QUICK ACTIONS 2x2 GRID ─── */}
-          <View style={{ marginHorizontal: 16, marginBottom: 10, gap: 8 }}>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {[
-                { label: 'Routinen', icon: <IconList color={theme.orange} size={24} />, bg: theme.orangeLight, border: theme.orangeBorder, onPress: ()=>setScreen('routineScreen') },
-                { label: 'Freies Training', icon: <IconPencil color={theme.blue} size={24} />, bg: theme.blueLight, border: theme.blue+'30', onPress: ()=>setScreen('freeStart') },
-              ].map(btn=>(
-                <TouchableOpacity key={btn.label} style={{ flex:1,backgroundColor:theme.card,borderRadius:18,padding:18,borderWidth:1,borderColor:theme.border,alignItems:'flex-start',gap:10 }} onPress={btn.onPress} activeOpacity={0.85}>
-                  <View style={{ width:44,height:44,borderRadius:22,backgroundColor:btn.bg,alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:btn.border }}>{btn.icon}</View>
-                  <Text style={{ fontSize:14,fontWeight:'700',color:theme.textPrimary }}>{btn.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {[
-                { label: 'Trainingsplan', icon: <IconCalendar color={theme.green} size={24} />, bg: theme.greenLight, border: theme.green+'30', onPress: ()=>setShowPlan(true) },
-                { label: 'Judo', icon: <Text style={{fontSize:24}}>🥋</Text>, bg: 'rgba(74,158,255,0.12)', border: 'rgba(74,158,255,0.25)', onPress: ()=>setShowJudo(true) },
-              ].map(btn=>(
-                <TouchableOpacity key={btn.label} style={{ flex:1,backgroundColor:theme.card,borderRadius:18,padding:18,borderWidth:1,borderColor:theme.border,alignItems:'flex-start',gap:10 }} onPress={btn.onPress} activeOpacity={0.85}>
-                  <View style={{ width:44,height:44,borderRadius:22,backgroundColor:btn.bg,alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:btn.border }}>{btn.icon}</View>
-                  <Text style={{ fontSize:14,fontWeight:'700',color:theme.textPrimary }}>{btn.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* ─── BODY RECOVERY WIDGET ─── */}
-          <BodyRecoveryWidget muscles={muscles} onPress={()=>setShowBodyModal(true)} />
-
-          {/* ─── SECTION: AUFZEICHNUNGEN ─── */}
-          <View style={{ marginHorizontal: 16, marginBottom: 4, marginTop: 6 }}>
-            <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: theme.textTertiary, marginBottom: 8 }}>Aufzeichnungen</Text>
-          </View>
-
-          {/* PRs */}
-          <TouchableOpacity style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:'rgba(255,215,0,0.2)',flexDirection:'row',alignItems:'center',gap:13 }}
-            onPress={()=>prCount===0?setShowPREntry(true):setShowPRScreen(true)} activeOpacity={0.85}>
-            <View style={{ width:44,height:44,borderRadius:22,backgroundColor:'rgba(255,215,0,0.1)',alignItems:'center',justifyContent:'center' }}>
-              <IconTrophy color="#FFD700" size={22} />
-            </View>
-            <View style={{ flex:1 }}>
-              <Text style={{ fontSize:15,fontWeight:'700',color:theme.textPrimary,marginBottom:2 }}>Personal Records</Text>
-              <Text style={{ fontSize:12,color:theme.textSecondary }}>{prCount===0?'Noch keine PRs – tippe um einzutragen':`${prCount} PRs gespeichert`}</Text>
-            </View>
-            <IconChevronRight color="rgba(255,215,0,0.4)" size={18} />
-          </TouchableOpacity>
-
-          {/* Verlauf */}
-          <TouchableOpacity style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,borderWidth:1,borderColor:theme.border,flexDirection:'row',alignItems:'center',gap:13 }}
-            onPress={()=>setShowHistory(true)} activeOpacity={0.85}>
-            <View style={{ width:44,height:44,borderRadius:22,backgroundColor:theme.orangeLight,alignItems:'center',justifyContent:'center' }}>
-              <IconHistory color={theme.orange} size={22} />
-            </View>
-            <View style={{ flex:1 }}>
-              <Text style={{ fontSize:15,fontWeight:'700',color:theme.textPrimary,marginBottom:2 }}>Trainingsverlauf</Text>
-              <Text style={{ fontSize:12,color:theme.textSecondary }}>{workouts.length} Einheiten gespeichert</Text>
-            </View>
-            <IconChevronRight color={theme.textTertiary} size={18} />
-          </TouchableOpacity>
-
-          {/* ─── SECTION: GERÄTE ─── */}
-          <View style={{ marginHorizontal: 16, marginBottom: 4, marginTop: 8 }}>
-            <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', color: theme.textTertiary, marginBottom: 8 }}>Wearables</Text>
-          </View>
-
-          {connectedDevice?(
-            <View style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,flexDirection:'row',alignItems:'center',gap:13,borderWidth:1,borderColor:theme.border }}>
-              <View style={{ width:44,height:44,borderRadius:22,backgroundColor:theme.greenLight,alignItems:'center',justifyContent:'center' }}><IconWatch color={theme.green} size={22} /></View>
-              <View style={{ flex:1 }}><Text style={{ fontSize:15,fontWeight:'600',color:theme.textPrimary,marginBottom:2 }}>{connectedDevice}</Text><View style={{ flexDirection:'row',alignItems:'center',gap:5 }}><View style={{ width:6,height:6,borderRadius:3,backgroundColor:theme.green }} /><Text style={{ fontSize:12,color:theme.green }}>Verbunden</Text></View></View>
-              <TouchableOpacity style={{ backgroundColor:theme.orange,borderRadius:22,paddingHorizontal:14,paddingVertical:9,flexDirection:'row',alignItems:'center',gap:5 }} onPress={()=>Alert.alert('Synchronisieren','Daten werden synchronisiert...')} activeOpacity={0.8}>
-                <IconSync color="#fff" size={14} /><Text style={{ fontSize:13,fontWeight:'600',color:'#fff' }}>Sync</Text>
-              </TouchableOpacity>
-            </View>
-          ):(
-            <TouchableOpacity style={{ marginHorizontal:16,marginBottom:8,backgroundColor:theme.card,borderRadius:16,padding:14,flexDirection:'row',alignItems:'center',gap:13,borderWidth:1,borderColor:theme.border,borderStyle:'dashed' }}
-              onPress={()=>setShowDeviceModal(true)} activeOpacity={0.85}>
-              <View style={{ width:44,height:44,borderRadius:22,backgroundColor:theme.cardSecondary,alignItems:'center',justifyContent:'center' }}><IconWatch color={theme.textTertiary} size={22} /></View>
-              <View style={{ flex:1 }}><Text style={{ fontSize:15,fontWeight:'600',color:theme.textPrimary,marginBottom:2 }}>Kein Gerät verbunden</Text><Text style={{ fontSize:12,color:theme.textSecondary }}>Polar, Garmin oder Apple Watch</Text></View>
-              <View style={{ backgroundColor:theme.orangeLight,borderRadius:22,paddingHorizontal:14,paddingVertical:8,borderWidth:1,borderColor:theme.orangeBorder }}><Text style={{ fontSize:13,fontWeight:'600',color:theme.orange }}>Verbinden</Text></View>
-            </TouchableOpacity>
-          )}
-
-          <View style={{ height: 120 }} />
+          <View style={{ height: 100 }} />
         </Animated.View>
       </ScrollView>
     </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────
-const sw = StyleSheet.create({
-  track: { backgroundColor:theme.card,borderWidth:1,borderColor:theme.orangeBorder,borderRadius:50,padding:6,height:68,overflow:'hidden',justifyContent:'center' },
-  thumb: { width:56,height:56,borderRadius:28,backgroundColor:theme.orange,alignItems:'center',justifyContent:'center',zIndex:2 },
-  label: { position:'absolute',left:0,right:0,textAlign:'center',fontSize:13,fontWeight:'600',color:theme.textTertiary },
-});
-const startSt = StyleSheet.create({
-  header: { paddingTop:60,paddingHorizontal:16,paddingBottom:20,flexDirection:'row',alignItems:'flex-start',gap:12 },
-  backBtn: { width:36,height:36,borderRadius:18,backgroundColor:theme.card,alignItems:'center',justifyContent:'center',marginTop:4,borderWidth:1,borderColor:theme.border },
-  eyebrow: { fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 },
-  title: { fontSize:26,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.6 },
-  recCard: { backgroundColor:theme.card,borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.orangeBorder },
-  recBadgeRow: { flexDirection:'row',alignItems:'center',gap:6,marginBottom:8 },
-  recDot: { width:6,height:6,borderRadius:3,backgroundColor:theme.orange },
-  recBadgeText: { fontSize:10,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',color:theme.orange },
-  recTitle: { fontSize:17,fontWeight:'800',color:theme.textPrimary,marginBottom:4,letterSpacing:-0.3 },
-  recSub: { fontSize:12,color:theme.textSecondary,marginBottom:12 },
-  recBtn: { backgroundColor:theme.orange,borderRadius:12,padding:12,alignItems:'center' },
-  recBtnText: { fontSize:13,fontWeight:'700',color:'#fff' },
-  emptyCard: { backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:12,borderWidth:1,borderColor:theme.border },
-  emptyCardTitle: { fontSize:14,fontWeight:'600',color:theme.textSecondary,marginBottom:3 },
-  emptyCardSub: { fontSize:12,color:theme.textTertiary },
-  routineCard: { backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:10,flexDirection:'row',alignItems:'center',gap:12,borderWidth:1,borderColor:theme.border },
-  routineName: { fontSize:16,fontWeight:'700',color:theme.textPrimary,marginBottom:4,letterSpacing:-0.3 },
-  routineMeta: { fontSize:11,color:theme.textSecondary,marginBottom:8 },
-  routineChipRow: { flexDirection:'row',gap:6 },
-  routineChip: { backgroundColor:theme.orangeLight,borderRadius:20,paddingHorizontal:10,paddingVertical:4,borderWidth:1,borderColor:theme.orangeBorder },
-  routineChipText: { fontSize:11,fontWeight:'600',color:theme.orange },
-  exListCard: { backgroundColor:theme.card,borderRadius:16,overflow:'hidden',marginBottom:12,borderWidth:1,borderColor:theme.border },
-  exRow: { flexDirection:'row',alignItems:'center',gap:10,padding:12 },
-  exRowBorder: { borderBottomWidth:0.5,borderBottomColor:theme.border },
-  exDot: { width:8,height:8,borderRadius:4 },
-  exName: { flex:1,fontSize:13,fontWeight:'600',color:theme.textPrimary },
-  addExBtn: { flexDirection:'row',alignItems:'center',justifyContent:'center',gap:8,borderWidth:1,borderColor:theme.orangeBorder,borderRadius:12,borderStyle:'dashed',padding:12,marginBottom:12 },
-  addExBtnText: { fontSize:13,fontWeight:'600',color:theme.orange },
-  emptyState: { alignItems:'center',paddingVertical:60,gap:12 },
-  emptyStateTitle: { fontSize:17,fontWeight:'700',color:theme.textPrimary },
-  emptyStateSub: { fontSize:13,color:theme.textSecondary,textAlign:'center' },
-});
-const routineSt = StyleSheet.create({
-  tabRow: { flexDirection:'row',gap:8,marginBottom:16 },
-  tabBtn: { flex:1,paddingVertical:10,borderRadius:12,backgroundColor:theme.card,alignItems:'center',borderWidth:1,borderColor:theme.border },
-  tabBtnActive: { backgroundColor:theme.orange,borderColor:theme.orange },
-  tabBtnText: { fontSize:13,fontWeight:'600',color:theme.textSecondary },
-  tabBtnTextActive: { color:'#fff' },
-  createBtn: { backgroundColor:theme.card,borderRadius:16,padding:16,flexDirection:'row',alignItems:'center',gap:14,marginBottom:12,borderWidth:1,borderColor:theme.orangeBorder },
-  createBtnIcon: { width:44,height:44,borderRadius:22,backgroundColor:theme.orangeLight,alignItems:'center',justifyContent:'center' },
-  createBtnTitle: { fontSize:15,fontWeight:'700',color:theme.textPrimary,marginBottom:2 },
-  createBtnSub: { fontSize:12,color:theme.textSecondary },
-  searchBox: { flexDirection:'row',alignItems:'center',gap:10,backgroundColor:theme.card,borderRadius:12,paddingHorizontal:14,paddingVertical:12,marginBottom:14,borderWidth:1,borderColor:theme.border },
-  searchInput: { flex:1,fontSize:14,color:theme.textPrimary },
-  communityBadge: { backgroundColor:theme.blueLight,borderRadius:20,paddingHorizontal:8,paddingVertical:3 },
-  communityBadgeText: { fontSize:10,fontWeight:'600',color:theme.blue },
-});
-const prEntry = StyleSheet.create({
-  header: { flexDirection:'row',alignItems:'flex-end',gap:12,paddingTop:60,paddingHorizontal:16,paddingBottom:20,backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border },
-  closeBtn: { width:36,height:36,borderRadius:18,backgroundColor:theme.cardSecondary,alignItems:'center',justifyContent:'center' },
-  eyebrow: { fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 },
-  title: { fontSize:24,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.5 },
-  searchBox: { flexDirection:'row',alignItems:'center',gap:10,backgroundColor:theme.card,borderRadius:12,paddingHorizontal:14,paddingVertical:12,marginBottom:20,borderWidth:1,borderColor:theme.border },
-  searchInput: { flex:1,fontSize:14,color:theme.textPrimary },
-  muscleLabel: { fontSize:10,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',marginBottom:8 },
-  exRow: { flexDirection:'row',alignItems:'center',gap:10,backgroundColor:theme.card,borderRadius:12,padding:14,marginBottom:8,borderWidth:1,borderColor:theme.border },
-  exDot: { width:8,height:8,borderRadius:4 },
-  exName: { flex:1,fontSize:14,fontWeight:'600',color:theme.textPrimary },
-  sectionLabel: { fontSize:11,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',color:theme.textTertiary,marginBottom:12 },
-  repsRow: { flexDirection:'row',gap:10,marginBottom:8 },
-  repsBtn: { flex:1,backgroundColor:theme.card,borderRadius:16,padding:16,alignItems:'center',borderWidth:1,borderColor:theme.border },
-  repsBtnActive: { backgroundColor:theme.orange,borderColor:theme.orange },
-  repsBtnNum: { fontSize:28,fontWeight:'800',color:theme.textPrimary,marginBottom:2 },
-  repsBtnLabel: { fontSize:11,color:theme.textSecondary },
-  weightRow: { flexDirection:'row',alignItems:'center',gap:12,backgroundColor:theme.card,borderRadius:16,padding:16,borderWidth:1,borderColor:theme.border,marginBottom:16 },
-  weightInput: { flex:1,fontSize:48,fontWeight:'800',color:theme.textPrimary,letterSpacing:-1 },
-  weightUnit: { fontSize:20,fontWeight:'600',color:theme.textTertiary },
-  previewCard: { backgroundColor:theme.orangeLight,borderRadius:14,padding:16,marginBottom:20,flexDirection:'row',alignItems:'center',justifyContent:'space-between',borderWidth:1,borderColor:theme.orangeBorder },
-  previewLabel: { fontSize:12,fontWeight:'600',color:theme.orange,textTransform:'uppercase',letterSpacing:0.8 },
-  previewVal: { fontSize:28,fontWeight:'800',color:theme.orange },
-  saveBtn: { backgroundColor:theme.orange,borderRadius:16,padding:16,alignItems:'center' },
-  saveBtnText: { fontSize:15,fontWeight:'700',color:'#fff' },
-});
-const prSt = StyleSheet.create({
-  addBtn: { flexDirection:'row',alignItems:'center',gap:8,backgroundColor:theme.orange,borderRadius:14,padding:14,margin:16,justifyContent:'center' },
-  addBtnText: { fontSize:14,fontWeight:'700',color:'#fff' },
-  card: { backgroundColor:theme.card,borderRadius:18,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.border },
-  rankBadge: { width:36,height:36,borderRadius:18,alignItems:'center',justifyContent:'center',borderWidth:1.5 },
-  rankText: { fontSize:12,fontWeight:'800' },
-  exerciseName: { fontSize:16,fontWeight:'700',color:theme.textPrimary,letterSpacing:-0.3 },
-  exerciseDate: { fontSize:12,color:theme.textTertiary,marginTop:2 },
-  oneRMVal: { fontSize:20,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.5 },
-  oneRMLabel: { fontSize:10,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.5 },
-  prStat: { flex:1,backgroundColor:theme.cardSecondary,borderRadius:10,padding:10,alignItems:'center' },
-  prStatVal: { fontSize:15,fontWeight:'700',color:theme.textPrimary },
-  prStatLbl: { fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.4,marginTop:2 },
-  deltaChip: { borderRadius:20,paddingHorizontal:10,paddingVertical:6,flexDirection:'row',alignItems:'center',gap:4 },
-  deltaText: { fontSize:12,fontWeight:'700' },
-});
-const active = StyleSheet.create({
-  header: { backgroundColor:theme.card,paddingTop:56,paddingHorizontal:16,paddingBottom:14,flexDirection:'row',alignItems:'flex-start',gap:12,borderBottomWidth:0.5,borderBottomColor:theme.border },
-  workoutLabel: { fontSize:10,fontWeight:'700',letterSpacing:1,textTransform:'uppercase',color:theme.orange,marginBottom:3 },
-  workoutTitle: { fontSize:20,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.4 },
-  timerBadge: { backgroundColor:theme.cardSecondary,borderRadius:12,paddingHorizontal:12,paddingVertical:8,alignItems:'center',borderWidth:1,borderColor:theme.border },
-  timerText: { fontSize:18,fontWeight:'700',color:theme.textPrimary,letterSpacing:1 },
-  timerLabel: { fontSize:8,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.5,marginTop:1 },
-  statsRow: { flexDirection:'row',gap:8,padding:12,backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border },
-  statBox: { flex:1,backgroundColor:theme.cardSecondary,borderRadius:10,padding:10,alignItems:'center' },
-  statVal: { fontSize:18,fontWeight:'700' },
-  statLbl: { fontSize:8,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.5,marginTop:2 },
-  pauseCard: { backgroundColor:theme.card,borderLeftWidth:3,padding:12,marginBottom:12,marginTop:12,borderRadius:0 },
-  pauseLabel: { fontSize:9,fontWeight:'700',letterSpacing:0.8,textTransform:'uppercase',marginBottom:2 },
-  pauseTimer: { fontSize:22,fontWeight:'800',color:theme.textPrimary,letterSpacing:1 },
-  pauseBtn: { backgroundColor:theme.cardSecondary,borderRadius:8,paddingHorizontal:8,paddingVertical:6,borderWidth:1,borderColor:theme.border },
-  pauseBtnText: { fontSize:11,fontWeight:'600',color:theme.textSecondary },
-  exerciseCard: { backgroundColor:theme.card,borderRadius:16,padding:16,marginBottom:10,borderWidth:1,borderColor:theme.border },
-  musclePill: { paddingHorizontal:10,paddingVertical:4,borderRadius:20 },
-  musclePillText: { fontSize:11,fontWeight:'500' },
-  exerciseName: { flex:1,fontSize:15,fontWeight:'700',color:theme.textPrimary },
-  prWarn: { backgroundColor:'rgba(232,87,42,0.08)',borderRadius:10,padding:12,borderLeftWidth:3,borderLeftColor:theme.orange,marginBottom:12 },
-  prWarnTitle: { fontSize:12,fontWeight:'700',color:theme.textPrimary,marginBottom:2 },
-  prWarnBtn: { flex:1,borderRadius:8,padding:8,alignItems:'center',borderWidth:1,borderColor:theme.border,backgroundColor:theme.cardSecondary },
-  prWarnBtnText: { fontSize:11,fontWeight:'600',color:theme.textSecondary },
-  recRow: { backgroundColor:theme.blueLight,borderRadius:8,padding:8,marginBottom:10,borderWidth:1,borderColor:'rgba(74,158,255,0.2)' },
-  recText: { fontSize:12,color:theme.blue,fontWeight:'500' },
-  lastRow: { flexDirection:'row',backgroundColor:theme.cardSecondary,borderRadius:8,padding:8,marginBottom:8 },
-  lastLabel: { fontSize:11,color:theme.textSecondary },
-  lastVal: { fontSize:11,color:theme.orange,fontWeight:'500',flex:1 },
-  oneRM: { fontSize:11,color:theme.textSecondary,marginBottom:10 },
-  setHeaderText: { fontSize:9,color:theme.textTertiary,textTransform:'uppercase',letterSpacing:0.8,textAlign:'center' },
-  setRow: { flexDirection:'row',gap:8,marginBottom:8,alignItems:'center' },
-  setNumber: { fontSize:13,color:theme.textSecondary,width:24,textAlign:'center' },
-  setInput: { flex:1,backgroundColor:theme.cardSecondary,borderRadius:10,padding:11,color:theme.textPrimary,fontSize:15,textAlign:'center',borderWidth:1,borderColor:theme.border },
-  addSetBtn: { padding:8,alignItems:'center' },
-  addSetBtnText: { fontSize:13,color:theme.orange,fontWeight:'500' },
-  addExerciseBtn: { backgroundColor:theme.orangeLight,borderRadius:14,padding:14,alignItems:'center',marginBottom:10,borderWidth:1,borderColor:theme.orangeBorder,flexDirection:'row',justifyContent:'center',gap:8 },
-  addExerciseBtnText: { fontSize:15,color:theme.orange,fontWeight:'600' },
-  finishBtn: { backgroundColor:theme.orange,borderRadius:16,padding:16,alignItems:'center',marginBottom:20 },
-  finishBtnText: { fontSize:15,color:'#fff',fontWeight:'700' },
-});
-const hist = StyleSheet.create({
-  header: { flexDirection:'row',justifyContent:'space-between',alignItems:'flex-end',paddingTop:60,paddingHorizontal:22,paddingBottom:14,backgroundColor:theme.card,borderBottomWidth:0.5,borderBottomColor:theme.border },
-  eyebrow: { fontSize:11,fontWeight:'600',color:theme.orange,letterSpacing:0.8,textTransform:'uppercase',marginBottom:4 },
-  title: { fontSize:28,fontWeight:'800',color:theme.textPrimary,letterSpacing:-0.8 },
-  closeBtn: { width:36,height:36,borderRadius:18,backgroundColor:theme.cardSecondary,alignItems:'center',justifyContent:'center' },
-});
-const s = StyleSheet.create({
-  container: { flex:1,backgroundColor:theme.bg,paddingHorizontal:20 },
-  headerLabel: { fontSize:11,letterSpacing:1.5,textTransform:'uppercase',color:theme.textSecondary,marginTop:60,marginBottom:12 },
-  card: { backgroundColor:theme.card,borderRadius:16,padding:14,marginBottom:10,borderWidth:1,borderColor:theme.border },
-  cardTitle: { fontSize:10,textTransform:'uppercase',letterSpacing:1.5,color:theme.textSecondary,marginBottom:10 },
-  inputLabel: { fontSize:10,textTransform:'uppercase',letterSpacing:1.2,color:theme.textSecondary,marginBottom:6 },
-  input: { backgroundColor:theme.cardSecondary,borderRadius:12,padding:13,color:theme.textPrimary,fontSize:15,marginBottom:12,borderWidth:1,borderColor:theme.border },
-  saveBtn: { backgroundColor:theme.orange,borderRadius:14,padding:15,alignItems:'center' },
-  saveBtnText: { fontSize:15,fontWeight:'600',color:'#fff' },
-  cancelBtn: { padding:14,alignItems:'center' },
-  cancelBtnText: { fontSize:14,color:theme.textSecondary },
-  presetChip: { paddingHorizontal:12,paddingVertical:7,borderRadius:20,backgroundColor:theme.cardSecondary,borderWidth:1,borderColor:theme.border },
-  presetChipText: { fontSize:13,color:theme.textPrimary },
-  modalOverlay: { flex:1,backgroundColor:'rgba(0,0,0,0.6)',justifyContent:'flex-end' },
-  modalCard: { backgroundColor:theme.card,borderTopLeftRadius:24,borderTopRightRadius:24,padding:24,gap:12 },
-  modalTitle: { fontSize:20,fontWeight:'700',color:theme.textPrimary },
-  runTimerCard: { backgroundColor:theme.card,borderRadius:24,padding:28,alignItems:'center',gap:10,marginBottom:14,borderLeftWidth:3,borderLeftColor:theme.green,borderWidth:1,borderColor:theme.border },
-  runTimerLabel: { fontSize:10,color:theme.textSecondary,textTransform:'uppercase',letterSpacing:2 },
-  runTimerDisplay: { fontSize:60,fontWeight:'300',color:theme.textPrimary,letterSpacing:-2 },
-  runStatsGrid: { flexDirection:'row',gap:8,marginBottom:14 },
-  runStatCard: { flex:1,backgroundColor:theme.card,borderRadius:14,padding:12,alignItems:'center',borderWidth:1,borderColor:theme.border },
-  runStatVal: { fontSize:16,fontWeight:'600' },
-  runStatLbl: { fontSize:8,color:theme.textSecondary,textTransform:'uppercase',letterSpacing:0.8,marginTop:3,textAlign:'center' },
-  finishRunBtn: { backgroundColor:theme.green,borderRadius:16,padding:16,alignItems:'center',marginBottom:40 },
-  finishRunBtnText: { fontSize:15,fontWeight:'600',color:'#000' },
-});
