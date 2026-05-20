@@ -9,8 +9,13 @@ import { useAppTheme } from '../../constants/ThemeContext';
 function HomeIcon({ color }: { color: string }) {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M3 9.5L12 3L21 9.5V20C21 20.55 20.55 21 20 21H15V15H9V21H4C3.45 21 3 20.55 3 20V9.5Z"
-        stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+      <Path
+        d="M12 21C12 21 3 14 3 8.5C3 6 5 4 7.5 4C9 4 10.5 4.8 12 6.5C13.5 4.8 15 4 16.5 4C19 4 21 6 21 8.5C21 14 12 21 12 21Z"
+        fill={color}
+        stroke={color}
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
     </Svg>
   );
 }
@@ -27,8 +32,8 @@ function HealthIcon({ color }: { color: string }) {
 function TrainingIcon({ color }: { color: string }) {
   return (
     <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M6 7H18M6 17H18M4 10H6V14H4M18 10H20V14H18M2 11H4V13H2M20 11H22V13H20"
-        stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+      <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.5} />
+      <Path d="M10 8.5L16 12L10 15.5V8.5Z" fill={color} />
     </Svg>
   );
 }
@@ -80,7 +85,7 @@ function TimerIcon({ color }: { color: string }) {
 }
 
 const MAIN_TABS = [
-  { route: '/', label: 'Home', Icon: HomeIcon },
+  { route: '/', label: 'Übersicht', Icon: HomeIcon },
   { route: '/training', label: 'Training', Icon: TrainingIcon },
   { route: '/nutrition', label: 'Food', Icon: NutritionIcon },
   { route: '/health', label: 'Health', Icon: HealthIcon },
