@@ -1,3 +1,4 @@
+import { POLAR_CLIENT_ID, POLAR_CLIENT_SECRET } from '@/constants/keys';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AuthSession from 'expo-auth-session';
 import { useFocusEffect } from 'expo-router';
@@ -7,7 +8,6 @@ import {
   ActivityIndicator, Alert, ScrollView, StyleSheet,
   Text, TouchableOpacity, View
 } from 'react-native';
-import { POLAR_CLIENT_ID, POLAR_CLIENT_SECRET } from '../constants/keys';
 import { theme } from '../constants/theme';
 import { fetchAndImportHealthData } from '../utils/applehealth';
 

@@ -1,3 +1,4 @@
+import { GEMINI_API_KEY, USDA_API_KEY } from '@/constants/keys';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,7 +10,6 @@ import {
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle, Line, Path, Polyline, Text as SvgText } from 'react-native-svg';
-import { GEMINI_API_KEY, USDA_API_KEY } from '../../constants/keys';
 
 const W = Dimensions.get('window').width;
 
