@@ -1,4 +1,5 @@
-import { GEMINI_API_KEY, USDA_API_KEY } from '@/constants/keys';
+const GEMINI_API_KEY = '';
+const USDA_API_KEY = '';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';

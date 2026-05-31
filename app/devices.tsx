@@ -1,4 +1,5 @@
-import { POLAR_CLIENT_ID, POLAR_CLIENT_SECRET } from '@/constants/keys';
+const POLAR_CLIENT_ID = '';
+const POLAR_CLIENT_SECRET = '';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AuthSession from 'expo-auth-session';
 import { useFocusEffect } from 'expo-router';
