@@ -12,14 +12,14 @@
       "policy": "appVersion"
     },
     "ios": {
-  "supportsTablet": true,
-  "bundleIdentifier": "com.fabioflum.performanceapp",
-  "infoPlist": {
-    "ITSAppUsesNonExemptEncryption": false,
-    "NSHealthShareUsageDescription": "Die App liest Schlaf, HRV und Aktivitätsdaten aus Apple Health.",
-    "NSHealthUpdateUsageDescription": "Die App schreibt keine Daten in Apple Health."
-  }
-},
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fabioflum.performanceapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSHealthShareUsageDescription": "Stride liest Gesundheitsdaten von Garmin via Apple Health.",
+        "NSHealthUpdateUsageDescription": "Stride schreibt keine Gesundheitsdaten."
+      }
+    },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
