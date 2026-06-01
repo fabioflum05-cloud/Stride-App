@@ -1,6 +1,6 @@
 {
   "cli": {
-    "version": ">= 18.0.0"
+    "version": ">= 16.0.0"
   },
   "build": {
     "development": {
@@ -8,13 +8,11 @@
       "distribution": "internal"
     },
     "preview": {
-  "distribution": "internal",
-  "ios": {
-    "simulator": false,
-    "enterpriseProvisioning": "universal"
-  }
-},
-    "production": {}
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true
+    }
   },
   "submit": {
     "production": {}
