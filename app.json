@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "performanceapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "runtimeVersion": {
       "policy": "appVersion"
     },
