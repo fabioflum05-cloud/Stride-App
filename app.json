@@ -49,7 +49,7 @@
           }
         }
       ],
-      "expo-health"
+      "react-native-health"
     ],
     "experiments": {
       "typedRoutes": true,

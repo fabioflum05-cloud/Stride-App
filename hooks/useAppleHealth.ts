@@ -1,8 +1,10 @@
 // hooks/useAppleHealth.ts
-// Uses expo-health (compatible with New Architecture + react-native-reanimated)
-
 import { useCallback, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
+import AppleHealthKit, {
+  HealthInputOptions,
+  HealthKitPermissions
+} from 'react-native-health';
 
 export interface HealthData {
   hrv: number | null;
@@ -33,6 +35,43 @@ const DEFAULT: HealthData = {
   lastUpdated: null, authorized: false, error: null,
 };
 
+const PERMISSIONS: HealthKitPermissions = {
+  permissions: {
+    read: [
+      AppleHealthKit.Constants.Permissions.HeartRateVariability,
+      AppleHealthKit.Constants.Permissions.RestingHeartRate,
+      AppleHealthKit.Constants.Permissions.HeartRate,
+      AppleHealthKit.Constants.Permissions.SleepAnalysis,
+      AppleHealthKit.Constants.Permissions.StepCount,
+      AppleHealthKit.Constants.Permissions.ActiveEnergyBurned,
+      AppleHealthKit.Constants.Permissions.AppleExerciseTime,
+      AppleHealthKit.Constants.Permissions.Weight,
+      AppleHealthKit.Constants.Permissions.BodyFatPercentage,
+      AppleHealthKit.Constants.Permissions.RespiratoryRate,
+      AppleHealthKit.Constants.Permissions.OxygenSaturation,
+    ],
+    write: [],
+  },
+};
+
+function todayRange() {
+  const end = new Date();
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  return { startDate: start.toISOString(), endDate: end.toISOString() };
+}
+
+function yesterdayRange() {
+  const end = new Date(); end.setHours(0, 0, 0, 0);
+  const start = new Date(end); start.setDate(start.getDate() - 1);
+  return { startDate: start.toISOString(), endDate: end.toISOString() };
+}
+
+function hk(fn: (opts: HealthInputOptions, cb: (err: string, results: any) => void) => void, opts: HealthInputOptions): Promise<any> {
+  return new Promise((res, rej) => {
+    fn(opts, (err, result) => { if (err) rej(err); else res(result); });
+  });
+}
+
 export function useAppleHealth() {
   const [data, setData]       = useState<HealthData>(DEFAULT);
   const [loading, setLoading] = useState(false);
@@ -44,112 +83,89 @@ export function useAppleHealth() {
     }
     setLoading(true);
     try {
-      const Health = await import('expo-health');
+      await new Promise<void>((resolve, reject) => {
+        AppleHealthKit.initHealthKit(PERMISSIONS, (err) => {
+          if (err) reject(new Error(String(err))); else resolve();
+        });
+      });
 
-      // Request permissions
-      const { granted } = await Health.requestPermissionsAsync([
-        Health.HealthDataType.HEART_RATE_VARIABILITY,
-        Health.HealthDataType.RESTING_HEART_RATE,
-        Health.HealthDataType.HEART_RATE,
-        Health.HealthDataType.SLEEP_ANALYSIS,
-        Health.HealthDataType.STEPS,
-        Health.HealthDataType.ACTIVE_ENERGY_BURNED,
-        Health.HealthDataType.EXERCISE_TIME,
-        Health.HealthDataType.WEIGHT,
-        Health.HealthDataType.BODY_FAT_PERCENTAGE,
-        Health.HealthDataType.RESPIRATORY_RATE,
-        Health.HealthDataType.OXYGEN_SATURATION,
-      ]);
-
-      if (!granted) {
-        setData(d => ({ ...d, error: 'Zugriff verweigert', authorized: false }));
-        return;
-      }
-
-      const now       = new Date();
-      const startDay  = new Date(); startDay.setHours(0, 0, 0, 0);
-      const yesterday = new Date(startDay); yesterday.setDate(yesterday.getDate() - 1);
-
-      // Helper
-      async function query(type: Health.HealthDataType, start: Date, end: Date, limit = 1) {
-        try {
-          return await Health.getHealthDataAsync({
-            type,
-            startDate: start,
-            endDate: end,
-            limit,
-            ascending: false,
-          });
-        } catch { return []; }
-      }
+      const today     = todayRange();
+      const yesterday = yesterdayRange();
 
       const [
-        hrvData, rhrData, hrData, sleepData,
-        stepsData, calData, weightData, fatData,
-        respData, spo2Data, exerciseData,
-      ] = await Promise.all([
-        query(Health.HealthDataType.HEART_RATE_VARIABILITY,  startDay,  now),
-        query(Health.HealthDataType.RESTING_HEART_RATE,      startDay,  now),
-        query(Health.HealthDataType.HEART_RATE,              startDay,  now),
-        query(Health.HealthDataType.SLEEP_ANALYSIS,          yesterday, startDay, 100),
-        query(Health.HealthDataType.STEPS,                   startDay,  now),
-        query(Health.HealthDataType.ACTIVE_ENERGY_BURNED,    startDay,  now),
-        query(Health.HealthDataType.WEIGHT,                  startDay,  now),
-        query(Health.HealthDataType.BODY_FAT_PERCENTAGE,     startDay,  now),
-        query(Health.HealthDataType.RESPIRATORY_RATE,        startDay,  now),
-        query(Health.HealthDataType.OXYGEN_SATURATION,       startDay,  now),
-        query(Health.HealthDataType.EXERCISE_TIME,           startDay,  now),
+        hrvRes, rhrRes, hrRes, sleepRes,
+        stepsRes, calRes, weightRes, fatRes,
+        respRes, spo2Res,
+      ] = await Promise.allSettled([
+        hk(AppleHealthKit.getHeartRateVariabilitySamples.bind(AppleHealthKit), { ...today, limit: 1, ascending: false }),
+        hk(AppleHealthKit.getRestingHeartRateSamples.bind(AppleHealthKit),     { ...today, limit: 1, ascending: false }),
+        hk(AppleHealthKit.getHeartRateSamples.bind(AppleHealthKit),            { ...today, limit: 1, ascending: false }),
+        hk(AppleHealthKit.getSleepSamples.bind(AppleHealthKit),                { ...yesterday, limit: 100 }),
+        hk(AppleHealthKit.getStepCount.bind(AppleHealthKit),                   today),
+        hk(AppleHealthKit.getActiveEnergyBurned.bind(AppleHealthKit),          { ...today, limit: 1 }),
+        hk(AppleHealthKit.getWeightSamples.bind(AppleHealthKit),               { ...today, limit: 1, ascending: false, unit: 'kilogram' } as any),
+        hk(AppleHealthKit.getBodyFatPercentageSamples.bind(AppleHealthKit),    { ...today, limit: 1, ascending: false }),
+        hk(AppleHealthKit.getRespiratoryRateSamples.bind(AppleHealthKit),      { ...today, limit: 1, ascending: false }),
+        hk(AppleHealthKit.getOxygenSaturationSamples.bind(AppleHealthKit),     { ...today, limit: 1, ascending: false }),
       ]);
 
-      // Parse HRV — expo-health returns value in ms directly
-      const hrv = hrvData[0]?.quantity ?? null;
+      const arr = (r: PromiseSettledResult<any>): any[] =>
+        r.status === 'fulfilled' && Array.isArray(r.value) ? r.value : [];
+      const val = (r: PromiseSettledResult<any>): any =>
+        r.status === 'fulfilled' ? r.value : null;
 
-      const restingHR = rhrData[0]?.quantity ?? null;
-      const heartRate = hrData[0]?.quantity  ?? null;
+      const hrvArr = arr(hrvRes);
+      const hrv = hrvArr.length > 0 ? Math.round(hrvArr[0].value * 1000) : null;
 
-      // Parse sleep
+      const rhrArr = arr(rhrRes);
+      const restingHR = rhrArr.length > 0 ? Math.round(rhrArr[0].value) : null;
+
+      const hrArr = arr(hrRes);
+      const heartRate = hrArr.length > 0 ? Math.round(hrArr[0].value) : null;
+
       let sleepHours: number | null = null;
       let sleepDeep:  number | null = null;
       let sleepREM:   number | null = null;
       let sleepAwake: number | null = null;
-
-      if (sleepData.length > 0) {
+      const sleepArr = arr(sleepRes);
+      if (sleepArr.length > 0) {
         let asleepMin = 0, deepMin = 0, remMin = 0, awakeMin = 0;
-        sleepData.forEach((s: any) => {
+        sleepArr.forEach((s: any) => {
           const dur = (new Date(s.endDate).getTime() - new Date(s.startDate).getTime()) / 60000;
-          const v   = (s.value ?? s.sleepStage ?? '').toString().toLowerCase();
-          if (v.includes('asleep') || v.includes('inbed') || v === '1' || v === '2') asleepMin += dur;
-          if (v.includes('deep')  || v === '3') { deepMin  += dur; asleepMin += dur; }
-          if (v.includes('rem')   || v === '4') { remMin   += dur; asleepMin += dur; }
-          if (v.includes('awake') || v === '0') awakeMin += dur;
+          const v = (s.value ?? '').toString().toLowerCase();
+          if (v === 'asleep' || v === 'inbed') asleepMin += dur;
+          if (v === 'deep')  { deepMin  += dur; asleepMin += dur; }
+          if (v === 'rem')   { remMin   += dur; asleepMin += dur; }
+          if (v === 'awake') awakeMin += dur;
         });
         if (asleepMin > 0) sleepHours = Math.round((asleepMin / 60) * 10) / 10;
-        if (deepMin  > 0) sleepDeep  = Math.round((deepMin   / 60) * 10) / 10;
-        if (remMin   > 0) sleepREM   = Math.round((remMin    / 60) * 10) / 10;
-        if (awakeMin > 0) sleepAwake = Math.round((awakeMin  / 60) * 10) / 10;
+        if (deepMin  > 0)  sleepDeep  = Math.round((deepMin   / 60) * 10) / 10;
+        if (remMin   > 0)  sleepREM   = Math.round((remMin    / 60) * 10) / 10;
+        if (awakeMin > 0)  sleepAwake = Math.round((awakeMin  / 60) * 10) / 10;
       }
 
-      // Steps — sum all samples for today
-      const steps = stepsData.length > 0
-        ? Math.round(stepsData.reduce((sum: number, s: any) => sum + (s.quantity ?? 0), 0))
-        : null;
+      const stepsVal = val(stepsRes);
+      const steps = stepsVal?.value != null ? Math.round(stepsVal.value) : null;
 
-      const activeCalories = calData.length > 0
-        ? Math.round(calData.reduce((sum: number, s: any) => sum + (s.quantity ?? 0), 0))
-        : null;
+      const calArr = arr(calRes);
+      const activeCalories = calArr.length > 0 ? Math.round(calArr[0].value) : null;
 
-      const weight         = weightData[0]?.quantity  ? Math.round(weightData[0].quantity * 10) / 10 : null;
-      const bodyFat        = fatData[0]?.quantity     ? Math.round(fatData[0].quantity * 10) / 10    : null;
-      const respiratoryRate = respData[0]?.quantity   ? Math.round(respData[0].quantity)              : null;
-      const oxygenSaturation = spo2Data[0]?.quantity  ? Math.round(spo2Data[0].quantity * 100)        : null;
-      const exerciseMinutes  = exerciseData[0]?.quantity ? Math.round(exerciseData[0].quantity)        : null;
+      const weightArr = arr(weightRes);
+      const weight = weightArr.length > 0 ? Math.round(weightArr[0].value * 10) / 10 : null;
+
+      const fatArr = arr(fatRes);
+      const bodyFat = fatArr.length > 0 ? Math.round(fatArr[0].value * 10) / 10 : null;
+
+      const respArr = arr(respRes);
+      const respiratoryRate = respArr.length > 0 ? Math.round(respArr[0].value) : null;
+
+      const spo2Arr = arr(spo2Res);
+      const oxygenSaturation = spo2Arr.length > 0 ? Math.round(spo2Arr[0].value * 100) : null;
 
       setData({
-        hrv:              hrv        ? Math.round(hrv)        : null,
-        restingHR:        restingHR  ? Math.round(restingHR)  : null,
-        heartRate:        heartRate  ? Math.round(heartRate)  : null,
+        hrv, restingHR, heartRate,
         sleepHours, sleepDeep, sleepREM, sleepAwake,
-        steps, activeCalories, exerciseMinutes, standHours: null,
+        steps, activeCalories, exerciseMinutes: null, standHours: null,
         weight, bodyFat, respiratoryRate, oxygenSaturation,
         lastUpdated: new Date(), authorized: true, error: null,
       });
