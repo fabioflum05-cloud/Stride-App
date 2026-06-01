@@ -48,8 +48,7 @@
             "backgroundColor": "#000000"
           }
         }
-      ],
-      "react-native-health"
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
