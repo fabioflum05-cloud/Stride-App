@@ -256,6 +256,9 @@ export default function HomeScreen() {
   async function loadAll() {
     try {
       const today = todayKey();
+      const rawWorkouts = await AsyncStorage.getItem('workouts');
+const ws = rawWorkouts ? JSON.parse(rawWorkouts) : [];
+// calcStreak ist in friends.tsx — kopiere die Funktion auch in index.tsx
       const [rc, rs, rb, rp, rh, rn, rj] = await Promise.all([
         AsyncStorage.getItem('lastCheckin'),
         AsyncStorage.getItem('lastSleep'),
@@ -685,6 +688,7 @@ export default function HomeScreen() {
                 { label: 'Mein Profil',       icon: '👤', onPress: () => { closeMenu(); router.push('/profile' as any); }},
                 { label: 'Abzeichen',         icon: '🏆', onPress: () => { closeMenu(); router.push('/achievements' as any); }},
                 { label: 'Verlauf', icon: '📊', onPress: () => { closeMenu(); router.push('/(tabs)/history' as any); }},
+                { label: 'Freunde', icon: '👥', onPress: () => { closeMenu(); router.push('/friends' as any); }},
               ].map(item => (
                 <TouchableOpacity key={item.label} onPress={item.onPress} activeOpacity={0.7}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: cardBorder }}>
