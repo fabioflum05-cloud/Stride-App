@@ -1,39 +1,23 @@
 // app/(tabs)/health.tsx
-// Manueller Health Screen — automatische Apple Health Integration folgt mit expo-health
+// Health Screen — Theme-aware, Line Chart statt Sparkline-Balken, Daten-Sync-Fix
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
+  Animated, KeyboardAvoidingView, Modal, Platform,
   ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+  Text, TextInput,
+  TouchableOpacity, View
 } from 'react-native';
+import Svg, { Circle, Line, Polyline } from 'react-native-svg';
+import { useAppTheme } from '../../constants/ThemeContext';
 
-const C = {
-  bg:        '#1A1614',
-  card:      '#231F1C',
-  cardAlt:   '#2A2522',
-  orange:    '#E8572A',
-  blue:      '#4A9EFF',
-  green:     '#34C759',
-  red:       '#FF3B30',
-  yellow:    '#FFD60A',
-  purple:    '#BF5AF2',
-  text:      '#F5F0EE',
-  textMuted: '#8A8078',
-  textDim:   '#5A5450',
-  border:    '#3A3430',
-};
+// ─── Storage Keys ─────────────────────────────────────────────────────────────
+const HEALTH_KEY = 'stride_health_history';
+const SLEEP_KEY  = 'lastSleep';
 
-const STORAGE_KEY = 'stride_health_history';
-
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface DayHealth {
   date:          string;
   hrv:           number | null;
@@ -47,177 +31,254 @@ interface DayHealth {
 
 function todayKey(): string { return new Date().toISOString().slice(0, 10); }
 
+// ─── Calculations ─────────────────────────────────────────────────────────────
 function calcRecovery(d: DayHealth, avgHRV: number | null): number {
-  let score = 0; let weight = 0;
+  let score = 0; let w = 0;
   if (d.hrv !== null) {
-    const baseline = avgHRV ?? 55;
-    score  += Math.min(100, Math.max(0, (d.hrv / baseline) * 80)) * 0.4;
-    weight += 0.4;
+    const base = avgHRV ?? 55;
+    score += Math.min(100, Math.max(0, (d.hrv / base) * 80)) * 0.40; w += 0.40;
   }
   if (d.restingHR !== null) {
-    score  += Math.min(100, Math.max(0, ((80 - d.restingHR) / 30) * 100)) * 0.25;
-    weight += 0.25;
+    score += Math.min(100, Math.max(0, ((80 - d.restingHR) / 30) * 100)) * 0.25; w += 0.25;
   }
-  const hoursPts   = Math.min(100, (d.sleepHours / 8) * 100);
-  const qualityPts = ((d.sleepQuality - 1) / 4) * 100;
-  score  += (hoursPts * 0.6 + qualityPts * 0.4) * 0.35;
-  weight += 0.35;
-  return weight > 0 ? Math.round(score / weight) : 0;
+  const hp = Math.min(100, (d.sleepHours / 8) * 100);
+  const qp = ((d.sleepQuality - 1) / 4) * 100;
+  score += (hp * 0.6 + qp * 0.4) * 0.35; w += 0.35;
+  return w > 0 ? Math.round(score / w) : 0;
 }
 
-function recoveryColor(s: number): string {
-  if (s >= 75) return C.green;
-  if (s >= 50) return C.blue;
-  if (s >= 30) return C.yellow;
-  return C.red;
+function recColor(s: number, colors: any): string {
+  if (s >= 75) return '#4ADE80';
+  if (s >= 50) return '#818CF8';
+  if (s >= 30) return '#FBBF24';
+  return '#F87171';
 }
-
-function recoveryLabel(s: number): string {
+function recLabel(s: number): string {
   if (s >= 80) return 'Optimal';
   if (s >= 65) return 'Gut erholt';
   if (s >= 50) return 'Moderat';
   if (s >= 35) return 'Eingeschränkt';
   return 'Nicht erholt';
 }
-
-function recoveryAdvice(s: number): string {
-  if (s >= 80) return 'Intensives Training & Wettkampf empfohlen.';
-  if (s >= 65) return 'Normales Training möglich.';
+function recAdvice(s: number): string {
+  if (s >= 80) return 'Intensives Training & Wettkampf heute möglich.';
+  if (s >= 65) return 'Normales Training empfohlen.';
   if (s >= 50) return 'Moderates Training. Keine PR-Versuche.';
   if (s >= 35) return 'Leichte Einheit oder aktive Erholung.';
-  return 'Rest Day. Regeneration hat Priorität.';
+  return 'Rest Day — Regeneration hat Priorität.';
+}
+function hrvZone(v: number) {
+  if (v >= 80) return { label: 'Sehr gut',   color: '#4ADE80' };
+  if (v >= 60) return { label: 'Normal',     color: '#818CF8' };
+  if (v >= 40) return { label: 'Niedrig',    color: '#FBBF24' };
+  return             { label: 'Kritisch',   color: '#F87171' };
+}
+function hrZone(v: number) {
+  if (v <= 45) return { label: 'Athletisch', color: '#4ADE80' };
+  if (v <= 55) return { label: 'Sehr gut',   color: '#818CF8' };
+  if (v <= 65) return { label: 'Normal',     color: '#FBBF24' };
+  return             { label: 'Erhöht',     color: '#F87171' };
 }
 
-function hrvZone(v: number): { label: string; color: string } {
-  if (v >= 80) return { label: 'Sehr gut',  color: C.green  };
-  if (v >= 60) return { label: 'Normal',    color: C.blue   };
-  if (v >= 40) return { label: 'Niedrig',   color: C.yellow };
-  return             { label: 'Kritisch',  color: C.red    };
+// ─── Animated Ring ────────────────────────────────────────────────────────────
+const AnimCircle = Animated.createAnimatedComponent(Circle);
+function Ring({ value, size, stroke, color, trackColor, children }: {
+  value: number; size: number; stroke: number; color: string; trackColor: string; children?: React.ReactNode;
+}) {
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, { toValue: Math.min(value,100)/100, duration: 1200, useNativeDriver: false }).start();
+  }, [value]);
+  const dash = anim.interpolate({ inputRange:[0,1], outputRange:[circ,0] });
+  return (
+    <View style={{ width:size, height:size, alignItems:'center', justifyContent:'center' }}>
+      <Svg width={size} height={size} style={{ position:'absolute', transform:[{rotate:'-90deg'}] }}>
+        <Circle cx={size/2} cy={size/2} r={r} fill="none" stroke={trackColor} strokeWidth={stroke} />
+        <AnimCircle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={dash} />
+      </Svg>
+      {children}
+    </View>
+  );
 }
 
-function hrZone(v: number): { label: string; color: string } {
-  if (v <= 45) return { label: 'Athletisch', color: C.green  };
-  if (v <= 55) return { label: 'Sehr gut',   color: C.blue   };
-  if (v <= 65) return { label: 'Normal',     color: C.yellow };
-  return             { label: 'Erhöht',     color: C.red    };
+// ─── Line Chart (replaces Sparkline bars) ────────────────────────────────────
+function LineChart({ data, color, minVal, maxVal, isDark }: {
+  data: (number | null)[];
+  color: string;
+  minVal: number;
+  maxVal: number;
+  isDark: boolean;
+}) {
+  const W = 320;
+  const H = 60;
+  const PAD = 8;
+
+  const points = data.map((v, i) => ({
+    x: PAD + (i / Math.max(data.length - 1, 1)) * (W - PAD * 2),
+    y: v !== null ? H - PAD - ((v - minVal) / (maxVal - minVal || 1)) * (H - PAD * 2) : null,
+    v,
+  }));
+
+  // Build polyline string from non-null points
+  const validPoints = points.filter(p => p.y !== null);
+  const polyStr = validPoints.map(p => `${p.x.toFixed(1)},${p.y!.toFixed(1)}`).join(' ');
+
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+  return (
+    <View style={{ height: H + 8 }}>
+      <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+        {/* Grid lines */}
+        {[0.25, 0.5, 0.75].map(f => (
+          <Line key={f} x1={PAD} y1={H * f} x2={W - PAD} y2={H * f}
+            stroke={gridColor} strokeWidth={1} strokeDasharray="4 4" />
+        ))}
+        {/* Line */}
+        {validPoints.length > 1 && (
+          <Polyline points={polyStr} fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+        )}
+        {/* Dots */}
+        {points.map((p, i) => p.y !== null ? (
+          <Circle key={i} cx={p.x} cy={p.y} r={i === points.length - 1 ? 5 : 3}
+            fill={i === points.length - 1 ? color : isDark ? '#1C1917' : '#fff'}
+            stroke={color} strokeWidth={2} />
+        ) : null)}
+      </Svg>
+    </View>
+  );
 }
 
-// Input Modal
-interface InputModalProps {
-  visible: boolean;
-  data:    DayHealth;
-  onSave:  (d: DayHealth) => void;
-  onClose: () => void;
-}
-
-const InputModal: React.FC<InputModalProps> = ({ visible, data, onSave, onClose }) => {
+// ─── Input Modal ──────────────────────────────────────────────────────────────
+const InputModal: React.FC<{
+  visible: boolean; data: DayHealth; isDark: boolean; colors: any;
+  onSave: (d: DayHealth) => void; onClose: () => void;
+}> = ({ visible, data, isDark, colors, onSave, onClose }) => {
   const [local, setLocal] = useState<DayHealth>(data);
-  const [tab, setTab]     = useState<'hrv' | 'sleep' | 'body'>('hrv');
+  const [tab, setTab]     = useState<'hrv'|'sleep'|'body'>('hrv');
+
+  const bg      = isDark ? '#1C1917' : colors.bg;
+  const card    = isDark ? '#242120' : colors.card;
+  const cardAlt = isDark ? '#2E2B29' : colors.cardSecondary;
+  const border  = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+  const text    = isDark ? '#F5F0EE' : '#1A1209';
+  const textMuted = isDark ? 'rgba(245,240,238,0.5)' : 'rgba(26,18,9,0.5)';
+  const textDim   = isDark ? 'rgba(245,240,238,0.25)' : 'rgba(26,18,9,0.25)';
 
   useEffect(() => { if (visible) { setLocal(data); setTab('hrv'); } }, [visible, data]);
+  const set = <K extends keyof DayHealth>(k: K, v: DayHealth[K]) => setLocal(p => ({ ...p, [k]: v }));
 
-  const set = <K extends keyof DayHealth>(k: K, v: DayHealth[K]) =>
-    setLocal(p => ({ ...p, [k]: v }));
-
-  const qualityLabels = ['Sehr schlecht','Schlecht','Okay','Gut','Sehr gut'];
+  const inputStyle = {
+    backgroundColor: cardAlt, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
+    color: text, fontSize: 16, borderWidth: 1, borderColor: border,
+  };
+  const labelStyle = {
+    color: textMuted, fontSize: 11, fontWeight: '700' as const, letterSpacing: 1,
+    textTransform: 'uppercase' as const, marginBottom: 8,
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <View style={hs.overlay}>
-          <View style={hs.sheet}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <Text style={hs.modalTitle}>Gesundheit erfassen</Text>
-              <TouchableOpacity onPress={onClose}>
-                <Text style={{ color: C.textMuted, fontSize: 15 }}>Abbrechen</Text>
+        <View style={{ flex:1, backgroundColor:'rgba(0,0,0,0.55)', justifyContent:'flex-end' }}>
+          <View style={{ backgroundColor: card, borderTopLeftRadius:28, borderTopRightRadius:28, padding:24, paddingBottom:48, maxHeight:'90%' }}>
+
+            <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:24 }}>
+              <Text style={{ fontSize:22, fontWeight:'800', color:text }}>Werte erfassen</Text>
+              <TouchableOpacity onPress={onClose} style={{ paddingHorizontal:14, paddingVertical:7, borderRadius:20, backgroundColor:cardAlt }}>
+                <Text style={{ color:textMuted, fontSize:13, fontWeight:'600' }}>Abbrechen</Text>
               </TouchableOpacity>
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+            {/* Tabs */}
+            <View style={{ flexDirection:'row', gap:6, marginBottom:24, backgroundColor:cardAlt, borderRadius:16, padding:4 }}>
               {(['hrv','sleep','body'] as const).map(t => (
                 <TouchableOpacity key={t} onPress={() => setTab(t)}
-                  style={[hs.tab, tab === t && { backgroundColor: C.orange }]}>
-                  <Text style={{ color: tab === t ? C.text : C.textMuted, fontSize: 13, fontWeight: '600' }}>
-                    {t === 'hrv' ? '❤️ HRV' : t === 'sleep' ? '🌙 Schlaf' : '⚖️ Körper'}
+                  style={{ flex:1, paddingVertical:9, borderRadius:12, alignItems:'center',
+                    backgroundColor: tab===t ? colors.accent : 'transparent' }}>
+                  <Text style={{ fontSize:12, fontWeight:'700', color: tab===t ? '#fff' : textMuted }}>
+                    {t==='hrv' ? '❤️ HRV' : t==='sleep' ? '🌙 Schlaf' : '⚖️ Körper'}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-              {tab === 'hrv' && (
-                <View>
-                  <View style={hs.infoBox}>
-                    <Text style={{ color: C.textMuted, fontSize: 12, lineHeight: 18 }}>
-                      💡 HRV morgens messen: direkt nach dem Aufwachen, liegend, 1–2 Minuten. Garmin Forerunner 265 misst automatisch.
+
+              {tab==='hrv' && (
+                <View style={{ gap:16 }}>
+                  <View style={{ backgroundColor:cardAlt, borderRadius:14, padding:14, borderLeftWidth:3, borderLeftColor:'#818CF8' }}>
+                    <Text style={{ color:textMuted, fontSize:12, lineHeight:18 }}>
+                      💡 Morgens messen: direkt nach dem Aufwachen, liegend. Wert aus Garmin Connect ablesen.
                     </Text>
                   </View>
-                  <Text style={hs.label}>HRV (RMSSD, ms)</Text>
-                  <TextInput style={hs.input}
-                    value={local.hrv?.toString() ?? ''}
-                    onChangeText={t => set('hrv', t ? Number(t) : null)}
-                    placeholder="z. B. 58" placeholderTextColor={C.textDim} keyboardType="numeric" />
-                  {local.hrv !== null && (
-                    <Text style={{ color: hrvZone(local.hrv).color, fontSize: 13, marginTop: 8, marginBottom: 16 }}>
-                      {hrvZone(local.hrv).label} · {local.hrv} ms
-                    </Text>
-                  )}
-                  <Text style={[hs.label, { marginTop: 8 }]}>Ruhepuls (bpm)</Text>
-                  <TextInput style={hs.input}
-                    value={local.restingHR?.toString() ?? ''}
-                    onChangeText={t => set('restingHR', t ? Number(t) : null)}
-                    placeholder="z. B. 52" placeholderTextColor={C.textDim} keyboardType="numeric" />
-                  {local.restingHR !== null && (
-                    <Text style={{ color: hrZone(local.restingHR).color, fontSize: 13, marginTop: 8, marginBottom: 16 }}>
-                      {hrZone(local.restingHR).label} · {local.restingHR} bpm
-                    </Text>
-                  )}
-                  <Text style={[hs.label, { marginTop: 8 }]}>Notizen</Text>
-                  <TextInput style={[hs.input, { minHeight: 70, textAlignVertical: 'top' }]}
-                    value={local.notes} onChangeText={t => set('notes', t)}
-                    placeholder="Krank, Reise, Stress…" placeholderTextColor={C.textDim} multiline />
+                  <View>
+                    <Text style={labelStyle}>HRV (RMSSD, ms)</Text>
+                    <TextInput style={inputStyle} value={local.hrv?.toString()??''} onChangeText={t=>set('hrv',t?Number(t):null)} placeholder="z. B. 58" placeholderTextColor={textDim} keyboardType="numeric" />
+                    {local.hrv!==null && <Text style={{ color:hrvZone(local.hrv).color, fontSize:13, marginTop:6, fontWeight:'600' }}>{hrvZone(local.hrv).label} · {local.hrv} ms</Text>}
+                  </View>
+                  <View>
+                    <Text style={labelStyle}>Ruhepuls (bpm)</Text>
+                    <TextInput style={inputStyle} value={local.restingHR?.toString()??''} onChangeText={t=>set('restingHR',t?Number(t):null)} placeholder="z. B. 52" placeholderTextColor={textDim} keyboardType="numeric" />
+                    {local.restingHR!==null && <Text style={{ color:hrZone(local.restingHR).color, fontSize:13, marginTop:6, fontWeight:'600' }}>{hrZone(local.restingHR).label} · {local.restingHR} bpm</Text>}
+                  </View>
+                  <View>
+                    <Text style={labelStyle}>Notizen (optional)</Text>
+                    <TextInput style={[inputStyle,{minHeight:70,textAlignVertical:'top'}]} value={local.notes} onChangeText={t=>set('notes',t)} placeholder="Krank, Reise, Stress…" placeholderTextColor={textDim} multiline />
+                  </View>
                 </View>
               )}
 
-              {tab === 'sleep' && (
-                <View>
-                  <Text style={hs.label}>Schlafdauer (Stunden)</Text>
-                  <TextInput style={hs.input}
-                    value={local.sleepHours?.toString() ?? ''}
-                    onChangeText={t => set('sleepHours', Number(t) || 0)}
-                    placeholder="z. B. 7.5" placeholderTextColor={C.textDim} keyboardType="decimal-pad" />
-                  <Text style={[hs.label, { marginTop: 16 }]}>Schlafqualität</Text>
-                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                    {[1,2,3,4,5].map(q => (
-                      <TouchableOpacity key={q} onPress={() => set('sleepQuality', q)}
-                        style={[hs.qualityBtn, local.sleepQuality === q && { backgroundColor: C.blue + '30', borderColor: C.blue }]}>
-                        <Text style={{ fontSize: 20 }}>{['😣','😕','😐','🙂','😄'][q-1]}</Text>
-                      </TouchableOpacity>
-                    ))}
+              {tab==='sleep' && (
+                <View style={{ gap:16 }}>
+                  <View>
+                    <Text style={labelStyle}>Schlafdauer (Stunden)</Text>
+                    <TextInput style={inputStyle} value={local.sleepHours?.toString()??''} onChangeText={t=>set('sleepHours',parseFloat(t)||0)} placeholder="z. B. 7.5" placeholderTextColor={textDim} keyboardType="decimal-pad" />
                   </View>
-                  <Text style={{ color: C.textMuted, fontSize: 12, textAlign: 'center', marginTop: 8 }}>
-                    {qualityLabels[local.sleepQuality - 1]}
-                  </Text>
-                </View>
-              )}
-
-              {tab === 'body' && (
-                <View>
-                  <Text style={hs.label}>Körpergewicht (kg)</Text>
-                  <TextInput style={hs.input}
-                    value={local.bodyweight?.toString() ?? ''}
-                    onChangeText={t => set('bodyweight', t ? Number(t) : null)}
-                    placeholder="z. B. 65.4" placeholderTextColor={C.textDim} keyboardType="decimal-pad" />
-                  <View style={[hs.infoBox, { marginTop: 12 }]}>
-                    <Text style={{ color: C.textMuted, fontSize: 12, lineHeight: 18 }}>
-                      💡 Täglich morgens nüchtern messen. Wettkampfgewicht -66 kg im Blick behalten.
+                  <View>
+                    <Text style={labelStyle}>Schlafqualität</Text>
+                    <View style={{ flexDirection:'row', gap:8, marginTop:8 }}>
+                      {[1,2,3,4,5].map(q => (
+                        <TouchableOpacity key={q} onPress={()=>set('sleepQuality',q)}
+                          style={{ flex:1, paddingVertical:12, borderRadius:14, alignItems:'center',
+                            backgroundColor: local.sleepQuality===q ? colors.accent+'30' : cardAlt,
+                            borderWidth:1, borderColor: local.sleepQuality===q ? colors.accent : border }}>
+                          <Text style={{ fontSize:22 }}>{['😣','😕','😐','🙂','😄'][q-1]}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <Text style={{ color:textMuted, fontSize:12, textAlign:'center', marginTop:8 }}>
+                      {['Sehr schlecht','Schlecht','Okay','Gut','Sehr gut'][local.sleepQuality-1]}
                     </Text>
                   </View>
                 </View>
               )}
 
-              <TouchableOpacity style={[hs.saveBtn, { marginTop: 24 }]} onPress={() => { onSave(local); onClose(); }}>
-                <Text style={{ color: C.text, fontWeight: '700', fontSize: 16 }}>Speichern</Text>
+              {tab==='body' && (
+                <View style={{ gap:16 }}>
+                  <View>
+                    <Text style={labelStyle}>Körpergewicht (kg)</Text>
+                    <TextInput style={inputStyle} value={local.bodyweight?.toString()??''} onChangeText={t=>set('bodyweight',t?parseFloat(t):null)} placeholder="z. B. 65.4" placeholderTextColor={textDim} keyboardType="decimal-pad" />
+                    {local.bodyweight!==null && (
+                      <View style={{ flexDirection:'row', justifyContent:'space-between', marginTop:10, backgroundColor:cardAlt, borderRadius:12, padding:12 }}>
+                        <Text style={{ color:textMuted, fontSize:13 }}>Wettkampfgewicht -66 kg</Text>
+                        <Text style={{ color:local.bodyweight<=66?'#4ADE80':local.bodyweight<=68?'#FBBF24':'#F87171', fontSize:13, fontWeight:'700' }}>
+                          {local.bodyweight<=66?'✅ Im Limit':`+${(local.bodyweight-66).toFixed(1)} kg`}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ backgroundColor:cardAlt, borderRadius:14, padding:14, borderLeftWidth:3, borderLeftColor:'#FB923C' }}>
+                    <Text style={{ color:textMuted, fontSize:12, lineHeight:18 }}>💡 Täglich morgens nüchtern messen — vor dem Frühstück.</Text>
+                  </View>
+                </View>
+              )}
+
+              <TouchableOpacity onPress={()=>{onSave(local);onClose();}}
+                style={{ backgroundColor:colors.accent, borderRadius:16, paddingVertical:16, alignItems:'center', marginTop:24 }}>
+                <Text style={{ color:'#fff', fontWeight:'800', fontSize:16 }}>Speichern</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -227,261 +288,312 @@ const InputModal: React.FC<InputModalProps> = ({ visible, data, onSave, onClose 
   );
 };
 
-const Sparkline: React.FC<{ values: (number | null)[]; color: string; max: number }> = ({ values, color, max }) => {
-  const last7 = values.slice(-7);
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'flex-end', height: 36, gap: 4 }}>
-      {last7.map((v, i) => (
-        <View key={i} style={{ flex: 1, height: v !== null ? Math.max(4, (v / max) * 36) : 4,
-          borderRadius: 2, backgroundColor: i === last7.length - 1 ? color : color + '55' }} />
-      ))}
-    </View>
-  );
-};
-
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function HealthScreen() {
+  const { colors } = useAppTheme();
   const today = todayKey();
   const [history,   setHistory]   = useState<DayHealth[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [todayData, setTodayData] = useState<DayHealth | null>(null);
   const [loaded,    setLoaded]    = useState(false);
+  const fade = useRef(new Animated.Value(0)).current;
 
-  const loadHistory = useCallback(async () => {
+  // Detect dark/light theme
+  const isDark = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
+  const bg       = isDark ? '#0F0E0D' : colors.bg;
+  const card     = isDark ? '#1C1917' : colors.card;
+  const cardAlt  = isDark ? '#242120' : colors.cardSecondary;
+  const border   = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+  const text     = isDark ? '#F5F0EE' : '#1A1209';
+  const textMuted = isDark ? 'rgba(245,240,238,0.45)' : 'rgba(26,18,9,0.45)';
+  const textDim   = isDark ? 'rgba(245,240,238,0.22)' : 'rgba(26,18,9,0.22)';
+
+  const load = useCallback(async () => {
     try {
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
-      if (raw) setHistory(JSON.parse(raw));
+      const [rawHistory, rawSleep] = await Promise.all([
+        AsyncStorage.getItem(HEALTH_KEY),
+        AsyncStorage.getItem(SLEEP_KEY),
+      ]);
+
+      let hist: DayHealth[] = rawHistory ? JSON.parse(rawHistory) : [];
+
+      if (rawSleep) {
+        const sl = JSON.parse(rawSleep);
+        const slDate = sl.date ? new Date(sl.date).toISOString().slice(0,10) : today;
+        const existing = hist.find(h => h.date === slDate);
+        if (existing) {
+          if (!existing.sleepHours && sl.schlafStunden) {
+            const updated = { ...existing, sleepHours: sl.schlafStunden };
+            hist = hist.map(h => h.date === slDate ? updated : h);
+            await AsyncStorage.setItem(HEALTH_KEY, JSON.stringify(hist));
+          }
+        } else if (sl.schlafStunden && slDate === today) {
+          const newEntry: DayHealth = {
+            date: today, hrv: sl.hrv||null, restingHR: sl.tiefsterPuls||null,
+            sleepHours: sl.schlafStunden, sleepQuality: 3, recoveryScore: 0,
+            bodyweight: null, notes: '',
+          };
+          const hrvVals = hist.filter(x=>x.hrv!==null).map(x=>x.hrv as number);
+          const avg = hrvVals.length ? hrvVals.reduce((a,b)=>a+b)/hrvVals.length : null;
+          newEntry.recoveryScore = calcRecovery(newEntry, avg);
+          hist = [newEntry, ...hist];
+          await AsyncStorage.setItem(HEALTH_KEY, JSON.stringify(hist));
+        }
+      }
+
+      setHistory(hist);
+      setTodayData(hist.find(h => h.date === today) ?? null);
     } catch {}
     setLoaded(true);
-  }, []);
+  }, [today]);
 
-  useEffect(() => { loadHistory(); }, []);
-
-  useEffect(() => {
-    if (history.length > 0) setTodayData(history.find(d => d.date === today) ?? null);
-  }, [history, today]);
+  useFocusEffect(useCallback(() => {
+    load();
+    fade.setValue(0);
+    Animated.timing(fade, { toValue:1, duration:400, useNativeDriver:true }).start();
+  }, [load]));
 
   const saveDay = async (d: DayHealth) => {
-    const hrvValues = history.filter(x => x.hrv !== null).map(x => x.hrv as number);
-    const avgHRV    = hrvValues.length > 0 ? hrvValues.reduce((a,b) => a+b,0) / hrvValues.length : null;
-    const updated   = { ...d, date: today, recoveryScore: calcRecovery(d, avgHRV) };
-    const newHistory = history.some(x => x.date === today)
-      ? history.map(x => x.date === today ? updated : x)
-      : [updated, ...history];
-    setHistory(newHistory);
+    const hrvVals = history.filter(x=>x.hrv!==null).map(x=>x.hrv as number);
+    const avg = hrvVals.length ? hrvVals.reduce((a,b)=>a+b)/hrvVals.length : null;
+    const updated = { ...d, date:today, recoveryScore:calcRecovery(d,avg) };
+    const newHist = history.some(x=>x.date===today)
+      ? history.map(x=>x.date===today?updated:x)
+      : [updated,...history];
+    setHistory(newHist);
     setTodayData(updated);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newHistory));
+    await AsyncStorage.setItem(HEALTH_KEY, JSON.stringify(newHist));
   };
 
-  const emptyToday: DayHealth = {
-    date: today, hrv: null, restingHR: null,
-    sleepHours: 7.5, sleepQuality: 3, recoveryScore: 0,
-    bodyweight: null, notes: '',
-  };
+  const empty: DayHealth = { date:today, hrv:null, restingHR:null, sleepHours:0, sleepQuality:3, recoveryScore:0, bodyweight:null, notes:'' };
+  const last14 = [...history].sort((a,b)=>a.date.localeCompare(b.date)).slice(-14);
+  const avgHRV7 = (() => { const v=last14.slice(-7).map(d=>d.hrv).filter(Boolean) as number[]; return v.length?Math.round(v.reduce((a,b)=>a+b)/v.length):null; })();
+  const avgHR7  = (() => { const v=last14.slice(-7).map(d=>d.restingHR).filter(Boolean) as number[]; return v.length?Math.round(v.reduce((a,b)=>a+b)/v.length):null; })();
+  const recovery = todayData?.recoveryScore ?? 0;
+  const rc = recColor(recovery, colors);
+  const dateLabel = new Date().toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long' });
 
-  const last14    = history.slice(0, 14).reverse();
-  const hrvValues = last14.map(d => d.hrv);
-  const hrValues  = last14.map(d => d.restingHR);
-  const recValues = last14.map(d => d.recoveryScore);
-
-  const avgHRV7 = (() => {
-    const vals = last14.slice(-7).map(d => d.hrv).filter(Boolean) as number[];
-    return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : null;
-  })();
-
-  const avgHR7 = (() => {
-    const vals = last14.slice(-7).map(d => d.restingHR).filter(Boolean) as number[];
-    return vals.length ? Math.round(vals.reduce((a,b)=>a+b,0)/vals.length) : null;
-  })();
-
-  const recovery  = todayData?.recoveryScore ?? 0;
-  const recColor  = recoveryColor(recovery);
-  const dateLabel = new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' });
+  // Card style helper
+  const cardStyle = { backgroundColor:card, borderRadius:20, padding:20, borderWidth:1, borderColor:border, marginBottom:12 };
 
   if (!loaded) return (
-    <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color: C.textMuted }}>Lade…</Text>
+    <View style={{ flex:1, backgroundColor:bg, alignItems:'center', justifyContent:'center' }}>
+      <Text style={{ color:textMuted }}>Lade…</Text>
     </View>
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <StatusBar barStyle="light-content" />
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={hs.scroll} showsVerticalScrollIndicator={false}>
+    <View style={{ flex:1, backgroundColor:bg }}>
+      <ScrollView style={{ flex:1 }} contentContainerStyle={{ paddingHorizontal:16, paddingTop:60, paddingBottom:100 }} showsVerticalScrollIndicator={false}>
+        <Animated.View style={{ opacity:fade }}>
 
-        {/* Header */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-          <View>
-            <Text style={{ color: C.textMuted, fontSize: 13 }}>{dateLabel}</Text>
-            <Text style={{ color: C.text, fontSize: 26, fontWeight: '700', marginTop: 4 }}>Gesundheit</Text>
+          {/* Header */}
+          <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24 }}>
+            <View>
+              <Text style={{ color:textDim, fontSize:11, fontWeight:'700', letterSpacing:2, textTransform:'uppercase' }}>{dateLabel}</Text>
+              <Text style={{ color:text, fontSize:30, fontWeight:'800', marginTop:6, letterSpacing:-0.8 }}>Gesundheit</Text>
+            </View>
+            <TouchableOpacity onPress={()=>setShowModal(true)}
+              style={{ width:44, height:44, borderRadius:22, backgroundColor:colors.accent, alignItems:'center', justifyContent:'center' }}>
+              <Text style={{ color:'#fff', fontSize:24, lineHeight:26, marginTop:-1 }}>+</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={() => setShowModal(true)}
-            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: C.orange, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{ color: C.text, fontSize: 22 }}>＋</Text>
-          </TouchableOpacity>
-        </View>
 
-        {/* Recovery Score */}
-        <View style={hs.recoveryCard}>
-          <View style={{ alignItems: 'center' }}>
-            <Text style={{ color: C.textDim, fontSize: 11, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' }}>ERHOLUNG</Text>
-            <Text style={[hs.bigScore, { color: recColor }]}>{todayData ? recovery : '—'}</Text>
-            <Text style={{ color: recColor, fontWeight: '600', fontSize: 14 }}>
-              {todayData ? recoveryLabel(recovery) : 'Noch nicht erfasst'}
-            </Text>
-          </View>
-          <View style={hs.divider} />
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: C.textMuted, fontSize: 12, lineHeight: 19, marginBottom: 8 }}>
-              {todayData ? recoveryAdvice(recovery) : 'Erfasse heute deine Werte für eine Empfehlung.'}
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <View>
-                <Text style={{ color: C.textDim, fontSize: 11 }}>HRV</Text>
-                <Text style={{ color: todayData?.hrv ? hrvZone(todayData.hrv).color : C.textDim, fontSize: 16, fontWeight: '700' }}>
-                  {todayData?.hrv ?? '—'}{todayData?.hrv ? 'ms' : ''}
-                </Text>
-              </View>
-              <View>
-                <Text style={{ color: C.textDim, fontSize: 11 }}>Ruhepuls</Text>
-                <Text style={{ color: todayData?.restingHR ? hrZone(todayData.restingHR).color : C.textDim, fontSize: 16, fontWeight: '700' }}>
-                  {todayData?.restingHR ?? '—'}{todayData?.restingHR ? 'bpm' : ''}
-                </Text>
-              </View>
-              <View>
-                <Text style={{ color: C.textDim, fontSize: 11 }}>Schlaf</Text>
-                <Text style={{ color: C.blue, fontSize: 16, fontWeight: '700' }}>
-                  {todayData ? `${todayData.sleepHours}h` : '—'}
+          {/* Recovery Score */}
+          <View style={cardStyle}>
+            <View style={{ flexDirection:'row', alignItems:'center', gap:20 }}>
+              <Ring value={recovery} size={100} stroke={7} color={rc} trackColor={border}>
+                <View style={{ alignItems:'center' }}>
+                  <Text style={{ fontSize:26, fontWeight:'800', color:text, letterSpacing:-1 }}>{todayData?recovery:'—'}</Text>
+                  <Text style={{ fontSize:8, color:textDim, fontWeight:'700', letterSpacing:1, textTransform:'uppercase' }}>Score</Text>
+                </View>
+              </Ring>
+              <View style={{ flex:1 }}>
+                <Text style={{ fontSize:10, fontWeight:'700', letterSpacing:2, textTransform:'uppercase', color:textDim, marginBottom:8 }}>Erholungs-Score</Text>
+                <View style={{ flexDirection:'row', alignItems:'center', gap:8, marginBottom:10 }}>
+                  <View style={{ width:8, height:8, borderRadius:4, backgroundColor:rc }} />
+                  <Text style={{ fontSize:16, fontWeight:'700', color:rc }}>{todayData?recLabel(recovery):'Noch nicht erfasst'}</Text>
+                </View>
+                <Text style={{ fontSize:12, color:textMuted, lineHeight:18 }}>
+                  {todayData?recAdvice(recovery):'Tippe + um heutige Werte einzutragen.'}
                 </Text>
               </View>
             </View>
-          </View>
-        </View>
 
-        {!todayData && (
-          <TouchableOpacity style={hs.capturePrompt} onPress={() => setShowModal(true)}>
-            <Text style={{ fontSize: 32, marginBottom: 8 }}>🩺</Text>
-            <Text style={{ color: C.text, fontSize: 16, fontWeight: '600' }}>Heutige Werte erfassen</Text>
-            <Text style={{ color: C.textMuted, fontSize: 13, marginTop: 4 }}>HRV, Ruhepuls, Schlaf</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* HRV Trend */}
-        {last14.length > 0 && (
-          <View style={hs.card}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-              <View>
-                <Text style={hs.cardTitle}>HRV-Verlauf</Text>
-                <Text style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>7-Tage-Ø: {avgHRV7 ?? '—'} ms</Text>
+            {todayData && (
+              <View style={{ flexDirection:'row', marginTop:18, paddingTop:16, borderTopWidth:1, borderTopColor:border }}>
+                {[
+                  { label:'HRV ms', value:todayData.hrv??'—', color:todayData.hrv?hrvZone(todayData.hrv).color:textDim },
+                  { label:'Ruhepuls', value:todayData.restingHR?`${todayData.restingHR}`:'—', color:todayData.restingHR?hrZone(todayData.restingHR).color:textDim },
+                  { label:'Schlaf', value:todayData.sleepHours>0?`${todayData.sleepHours}h`:'—', color:'#818CF8' },
+                ].map((s,i) => (
+                  <React.Fragment key={s.label}>
+                    {i>0 && <View style={{ width:1, backgroundColor:border }} />}
+                    <View style={{ flex:1, alignItems:'center' }}>
+                      <Text style={{ fontSize:18, fontWeight:'800', color:s.color }}>{s.value}</Text>
+                      <Text style={{ fontSize:9, color:textDim, textTransform:'uppercase', letterSpacing:1, marginTop:3, fontWeight:'600' }}>{s.label}</Text>
+                    </View>
+                  </React.Fragment>
+                ))}
+                {todayData.bodyweight && (
+                  <>
+                    <View style={{ width:1, backgroundColor:border }} />
+                    <View style={{ flex:1, alignItems:'center' }}>
+                      <Text style={{ fontSize:18, fontWeight:'800', color:todayData.bodyweight<=66?'#4ADE80':'#FBBF24' }}>{todayData.bodyweight}</Text>
+                      <Text style={{ fontSize:9, color:textDim, textTransform:'uppercase', letterSpacing:1, marginTop:3, fontWeight:'600' }}>kg</Text>
+                    </View>
+                  </>
+                )}
               </View>
-              {todayData?.hrv && (
-                <View style={[hs.badge, { backgroundColor: hrvZone(todayData.hrv).color + '25' }]}>
-                  <Text style={{ color: hrvZone(todayData.hrv).color, fontWeight: '600', fontSize: 13 }}>
-                    {todayData.hrv} ms · {hrvZone(todayData.hrv).label}
+            )}
+          </View>
+
+          {/* Empty state */}
+          {!todayData && (
+            <TouchableOpacity onPress={()=>setShowModal(true)} style={[cardStyle,{ alignItems:'center', paddingVertical:32, borderStyle:'dashed' }]}>
+              <Text style={{ fontSize:36, marginBottom:12 }}>🩺</Text>
+              <Text style={{ color:text, fontSize:17, fontWeight:'700', marginBottom:6 }}>Heutige Werte erfassen</Text>
+              <Text style={{ color:textMuted, fontSize:13 }}>HRV · Ruhepuls · Schlaf · Gewicht</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* HRV Chart */}
+          {last14.length > 0 && (
+            <View style={cardStyle}>
+              <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
+                <View>
+                  <Text style={{ color:text, fontSize:16, fontWeight:'700' }}>HRV-Verlauf</Text>
+                  <Text style={{ color:textMuted, fontSize:12, marginTop:4 }}>
+                    7-Tage-Ø: {avgHRV7?`${avgHRV7} ms`:'—'}
+                    {todayData?.hrv ? `  ·  Heute: ${todayData.hrv} ms` : ''}
                   </Text>
                 </View>
-              )}
+                {todayData?.hrv && (
+                  <View style={{ backgroundColor:hrvZone(todayData.hrv).color+'20', paddingHorizontal:12, paddingVertical:6, borderRadius:20 }}>
+                    <Text style={{ color:hrvZone(todayData.hrv).color, fontWeight:'700', fontSize:12 }}>{hrvZone(todayData.hrv).label}</Text>
+                  </View>
+                )}
+              </View>
+              <LineChart
+                data={last14.map(d=>d.hrv)}
+                color="#4ADE80"
+                minVal={30}
+                maxVal={100}
+                isDark={isDark}
+              />
+              <View style={{ flexDirection:'row', justifyContent:'space-between', marginTop:4, marginBottom:14 }}>
+                <Text style={{ color:textDim, fontSize:10 }}>{last14[0]?.date.slice(5) ?? ''}</Text>
+                <Text style={{ color:textDim, fontSize:10 }}>Heute</Text>
+              </View>
+              <View style={{ flexDirection:'row', justifyContent:'space-around', paddingTop:12, borderTopWidth:1, borderTopColor:border }}>
+                {[{r:'< 40',l:'Kritisch',c:'#F87171'},{r:'40–59',l:'Niedrig',c:'#FBBF24'},{r:'60–79',l:'Normal',c:'#818CF8'},{r:'≥ 80',l:'Sehr gut',c:'#4ADE80'}].map(x=>(
+                  <View key={x.r} style={{ alignItems:'center', gap:2 }}>
+                    <Text style={{ color:x.c, fontSize:11, fontWeight:'800' }}>{x.r}</Text>
+                    <Text style={{ color:textDim, fontSize:10 }}>{x.l}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
-            <Sparkline values={hrvValues} color={C.green} max={120} />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 }}>
-              <Text style={{ color: C.textDim, fontSize: 10 }}>vor 13 Tagen</Text>
-              <Text style={{ color: C.textDim, fontSize: 10 }}>Heute</Text>
+          )}
+
+          {/* Ruhepuls Chart */}
+          {last14.length > 0 && (
+            <View style={cardStyle}>
+              <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:16 }}>
+                <View>
+                  <Text style={{ color:text, fontSize:16, fontWeight:'700' }}>Ruhepuls</Text>
+                  <Text style={{ color:textMuted, fontSize:12, marginTop:4 }}>
+                    7-Tage-Ø: {avgHR7?`${avgHR7} bpm`:'—'}
+                    {todayData?.restingHR ? `  ·  Heute: ${todayData.restingHR} bpm` : ''}
+                  </Text>
+                </View>
+                {todayData?.restingHR && (
+                  <View style={{ backgroundColor:hrZone(todayData.restingHR).color+'20', paddingHorizontal:12, paddingVertical:6, borderRadius:20 }}>
+                    <Text style={{ color:hrZone(todayData.restingHR).color, fontWeight:'700', fontSize:12 }}>{hrZone(todayData.restingHR).label}</Text>
+                  </View>
+                )}
+              </View>
+              <LineChart
+                data={last14.map(d=>d.restingHR)}
+                color="#F87171"
+                minVal={35}
+                maxVal={80}
+                isDark={isDark}
+              />
+              <View style={{ flexDirection:'row', justifyContent:'space-between', marginTop:4, marginBottom:14 }}>
+                <Text style={{ color:textDim, fontSize:10 }}>{last14[0]?.date.slice(5) ?? ''}</Text>
+                <Text style={{ color:textDim, fontSize:10 }}>Heute</Text>
+              </View>
+              <View style={{ flexDirection:'row', justifyContent:'space-around', paddingTop:12, borderTopWidth:1, borderTopColor:border }}>
+                {[{r:'≤ 45',l:'Athletisch',c:'#4ADE80'},{r:'46–55',l:'Sehr gut',c:'#818CF8'},{r:'56–65',l:'Normal',c:'#FBBF24'},{r:'> 65',l:'Erhöht',c:'#F87171'}].map(x=>(
+                  <View key={x.r} style={{ alignItems:'center', gap:2 }}>
+                    <Text style={{ color:x.c, fontSize:11, fontWeight:'800' }}>{x.r}</Text>
+                    <Text style={{ color:textDim, fontSize:10 }}>{x.l}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-around', paddingTop: 10, marginTop: 10, borderTopWidth: 1, borderTopColor: C.border }}>
-              {[{ r:'< 40', l:'Kritisch', c:C.red },{ r:'40–59', l:'Niedrig', c:C.yellow },{ r:'60–79', l:'Normal', c:C.blue },{ r:'≥ 80', l:'Sehr gut', c:C.green }].map(x => (
-                <View key={x.r} style={{ alignItems: 'center' }}>
-                  <Text style={{ color: x.c, fontSize: 11, fontWeight: '700' }}>{x.r}</Text>
-                  <Text style={{ color: C.textDim, fontSize: 10 }}>{x.l}</Text>
+          )}
+
+          {/* Erholungs-Verlauf Chart */}
+          {last14.length > 0 && (
+            <View style={cardStyle}>
+              <Text style={{ color:text, fontSize:16, fontWeight:'700', marginBottom:6 }}>Erholungs-Verlauf</Text>
+              <Text style={{ color:textMuted, fontSize:12, marginBottom:16 }}>
+                Kombiniert aus HRV, Ruhepuls und Schlaf
+              </Text>
+              <LineChart
+                data={last14.map(d=>d.recoveryScore)}
+                color={colors.accent}
+                minVal={0}
+                maxVal={100}
+                isDark={isDark}
+              />
+              <View style={{ flexDirection:'row', justifyContent:'space-between', marginTop:4 }}>
+                <Text style={{ color:textDim, fontSize:10 }}>{last14[0]?.date.slice(5) ?? ''}</Text>
+                <Text style={{ color:textDim, fontSize:10 }}>Heute</Text>
+              </View>
+            </View>
+          )}
+
+          {/* Letzte Einträge */}
+          {last14.length > 0 && (
+            <View style={cardStyle}>
+              <Text style={{ color:text, fontSize:16, fontWeight:'700', marginBottom:16 }}>Letzte Einträge</Text>
+              {[...last14].reverse().slice(0,7).map((d,i,arr) => (
+                <View key={d.date} style={{ flexDirection:'row', alignItems:'center', paddingVertical:10,
+                  borderBottomWidth:i<arr.length-1?1:0, borderBottomColor:border }}>
+                  <Text style={{ color:textMuted, fontSize:12, width:50 }}>{d.date.slice(5)}</Text>
+                  <View style={{ flex:1, flexDirection:'row', gap:10, flexWrap:'wrap' }}>
+                    {d.hrv!==null && <Text style={{ fontSize:12, color:hrvZone(d.hrv).color, fontWeight:'600' }}>HRV {d.hrv}</Text>}
+                    {d.restingHR!==null && <Text style={{ fontSize:12, color:hrZone(d.restingHR).color, fontWeight:'600' }}>{d.restingHR} bpm</Text>}
+                    {d.sleepHours>0 && <Text style={{ fontSize:12, color:'#818CF8', fontWeight:'600' }}>{d.sleepHours}h</Text>}
+                    {d.bodyweight && <Text style={{ fontSize:12, color:textMuted, fontWeight:'600' }}>{d.bodyweight} kg</Text>}
+                  </View>
+                  <View style={{ paddingHorizontal:10, paddingVertical:4, borderRadius:20, backgroundColor:recColor(d.recoveryScore,colors)+'20' }}>
+                    <Text style={{ color:recColor(d.recoveryScore,colors), fontSize:12, fontWeight:'800' }}>{d.recoveryScore}</Text>
+                  </View>
                 </View>
               ))}
             </View>
-          </View>
-        )}
+          )}
 
-        {/* Ruhepuls Trend */}
-        {last14.length > 0 && (
-          <View style={hs.card}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-              <View>
-                <Text style={hs.cardTitle}>Ruhepuls</Text>
-                <Text style={{ color: C.textMuted, fontSize: 12, marginTop: 2 }}>7-Tage-Ø: {avgHR7 ?? '—'} bpm</Text>
-              </View>
-              {todayData?.restingHR && (
-                <View style={[hs.badge, { backgroundColor: hrZone(todayData.restingHR).color + '25' }]}>
-                  <Text style={{ color: hrZone(todayData.restingHR).color, fontWeight: '600', fontSize: 13 }}>
-                    {todayData.restingHR} bpm · {hrZone(todayData.restingHR).label}
-                  </Text>
-                </View>
-              )}
+          {/* Garmin Card */}
+          <View style={[cardStyle,{ alignItems:'center', paddingVertical:28, borderColor:colors.accent+'30' }]}>
+            <Text style={{ fontSize:32, marginBottom:12 }}>⌚</Text>
+            <Text style={{ color:text, fontSize:16, fontWeight:'700', marginBottom:6 }}>Garmin Forerunner 265</Text>
+            <Text style={{ color:textMuted, fontSize:13, textAlign:'center', lineHeight:20, marginBottom:14 }}>
+              HRV und Ruhepuls in Garmin Connect ablesen und hier eintragen. Automatischer Sync folgt.
+            </Text>
+            <View style={{ backgroundColor:colors.accent+'18', paddingHorizontal:16, paddingVertical:8, borderRadius:20, borderWidth:1, borderColor:colors.accent+'40' }}>
+              <Text style={{ color:colors.accent, fontSize:12, fontWeight:'700' }}>Manuell aktiv · Auto-Sync folgt</Text>
             </View>
-            <Sparkline values={hrValues} color={C.red} max={90} />
           </View>
-        )}
 
-        {/* Recovery Trend */}
-        {last14.length > 0 && (
-          <View style={hs.card}>
-            <Text style={[hs.cardTitle, { marginBottom: 14 }]}>Erholungs-Verlauf</Text>
-            <Sparkline values={recValues} color={C.orange} max={100} />
-          </View>
-        )}
-
-        {/* Verlauf */}
-        {last14.length > 0 && (
-          <View style={hs.card}>
-            <Text style={[hs.cardTitle, { marginBottom: 14 }]}>Letzte Einträge</Text>
-            {last14.slice(0, 7).map(d => (
-              <View key={d.date} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.border }}>
-                <Text style={{ color: C.textMuted, fontSize: 13, width: 90 }}>{d.date}</Text>
-                <View style={{ flex: 1, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                  {d.hrv !== null && <Text style={{ color: hrvZone(d.hrv).color, fontSize: 12 }}>HRV {d.hrv}ms</Text>}
-                  {d.restingHR !== null && <Text style={{ color: hrZone(d.restingHR).color, fontSize: 12 }}>{d.restingHR}bpm</Text>}
-                  <Text style={{ color: C.blue, fontSize: 12 }}>{d.sleepHours}h</Text>
-                </View>
-                <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, backgroundColor: recoveryColor(d.recoveryScore) + '25' }}>
-                  <Text style={{ color: recoveryColor(d.recoveryScore), fontSize: 12, fontWeight: '700' }}>{d.recoveryScore}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Garmin Hinweis */}
-        <View style={hs.garminCard}>
-          <Text style={{ fontSize: 24, marginBottom: 8 }}>⌚</Text>
-          <Text style={{ color: C.text, fontSize: 15, fontWeight: '600' }}>Garmin Forerunner 265</Text>
-          <Text style={{ color: C.textMuted, fontSize: 13, marginTop: 6, textAlign: 'center', lineHeight: 19 }}>
-            HRV und Ruhepuls direkt aus der Garmin Connect App ablesen und hier manuell eintragen. Automatischer Sync folgt.
-          </Text>
-          <View style={[hs.badge, { backgroundColor: C.orange + '20', marginTop: 12, borderWidth: 1, borderColor: C.orange + '60' }]}>
-            <Text style={{ color: C.orange, fontSize: 12, fontWeight: '600' }}>Manuell aktiv · Auto-Sync folgt</Text>
-          </View>
-        </View>
-
-        <View style={{ height: 40 }} />
+        </Animated.View>
       </ScrollView>
 
-      <InputModal visible={showModal} data={todayData ?? emptyToday} onSave={saveDay} onClose={() => setShowModal(false)} />
+      <InputModal visible={showModal} data={todayData??empty} isDark={isDark} colors={colors} onSave={saveDay} onClose={()=>setShowModal(false)} />
     </View>
   );
 }
-
-const hs = StyleSheet.create({
-  scroll:        { paddingHorizontal: 16, paddingTop: 60 },
-  recoveryCard:  { flexDirection: 'row', alignItems: 'center', backgroundColor: '#231F1C', borderRadius: 18, padding: 20, marginBottom: 14 },
-  bigScore:      { fontSize: 52, fontWeight: '800', lineHeight: 60 },
-  divider:       { width: 1, height: 80, backgroundColor: '#3A3430', marginHorizontal: 16 },
-  capturePrompt: { backgroundColor: '#231F1C', borderRadius: 18, padding: 28, marginBottom: 14, alignItems: 'center', borderWidth: 1, borderColor: '#3A3430', borderStyle: 'dashed' },
-  card:          { backgroundColor: '#231F1C', borderRadius: 18, padding: 18, marginBottom: 14 },
-  cardTitle:     { color: '#F5F0EE', fontSize: 17, fontWeight: '600' },
-  badge:         { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
-  garminCard:    { backgroundColor: '#231F1C', borderRadius: 18, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#E8572A40' },
-  overlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  sheet:         { backgroundColor: '#231F1C', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 48, maxHeight: '88%' },
-  modalTitle:    { color: '#F5F0EE', fontSize: 20, fontWeight: '700' },
-  label:         { color: '#8A8078', fontSize: 12, fontWeight: '600', letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' },
-  input:         { backgroundColor: '#2A2522', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, color: '#F5F0EE', fontSize: 16, borderWidth: 1, borderColor: '#3A3430' },
-  infoBox:       { backgroundColor: '#2A2522', borderRadius: 10, padding: 12, marginBottom: 16, borderLeftWidth: 3, borderLeftColor: '#4A9EFF' },
-  tab:           { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center', backgroundColor: '#2A2522' },
-  qualityBtn:    { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: '#3A3430', backgroundColor: '#2A2522' },
-  saveBtn:       { backgroundColor: '#E8572A', paddingVertical: 16, borderRadius: 14, alignItems: 'center' },
-});

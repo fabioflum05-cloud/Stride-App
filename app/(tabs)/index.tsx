@@ -1,654 +1,726 @@
+// app/(tabs)/index.tsx
+// Home Screen — Oura-inspiriertes Design + Daily Journal
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  Dimensions,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+  Animated, Dimensions, Keyboard, KeyboardAvoidingView, Modal,
+  Platform, ScrollView, StyleSheet, Text, TextInput,
+  TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { THEMES, useAppTheme } from '../../constants/ThemeContext';
-import { theme } from '../../constants/theme';
 
 const W = Dimensions.get('window').width;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-function isToday(dateString: string) {
-  const d = new Date(dateString), t = new Date();
-  return d.getDate() === t.getDate() && d.getMonth() === t.getMonth() && d.getFullYear() === t.getFullYear();
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function isToday(d: string) {
+  const t = new Date(), dd = new Date(d);
+  return dd.getDate() === t.getDate() && dd.getMonth() === t.getMonth() && dd.getFullYear() === t.getFullYear();
 }
 function getGreeting() {
   const h = new Date().getHours();
+  if (h < 5)  return 'Gute Nacht';
   if (h < 12) return 'Guten Morgen';
-  if (h < 18) return 'Guten Nachmittag';
+  if (h < 18) return 'Guten Tag';
   return 'Guten Abend';
 }
-function calculatePerformanceScore(checkin: any, sleep: any, battery: any): number {
+function formatTime(raw: string): string {
+  if (!raw) return '—';
+  if (/^\d{2}:\d{2}$/.test(raw)) return raw;
+  try {
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', hour12: false });
+  } catch { return '—'; }
+}
+function todayKey() { return new Date().toISOString().slice(0, 10); }
+function calcScore(checkin: any, sleep: any, battery: any): number {
   if (!checkin && !sleep) return 0;
-  const sleepScore = sleep?.sleepScore ?? 50;
-  const energieScore = checkin ? checkin.energie * 20 : 50;
-  const stressScore = checkin ? (6 - checkin.stress) * 20 : 50;
-  const motivationScore = checkin ? checkin.motivation * 20 : 50;
-  const batteryScore = battery?.level ?? 50;
-  return Math.round(sleepScore * 0.30 + energieScore * 0.20 + stressScore * 0.20 + motivationScore * 0.15 + batteryScore * 0.15);
+  const s  = sleep?.sleepScore ?? 50;
+  const e  = checkin ? checkin.energie * 20 : 50;
+  const st = checkin ? (6 - checkin.stress) * 20 : 50;
+  const m  = checkin ? checkin.motivation * 20 : 50;
+  const b  = battery?.level ?? 50;
+  return Math.round(s*0.30 + e*0.20 + st*0.20 + m*0.15 + b*0.15);
+}
+function scoreLabel(s: number) {
+  if (s >= 80) return 'Optimal';
+  if (s >= 65) return 'Gut';
+  if (s >= 45) return 'Moderat';
+  if (s > 0)   return 'Niedrig';
+  return 'Kein Eintrag';
+}
+function scoreColor(s: number, accent: string): string {
+  if (s >= 80) return '#4ADE80';
+  if (s >= 65) return accent;
+  if (s >= 45) return '#FBBF24';
+  if (s > 0)   return '#F87171';
+  return 'rgba(128,128,128,0.3)';
 }
 
-function IconChevron({ color = '#B0A89E' }: { color?: string }) {
-  return (
-    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-      <Path d="M9 18l6-6-6-6" stroke={color} strokeWidth={2} strokeLinecap="round" />
-    </Svg>
-  );
-}
-function IconUser({ color }: { color: string }) {
-  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12ZM12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z" stroke={color} strokeWidth={1.5} strokeLinecap="round" /></Svg>;
-}
-function IconTrophy({ color }: { color: string }) {
-  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M6 9H4a1 1 0 01-1-1V4a1 1 0 011-1h16a1 1 0 011 1v4a1 1 0 01-1 1h-2m-10 0c0 4 3 8 6 8s6-4 6-8m-12 0h12M12 17v4m-4 0h8" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
-}
-function IconBell({ color }: { color: string }) {
-  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M18 8C18 6.4 17.4 4.9 16.2 3.8C15.1 2.6 13.6 2 12 2C10.4 2 8.9 2.6 7.8 3.8C6.6 4.9 6 6.4 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8ZM13.7 21C13.3 21.6 12.7 22 12 22C11.3 22 10.7 21.6 10.3 21" stroke={color} strokeWidth={1.5} strokeLinecap="round" /></Svg>;
-}
-function IconSun({ color }: { color: string }) {
-  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Circle cx={12} cy={12} r={4} stroke={color} strokeWidth={1.5} /><Path d="M12 2V4M12 20V22M4.22 4.22L5.64 5.64M18.36 18.36L19.78 19.78M2 12H4M20 12H22M4.22 19.78L5.64 18.36M18.36 5.64L19.78 4.22" stroke={color} strokeWidth={1.5} strokeLinecap="round" /></Svg>;
-}
-function IconLock() {
-  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M5 11H19C19.55 11 20 11.45 20 12V20C20 20.55 19.55 21 19 21H5C4.45 21 4 20.55 4 20V12C4 11.45 4.45 11 5 11ZM8 11V7C8 4.79 9.79 3 12 3C14.21 3 16 4.79 16 7V11" stroke={theme.textSecondary} strokeWidth={1.5} strokeLinecap="round" /></Svg>;
-}
-function IconCrown() {
-  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M2 19H22M3 15L5 7L9 11L12 4L15 11L19 7L21 15H3Z" stroke={theme.purple} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
-}
-function IconChat({ color }: { color: string }) {
-  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M21 15C21 15.53 20.79 16.04 20.41 16.41C20.04 16.79 19.53 17 19 17H7L3 21V5C3 4.47 3.21 3.96 3.59 3.59C3.96 3.21 4.47 3 5 3H19C19.53 3 20.04 3.21 20.41 3.59C20.79 3.96 21 4.47 21 5V15Z" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
-}
-function IconLogout() {
-  return <Svg width={18} height={18} viewBox="0 0 24 24" fill="none"><Path d="M9 21H5C4.47 21 3.96 20.79 3.59 20.41C3.21 20.04 3 19.53 3 19V5C3 4.47 3.21 3.96 3.59 3.59C3.96 3.21 4.47 3 5 3H9M16 17L21 12L16 7M21 12H9" stroke={theme.red} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" /></Svg>;
-}
+// ─── Journal prompts ──────────────────────────────────────────────────────────
+const JOURNAL_PROMPTS = [
+  'Wie war das heutige Training? Was hat gut geklappt?',
+  'Was nimmst du aus dem heutigen Tag mit?',
+  'Wie fühlst du dich mental und körperlich?',
+  'Was willst du morgen besser machen?',
+  'Beschreibe deine Energie und Motivation heute.',
+  'Was hat dich heute motiviert oder gebremst?',
+  'Wie war deine Ernährung und Erholung heute?',
+];
 
-function AnimatedRing({ value, size, strokeWidth, color, trackColor, children }: {
-  value: number; size: number; strokeWidth: number; color: string; trackColor: string; children?: React.ReactNode;
+// ─── Animated Ring ────────────────────────────────────────────────────────────
+function Ring({ value, size, stroke, color, track, children }: {
+  value: number; size: number; stroke: number; color: string; track: string; children?: React.ReactNode;
 }) {
-  const r = (size - strokeWidth) / 2;
+  const r = (size - stroke) / 2;
   const circ = 2 * Math.PI * r;
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(anim, { toValue: value / 100, duration: 1400, useNativeDriver: false }).start();
+    Animated.timing(anim, { toValue: Math.min(value, 100) / 100, duration: 1200, useNativeDriver: false }).start();
   }, [value]);
-  const dashoffset = anim.interpolate({ inputRange: [0, 1], outputRange: [circ, 0] });
+  const dash = anim.interpolate({ inputRange: [0,1], outputRange: [circ, 0] });
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={size} height={size} style={{ transform: [{ rotate: '-90deg' }] }}>
-        <Circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={trackColor} strokeWidth={strokeWidth} />
-        <AnimatedCircle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={dashoffset} />
+      <Svg width={size} height={size} style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}>
+        <Circle cx={size/2} cy={size/2} r={r} fill="none" stroke={track} strokeWidth={stroke} />
+        <AnimatedCircle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={dash} />
       </Svg>
-      <View style={{ position: 'absolute', alignItems: 'center', justifyContent: 'center' }}>{children}</View>
+      {children}
     </View>
   );
 }
 
-function AnimatedBar({ value, color, trackColor, height = 4, delay = 0 }: {
-  value: number; color: string; trackColor: string; height?: number; delay?: number;
+function SectionLabel({ label, light }: { label: string; light?: boolean }) {
+  return (
+    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase',
+      marginBottom: 10, color: light ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)' }}>{label}</Text>
+  );
+}
+function StatPill({ label, value, color, light }: { label: string; value: string; color: string; light?: boolean }) {
+  return (
+    <View style={{ alignItems: 'center', flex: 1 }}>
+      <Text style={{ fontSize: 15, fontWeight: '700', color, letterSpacing: -0.3 }}>{value}</Text>
+      <Text style={{ fontSize: 9, color: light ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)',
+        textTransform: 'uppercase', letterSpacing: 1, marginTop: 3, fontWeight: '600' }}>{label}</Text>
+    </View>
+  );
+}
+function PillDivider({ light }: { light?: boolean }) {
+  return <View style={{ width: 1, height: 28, backgroundColor: light ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }} />;
+}
+
+// ─── Journal Modal ────────────────────────────────────────────────────────────
+interface JournalEntry {
+  date:  string;
+  text:  string;
+  mood:  number; // 1–5
+  saved: string; // ISO time
+}
+
+const MOODS = ['😞', '😕', '😐', '🙂', '😄'];
+const MOOD_LABELS = ['Schlecht', 'Mäßig', 'Okay', 'Gut', 'Super'];
+const MOOD_COLORS = ['#F87171', '#FB923C', '#FBBF24', '#4ADE80', '#34D399'];
+
+function JournalModal({ visible, entry, accent, isDark, onSave, onClose }: {
+  visible:  boolean;
+  entry:    JournalEntry | null;
+  accent:   string;
+  isDark:   boolean;
+  onSave:   (e: JournalEntry) => void;
+  onClose:  () => void;
 }) {
-  const anim = useRef(new Animated.Value(0)).current;
+  const [text, setText] = useState('');
+  const [mood, setMood] = useState(3);
+  const prompt = useRef(JOURNAL_PROMPTS[Math.floor(Math.random() * JOURNAL_PROMPTS.length)]).current;
+
+  const bg      = isDark ? '#1C1917' : '#FFFFFF';
+  const cardAlt = isDark ? '#242120' : '#F5F0EC';
+  const border  = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+  const txtCol  = isDark ? '#F5F0EE' : '#1A1209';
+  const mutCol  = isDark ? 'rgba(245,240,238,0.45)' : 'rgba(26,18,9,0.45)';
+  const dimCol  = isDark ? 'rgba(245,240,238,0.22)' : 'rgba(26,18,9,0.22)';
+
   useEffect(() => {
-    Animated.timing(anim, { toValue: value / 100, duration: 1000, delay, useNativeDriver: false }).start();
-  }, [value]);
-  const width = anim.interpolate({ inputRange: [0, 1], outputRange: ['0%', `${value}%`] });
-  return (
-    <View style={{ height, backgroundColor: trackColor, borderRadius: height / 2, overflow: 'hidden' }}>
-      <Animated.View style={{ height, backgroundColor: color, borderRadius: height / 2, width }} />
-    </View>
-  );
-}
+    if (visible) {
+      setText(entry?.text ?? '');
+      setMood(entry?.mood ?? 3);
+    }
+  }, [visible, entry]);
 
-type MenuItem = { Icon: (p: any) => React.ReactElement; label: string; bg: string; onPress: () => void; badge?: string; badgeColor?: string; };
-function MenuSection({ title, items, colors }: { title: string; items: MenuItem[]; colors: any }) {
+  function save() {
+    if (!text.trim() && mood === 3) { onClose(); return; }
+    onSave({
+      date:  todayKey(),
+      text:  text.trim(),
+      mood,
+      saved: new Date().toISOString(),
+    });
+    onClose();
+  }
+
   return (
-    <View style={styles.menuSection}>
-      <Text style={styles.menuSectionTitle}>{title}</Text>
-      {items.map((item, i) => (
-        <TouchableOpacity key={item.label} style={[styles.menuRow, { backgroundColor: colors.card }, i < items.length - 1 && styles.menuRowBorder]} onPress={item.onPress} activeOpacity={0.7}>
-          <View style={[styles.menuRowIcon, { backgroundColor: item.bg }]}><item.Icon color={colors.accent} /></View>
-          <Text style={[styles.menuRowLabel, { color: theme.textPrimary }]}>{item.label}</Text>
-          {item.badge && (
-            <View style={[styles.menuBadge, item.badgeColor === 'purple' && styles.menuBadgePurple]}>
-              <Text style={[styles.menuBadgeText, item.badgeColor === 'purple' && styles.menuBadgeTextPurple]}>{item.badge}</Text>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} activeOpacity={1} onPress={() => { Keyboard.dismiss(); }} />
+        <View style={{ backgroundColor: bg, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingTop: 8 }}>
+
+          {/* Handle */}
+          <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)', alignSelf: 'center', marginBottom: 20 }} />
+
+          <View style={{ paddingHorizontal: 24, paddingBottom: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: txtCol, letterSpacing: -0.5 }}>Tagesnotiz</Text>
+              <TouchableOpacity onPress={onClose} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: cardAlt }}>
+                <Text style={{ color: mutCol, fontSize: 13, fontWeight: '600' }}>Schließen</Text>
+              </TouchableOpacity>
             </View>
-          )}
-          <IconChevron />
-        </TouchableOpacity>
-      ))}
-    </View>
+            <Text style={{ fontSize: 12, color: dimCol, marginBottom: 20 }}>
+              {new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </Text>
+
+            {/* Mood */}
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: dimCol, marginBottom: 10 }}>Wie war dein Tag?</Text>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 20 }}>
+              {MOODS.map((emoji, i) => (
+                <TouchableOpacity key={i} onPress={() => setMood(i + 1)}
+                  style={{ flex: 1, paddingVertical: 12, borderRadius: 16, alignItems: 'center',
+                    backgroundColor: mood === i + 1 ? MOOD_COLORS[i] + '25' : cardAlt,
+                    borderWidth: 1.5, borderColor: mood === i + 1 ? MOOD_COLORS[i] : border }}>
+                  <Text style={{ fontSize: 24 }}>{emoji}</Text>
+                  <Text style={{ fontSize: 9, fontWeight: '700', marginTop: 4,
+                    color: mood === i + 1 ? MOOD_COLORS[i] : dimCol }}>{MOOD_LABELS[i]}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Text */}
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: dimCol, marginBottom: 10 }}>Notiz</Text>
+            <TextInput
+              style={{ backgroundColor: cardAlt, borderRadius: 16, padding: 16, color: txtCol,
+                fontSize: 15, lineHeight: 24, minHeight: 120, textAlignVertical: 'top',
+                borderWidth: 1, borderColor: border }}
+              multiline
+              value={text}
+              onChangeText={setText}
+              placeholder={prompt}
+              placeholderTextColor={dimCol}
+              autoFocus={false}
+            />
+
+            {/* Save */}
+            <TouchableOpacity onPress={save}
+              style={{ backgroundColor: accent, borderRadius: 16, paddingVertical: 16,
+                alignItems: 'center', marginTop: 16, marginBottom: 8 }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
+                {text.trim() ? 'Speichern' : 'Fertig'}
+              </Text>
+            </TouchableOpacity>
+            <View style={{ height: 16 }} />
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
-export default function UebersichtScreen() {
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+export default function HomeScreen() {
   const { colors, themeIndex, setTheme } = useAppTheme();
-  const [checkin, setCheckin] = useState<any>(null);
-  const [sleep, setSleep] = useState<any>(null);
-  const [battery, setBattery] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
-  const [habits, setHabits] = useState<any[]>([]);
-  const [streak, setStreak] = useState(0);
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [themePickerVisible, setThemePickerVisible] = useState(false);
+  const [checkin,   setCheckin]   = useState<any>(null);
+  const [sleep,     setSleep]     = useState<any>(null);
+  const [battery,   setBattery]   = useState<any>(null);
+  const [profile,   setProfile]   = useState<any>(null);
+  const [habits,    setHabits]    = useState<any[]>([]);
   const [nutrition, setNutrition] = useState<any>(null);
-  const [workouts, setWorkouts] = useState<any[]>([]);
-  const [muscles, setMuscles] = useState<any>({});
-  const [visibleWidgets, setVisibleWidgets] = useState<Record<string, boolean>>({
-    score: true, sleep: true, nutrition: true, training: true, habits: true, today: true,
-  });
-  const [editWidgets, setEditWidgets] = useState(false);
+  const [muscles,   setMuscles]   = useState<any>({});
+  const [journal,   setJournal]   = useState<JournalEntry | null>(null);
+  const [menuOpen,  setMenuOpen]  = useState(false);
+  const [themePicker, setThemePicker]   = useState(false);
+  const [journalOpen, setJournalOpen]   = useState(false);
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const menuSlide = useRef(new Animated.Value(320)).current;
+  const fade     = useRef(new Animated.Value(0)).current;
+  const menuX    = useRef(new Animated.Value(W)).current;
   const menuFade = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(useCallback(() => {
-    load();
-    fadeAnim.setValue(0);
-    Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+    loadAll();
+    fade.setValue(0);
+    Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
   }, []));
 
-  async function load() {
+  async function loadAll() {
     try {
-      const [rawCheckin, rawSleep, rawBattery, rawProfile, rawHabits, rawNutrition, rawWorkouts] = await Promise.all([
+      const today = todayKey();
+      const [rc, rs, rb, rp, rh, rn, rj] = await Promise.all([
         AsyncStorage.getItem('lastCheckin'),
         AsyncStorage.getItem('lastSleep'),
         AsyncStorage.getItem('batteryData'),
         AsyncStorage.getItem('profile'),
         AsyncStorage.getItem('habits'),
         AsyncStorage.getItem('nutritionToday'),
-        AsyncStorage.getItem('workouts'),
+        AsyncStorage.getItem(`journal_${today}`),
       ]);
-      if (rawCheckin) { const c = JSON.parse(rawCheckin); if (isToday(c.date ?? '')) setCheckin(c); }
-      if (rawSleep) { const s = JSON.parse(rawSleep); if (isToday(s.date ?? '')) setSleep(s); }
-      if (rawBattery) { const b = JSON.parse(rawBattery); if (isToday(b.date ?? '')) setBattery(b); }
-      if (rawProfile) setProfile(JSON.parse(rawProfile));
-      if (rawNutrition) setNutrition(JSON.parse(rawNutrition));
-      if (rawWorkouts) setWorkouts(JSON.parse(rawWorkouts));
-      if (rawHabits) {
-        const h = JSON.parse(rawHabits);
-        const mapped = h.map((habit: any) => ({ ...habit, completedToday: habit.completedDates?.some(isToday) ?? false }));
-        setHabits(mapped);
-        setStreak(calcStreak(mapped));
+      if (rc) { const c = JSON.parse(rc); if (isToday(c.date ?? '')) setCheckin(c); }
+      if (rs) { const s = JSON.parse(rs); if (isToday(s.date ?? '')) setSleep(s); }
+      if (rb) { const b = JSON.parse(rb); if (isToday(b.date ?? '')) setBattery(b); }
+      if (rp) setProfile(JSON.parse(rp));
+      if (rn) setNutrition(JSON.parse(rn));
+      if (rj) setJournal(JSON.parse(rj));
+      if (rh) {
+        const h = JSON.parse(rh);
+        setHabits(h.map((hh: any) => ({ ...hh, completedToday: hh.completedDates?.some(isToday) ?? false })));
       }
-      const rawWidgets = await AsyncStorage.getItem('visibleWidgets');
-      if (rawWidgets) setVisibleWidgets(JSON.parse(rawWidgets));
     } catch {}
   }
 
-  function calcStreak(habitList: any[]): number {
-    if (!habitList.length) return 0;
-    let s = 0;
-    const today = new Date();
-    for (let i = 0; i < 365; i++) {
-      const d = new Date(today); d.setDate(d.getDate() - i);
-      const anyDone = habitList.some(h => h.completedDates?.some((cd: string) => {
-        const dd = new Date(cd);
-        return dd.getDate() === d.getDate() && dd.getMonth() === d.getMonth() && dd.getFullYear() === d.getFullYear();
-      }));
-      if (anyDone) s++; else break;
-    }
-    return s;
+  async function saveJournal(entry: JournalEntry) {
+    setJournal(entry);
+    await AsyncStorage.setItem(`journal_${entry.date}`, JSON.stringify(entry));
+    // Also save to journal history
+    const raw = await AsyncStorage.getItem('journal_history');
+    const hist = raw ? JSON.parse(raw) : [];
+    const updated = [entry, ...hist.filter((e: JournalEntry) => e.date !== entry.date)].slice(0, 365);
+    await AsyncStorage.setItem('journal_history', JSON.stringify(updated));
   }
 
   function openMenu() {
-    setMenuVisible(true);
+    setMenuOpen(true);
     Animated.parallel([
-      Animated.spring(menuSlide, { toValue: 0, useNativeDriver: true, tension: 80, friction: 12 }),
-      Animated.timing(menuFade, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.spring(menuX, { toValue: 0, useNativeDriver: true, tension: 85, friction: 13 }),
+      Animated.timing(menuFade, { toValue: 1, duration: 220, useNativeDriver: true }),
     ]).start();
   }
   function closeMenu() {
     Animated.parallel([
-      Animated.timing(menuSlide, { toValue: 320, duration: 220, useNativeDriver: true }),
+      Animated.timing(menuX, { toValue: W, duration: 220, useNativeDriver: true }),
       Animated.timing(menuFade, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start(() => setMenuVisible(false));
-  }
-  async function toggleWidget(key: string) {
-    const updated = { ...visibleWidgets, [key]: !visibleWidgets[key] };
-    setVisibleWidgets(updated);
-    await AsyncStorage.setItem('visibleWidgets', JSON.stringify(updated));
+    ]).start(() => setMenuOpen(false));
   }
 
-  const score = calculatePerformanceScore(checkin, sleep, battery);
+  const score      = calcScore(checkin, sleep, battery);
+  const sc         = scoreColor(score, colors.accent);
+  const name       = profile?.name?.split(' ')[0] ?? 'Athlet';
+  const initial    = name.charAt(0).toUpperCase();
   const sleepScore = sleep?.sleepScore ?? 0;
-  const batteryLevel = battery?.level ?? 0;
-  const firstName = profile?.name?.split(' ')[0] ?? 'Athlet';
-  const fullName = profile?.name ?? 'Athlet';
-  const initial = firstName.charAt(0).toUpperCase();
-  const completedHabits = habits.filter(h => h.completedToday).length;
-  const totalHabits = habits.length;
-  const kcalGoal = nutrition?.goal ?? 2500;
-  const kcalEaten = nutrition?.eaten ?? 0;
-  const kcalPct = kcalGoal > 0 ? Math.min(100, Math.round((kcalEaten / kcalGoal) * 100)) : 0;
-  const protein = nutrition?.protein ?? 0;
-  const carbs = nutrition?.carbs ?? 0;
-  const fat = nutrition?.fat ?? 0;
-  const MUSCLE_GROUPS = ['Brust', 'Rücken', 'Schultern', 'Bizeps', 'Trizeps', 'Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden', 'Core'];
-  const readyCount = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80).length;
-  const scoreColor = score >= 70 ? '#4A8C5C' : score >= 50 ? colors.accent : score > 0 ? '#C0392B' : '#B0A89E';
-  const battColor = batteryLevel >= 60 ? '#4ADE80' : batteryLevel >= 30 ? '#E8C547' : '#E87B6E';
+  const battLevel  = battery?.level ?? 0;
+  const habDone    = habits.filter(h => h.completedToday).length;
+  const habTotal   = habits.length;
+  const isDark     = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
+  const textPrimary = isDark ? '#F5F0EE' : '#1A1209';
+  const textMuted   = isDark ? 'rgba(245,240,238,0.45)' : 'rgba(26,18,9,0.45)';
+  const textDim     = isDark ? 'rgba(245,240,238,0.22)' : 'rgba(26,18,9,0.22)';
+  const cardBorder  = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
 
-  const menuSections = [
-    { title: 'Mein Konto', items: [
-      { Icon: IconUser, label: 'Mein Profil', bg: colors.cardSecondary, onPress: () => { closeMenu(); setTimeout(() => router.push('/profile' as any), 250); } },
-      { Icon: IconTrophy, label: 'Abzeichen & Erfolge', bg: colors.cardSecondary, onPress: () => { closeMenu(); setTimeout(() => router.push('/achievements' as any), 250); } },
-    ]},
-    { title: 'App & Einstellungen', items: [
-      { Icon: IconBell, label: 'Benachrichtigungen', bg: colors.cardSecondary, onPress: () => {} },
-      { Icon: IconSun, label: 'Erscheinungsbild', bg: colors.cardSecondary, onPress: () => { closeMenu(); setTimeout(() => setThemePickerVisible(true), 300); } },
-      { Icon: IconLock, label: 'Datenschutz', bg: colors.cardSecondary, onPress: () => {} },
-    ]},
-    { title: 'Abo & Support', items: [
-      { Icon: IconCrown, label: 'Pro-Abo verwalten', bg: colors.cardSecondary, onPress: () => {}, badge: 'Pro', badgeColor: 'purple' },
-      { Icon: IconChat, label: 'Support', bg: colors.cardSecondary, onPress: () => {} },
-    ]},
-  ];
+  const wakeDisplay = sleep?.wakeTime ? formatTime(sleep.wakeTime) : sleep?.date ? formatTime(sleep.date) : '—';
+  const bedDisplay  = sleep?.bedTime ? formatTime(sleep.bedTime) : '—';
+  const sleepHours  = sleep?.schlafStunden ?? sleep?.sleepHours ?? 0;
+  const battColor   = battLevel >= 65 ? '#4ADE80' : battLevel >= 35 ? '#FBBF24' : battLevel > 0 ? '#F87171' : textDim;
+  const kcalGoal    = nutrition?.goal ?? 2500;
+  const kcalEaten   = nutrition?.eaten ?? 0;
+  const kcalPct     = kcalGoal > 0 ? Math.min(100, Math.round((kcalEaten / kcalGoal) * 100)) : 0;
+  const MUSCLES     = ['Brust','Rücken','Schultern','Bizeps','Trizeps','Quadrizeps','Hamstrings','Gluteus','Waden','Core','Abduktoren'];
+  const readyCount  = MUSCLES.filter(m => (muscles[m]?.level ?? 100) >= 80).length;
+
+  const journalMoodColor = journal ? MOOD_COLORS[journal.mood - 1] : colors.accent;
+  const journalMoodEmoji = journal ? MOODS[journal.mood - 1] : null;
 
   return (
-    <View style={[styles.root, { backgroundColor: '#EEE8E0' }]}>
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-        <Animated.View style={{ opacity: fadeAnim }}>
+        <Animated.View style={{ opacity: fade }}>
 
-          {/* HEADER */}
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.dateLabel}>{new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
-              <Text style={styles.greeting}>{getGreeting()}</Text>
-              <Text style={styles.subGreeting}>Dein heutiger Status</Text>
+          {/* ── HEADER ── */}
+          <View style={s.header}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 11, color: textDim, fontWeight: '600', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 }}>
+                {new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </Text>
+              <Text style={{ fontSize: 32, fontWeight: '800', color: textPrimary, letterSpacing: -1, lineHeight: 34 }}>
+                {getGreeting()}
+              </Text>
+              <Text style={{ fontSize: 13, color: textMuted, marginTop: 5, fontWeight: '500' }}>
+                Willkommen zurück, {name} 👋
+              </Text>
             </View>
-            <View style={{ gap: 8 }}>
-              <TouchableOpacity style={styles.headerBtn} onPress={openMenu} activeOpacity={0.8}>
-                <View style={styles.menuLine} />
-                <View style={[styles.menuLine, { width: 12 }]} />
-                <View style={styles.menuLine} />
+            <TouchableOpacity onPress={openMenu} style={[s.iconBtn, { backgroundColor: colors.card, borderColor: cardBorder }]} activeOpacity={0.7}>
+              <View style={{ gap: 4, alignItems: 'center' }}>
+                <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
+                <View style={[s.menuLine, { width: 12, backgroundColor: textPrimary }]} />
+                <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* ── PERFORMANCE SCORE ── */}
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
+              <Ring value={score} size={100} stroke={7} color={sc} track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
+                <View style={{ alignItems: 'center' }}>
+                  <Text style={{ fontSize: 26, fontWeight: '800', color: textPrimary, letterSpacing: -1 }}>{score || '—'}</Text>
+                  <Text style={{ fontSize: 8, color: textDim, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>Score</Text>
+                </View>
+              </Ring>
+              <View style={{ flex: 1 }}>
+                <SectionLabel label="Performance Score" light={isDark} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: sc }} />
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: sc }}>{scoreLabel(score)}</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <StatPill label="Schlaf" value={sleepScore ? `${sleepScore}` : '—'} color={sleepScore >= 70 ? '#4ADE80' : sleepScore >= 50 ? '#FBBF24' : textMuted} light={isDark} />
+                  <PillDivider light={isDark} />
+                  <StatPill label="Energy" value={battLevel ? `${battLevel}%` : '—'} color={battColor} light={isDark} />
+                  <PillDivider light={isDark} />
+                  <StatPill label="Habits" value={habTotal > 0 ? `${habDone}/${habTotal}` : '—'} color={habDone === habTotal && habTotal > 0 ? '#4ADE80' : textMuted} light={isDark} />
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* ── SCHLAF ── */}
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View style={{ flex: 1 }}>
+                <SectionLabel label="Schlaf letzte Nacht" light={isDark} />
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
+                  <Text style={{ fontSize: 40, fontWeight: '800', color: textPrimary, letterSpacing: -1.5, lineHeight: 42 }}>
+                    {sleepHours > 0 ? sleepHours.toFixed(1) : '—'}
+                  </Text>
+                  {sleepHours > 0 && <Text style={{ fontSize: 16, color: textMuted, fontWeight: '600' }}>h</Text>}
+                </View>
+                <View style={{ flexDirection: 'row', gap: 16, marginTop: 6 }}>
+                  <View>
+                    <Text style={{ fontSize: 10, color: textDim, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Schlafen</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: textMuted, marginTop: 2 }}>{bedDisplay}</Text>
+                  </View>
+                  <View>
+                    <Text style={{ fontSize: 10, color: textDim, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Aufwachen</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: textMuted, marginTop: 2 }}>{wakeDisplay}</Text>
+                  </View>
+                  {sleep?.deepPct && (
+                    <View>
+                      <Text style={{ fontSize: 10, color: textDim, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1 }}>Tief</Text>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: textMuted, marginTop: 2 }}>{sleep.deepPct}%</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+              <Ring value={sleepScore} size={72} stroke={6} color="#818CF8" track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
+                <Text style={{ fontSize: 16, fontWeight: '800', color: textPrimary }}>{sleepScore || '—'}</Text>
+              </Ring>
+            </View>
+            {sleepHours > 0 && (
+              <View style={{ marginTop: 16 }}>
+                <View style={{ height: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)', borderRadius: 2, overflow: 'hidden' }}>
+                  <View style={{ height: 4, width: `${Math.min(100, (sleepHours / 9) * 100)}%`, backgroundColor: '#818CF8', borderRadius: 2 }} />
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                  <Text style={{ fontSize: 9, color: textDim }}>0h</Text>
+                  <Text style={{ fontSize: 9, color: textDim }}>Ziel: 8h</Text>
+                  <Text style={{ fontSize: 9, color: textDim }}>9h</Text>
+                </View>
+              </View>
+            )}
+            <TouchableOpacity onPress={() => router.push('/sleep' as any)} style={[s.cardBtn, { borderColor: cardBorder }]} activeOpacity={0.7}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: '#818CF8' }}>Schlaf Details</Text>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M9 18l6-6-6-6" stroke="#818CF8" strokeWidth={2} strokeLinecap="round" />
+              </Svg>
+            </TouchableOpacity>
+          </View>
+
+          {/* ── ENERGY ── */}
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+            <SectionLabel label="Energie & Body Battery" light={isDark} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 10 }}>
+                  <Text style={{ fontSize: 40, fontWeight: '800', color: battColor, letterSpacing: -1.5, lineHeight: 42 }}>{battLevel || '—'}</Text>
+                  {battLevel > 0 && <Text style={{ fontSize: 16, color: textMuted, fontWeight: '600' }}>%</Text>}
+                </View>
+                <Text style={{ fontSize: 13, color: textMuted, fontWeight: '500', marginBottom: 14 }}>
+                  {battLevel >= 65 ? '⚡ Hoch — bereit für intensives Training' :
+                   battLevel >= 35 ? '🔶 Moderat — leichte bis mittlere Belastung' :
+                   battLevel > 0  ? '🔋 Niedrig — Erholung empfohlen' :
+                   'Noch kein Eintrag heute'}
+                </Text>
+                <View style={{ height: 8, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)', borderRadius: 4, overflow: 'hidden' }}>
+                  <View style={{ height: 8, width: `${battLevel}%`, backgroundColor: battColor, borderRadius: 4 }} />
+                </View>
+              </View>
+              <View style={{ alignItems: 'center', gap: 4 }}>
+                <View style={{ width: 14, height: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)', borderRadius: 2 }} />
+                <View style={{ width: 36, height: 62, borderRadius: 6, borderWidth: 2, borderColor: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)', overflow: 'hidden', justifyContent: 'flex-end' }}>
+                  <View style={{ height: `${Math.max(battLevel, 4)}%` as any, backgroundColor: battColor, borderRadius: 2 }} />
+                </View>
+                <Text style={{ fontSize: 10, color: battColor, fontWeight: '700' }}>{battLevel || 0}%</Text>
+              </View>
+            </View>
+            <TouchableOpacity onPress={() => router.push('/battery' as any)} style={[s.cardBtn, { borderColor: cardBorder }]} activeOpacity={0.7}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: battColor !== textDim ? battColor : colors.accent }}>Energie eintragen</Text>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M9 18l6-6-6-6" stroke={battColor !== textDim ? battColor : colors.accent} strokeWidth={2} strokeLinecap="round" />
+              </Svg>
+            </TouchableOpacity>
+          </View>
+
+          {/* ── ERNÄHRUNG ── */}
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <View style={{ flex: 1 }}>
+                <SectionLabel label="Ernährung heute" light={isDark} />
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
+                  <Text style={{ fontSize: 36, fontWeight: '800', color: textPrimary, letterSpacing: -1, lineHeight: 38 }}>{kcalEaten || '—'}</Text>
+                  {kcalEaten > 0 && <Text style={{ fontSize: 14, color: textMuted, fontWeight: '600' }}>kcal</Text>}
+                </View>
+                <Text style={{ fontSize: 13, color: textMuted, marginBottom: 14 }}>
+                  {kcalGoal > 0 ? `Ziel: ${kcalGoal} kcal · ${kcalPct}% erreicht` : 'Kein Ziel gesetzt'}
+                </Text>
+              </View>
+              <Ring value={kcalPct} size={72} stroke={6} color={colors.accent} track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: textPrimary }}>{kcalPct}%</Text>
+              </Ring>
+            </View>
+            <View style={{ flexDirection: 'row', backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)', borderRadius: 14, padding: 14, marginBottom: 14 }}>
+              <StatPill label="Protein" value={nutrition?.protein ? `${nutrition.protein}g` : '—'} color="#4ADE80" light={isDark} />
+              <PillDivider light={isDark} />
+              <StatPill label="Carbs" value={nutrition?.carbs ? `${nutrition.carbs}g` : '—'} color="#60A5FA" light={isDark} />
+              <PillDivider light={isDark} />
+              <StatPill label="Fett" value={nutrition?.fat ? `${nutrition.fat}g` : '—'} color="#FBBF24" light={isDark} />
+            </View>
+            <TouchableOpacity onPress={() => router.push('/nutrition' as any)} style={[s.cardBtn, { borderColor: cardBorder }]} activeOpacity={0.7}>
+              <Text style={{ fontSize: 12, fontWeight: '700', color: colors.accent }}>Mahlzeit eintragen</Text>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M9 18l6-6-6-6" stroke={colors.accent} strokeWidth={2} strokeLinecap="round" />
+              </Svg>
+            </TouchableOpacity>
+          </View>
+
+          {/* ── TRAININGSBEREITSCHAFT ── */}
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+            <SectionLabel label="Trainingsbereitschaft" light={isDark} />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <View>
+                <Text style={{ fontSize: 28, fontWeight: '800', color: textPrimary, letterSpacing: -0.5 }}>
+                  {readyCount}<Text style={{ fontSize: 16, color: textMuted, fontWeight: '600' }}>/{MUSCLES.length}</Text>
+                </Text>
+                <Text style={{ fontSize: 13, color: textMuted, marginTop: 4 }}>Muskelgruppen erholt</Text>
+              </View>
+              <Ring value={(readyCount / MUSCLES.length) * 100} size={72} stroke={6} color="#4ADE80" track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: textPrimary }}>{Math.round((readyCount / MUSCLES.length) * 100)}%</Text>
+              </Ring>
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+              {MUSCLES.map(m => {
+                const pct = muscles[m]?.level ?? 100;
+                const col = pct >= 80 ? '#4ADE80' : pct >= 50 ? '#FBBF24' : '#F87171';
+                return (
+                  <View key={m} style={{ flexDirection: 'row', alignItems: 'center', gap: 4,
+                    backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
+                    borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 }}>
+                    <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: col }} />
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: textMuted }}>{m}</Text>
+                  </View>
+                );
+              })}
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity onPress={() => router.push('/training' as any)} activeOpacity={0.85}
+                style={{ flex: 1.4, backgroundColor: colors.accent, borderRadius: 14, padding: 13, alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>Training starten</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.headerBtn} activeOpacity={0.8}>
-                <Svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="#1A1209" strokeWidth={1.8} strokeLinecap="round">
-                  <Path d="M18 8C18 6.4 17.4 4.9 16.2 3.8C15.1 2.6 13.6 2 12 2C10.4 2 8.9 2.6 7.8 3.8C6.6 4.9 6 6.4 6 8C6 15 3 17 3 17H21C21 17 18 15 18 8ZM13.7 21C13.3 21.6 12.7 22 12 22C11.3 22 10.7 21.6 10.3 21" />
-                </Svg>
+              <TouchableOpacity onPress={() => router.push('/body' as any)} activeOpacity={0.85}
+                style={{ flex: 1, backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', borderRadius: 14, padding: 13, alignItems: 'center', borderWidth: 1, borderColor: cardBorder }}>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: textMuted }}>Recovery</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* PERFORMANCE SCORE */}
-          {visibleWidgets.score && (
-            <View style={styles.section}>
-              <View style={[styles.scoreCard, { backgroundColor: '#1A1209' }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                  <View>
-                    <Text style={styles.scoreEy}>Performance Score</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5, marginTop: 6 }}>
-                      <Text style={styles.scoreNum}>{score || '--'}</Text>
-                      <Text style={{ fontSize: 18, color: 'rgba(255,255,255,0.2)', fontWeight: '600' }}>/100</Text>
-                    </View>
-                    <View style={[styles.scorePill, { backgroundColor: score >= 70 ? 'rgba(74,140,92,0.25)' : score >= 50 ? 'rgba(255,255,255,0.1)' : 'rgba(192,57,43,0.25)' }]}>
-                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: scoreColor, marginRight: 5 }} />
-                      <Text style={{ fontSize: 10, color: scoreColor, fontWeight: '700' }}>
-                        {score >= 70 ? 'Top Form' : score >= 50 ? 'Moderat' : score > 0 ? 'Erholen' : 'Daten fehlen'}
-                      </Text>
-                    </View>
-                  </View>
-                  <AnimatedRing value={score} size={88} strokeWidth={8} color="rgba(255,255,255,0.85)" trackColor="rgba(255,255,255,0.07)">
-                    <Text style={{ fontSize: 11, fontWeight: '800', color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5 }}>Score</Text>
-                  </AnimatedRing>
-                </View>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                  {[
-                    { label: 'Schlaf', value: sleepScore },
-                    { label: 'Energy', value: batteryLevel },
-                    { label: 'Check-in', value: checkin ? (checkin.energie ?? 3) * 20 : 0 },
-                  ].map(b => (
-                    <View key={b.label} style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: '700' }}>{b.label}</Text>
-                        <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', fontWeight: '700' }}>{b.value}</Text>
-                      </View>
-                      <AnimatedBar value={b.value} color="rgba(255,255,255,0.8)" trackColor="rgba(255,255,255,0.08)" height={3} />
-                    </View>
-                  ))}
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* SCHLAF + BATTERY */}
-          {visibleWidgets.sleep && (
-            <View style={styles.section}>
-              <View style={[styles.darkCard, { backgroundColor: '#0D1B2A' }]}>
-                {[[18, 30], [35, 80], [14, 240], [50, 270], [28, 200]].map(([top, left], i) => (
-                  <View key={i} style={{ position: 'absolute', width: i % 2 === 0 ? 3 : 2, height: i % 2 === 0 ? 3 : 2, borderRadius: 2, backgroundColor: `rgba(255,255,255,${[0.3, 0.2, 0.25, 0.15, 0.2][i]})`, top, left }} />
-                ))}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-                  <View>
-                    <Text style={styles.darkEy}>Schlafanalyse</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4, marginTop: 6 }}>
-                      <Text style={styles.darkBigNum}>{sleepScore || '--'}</Text>
-                      <Text style={{ fontSize: 16, color: 'rgba(255,255,255,0.2)', fontWeight: '600' }}>/100</Text>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 7 }}>
-                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#5B9BD5' }} />
-                      <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: '600' }}>
-                        {sleep ? `Gut · ${sleep.duration ?? '7h 20'} Min` : 'Kein Log heute'}
-                      </Text>
-                    </View>
-                  </View>
-                  <AnimatedRing value={sleepScore} size={84} strokeWidth={7} color="#5B9BD5" trackColor="rgba(255,255,255,0.07)">
-                    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                      <Path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="rgba(255,255,255,0.55)" strokeWidth={1.8} strokeLinecap="round" />
-                    </Svg>
-                  </AnimatedRing>
-                </View>
-                <View style={{ flexDirection: 'row', gap: 6, marginBottom: 16 }}>
-                  {[
-                    { label: 'Tief', value: sleep?.deepPct ? `${sleep.deepPct}%` : '—' },
-                    { label: 'Einschlaf', value: sleep?.bedTime ?? '—' },
-                    { label: 'Aufwach', value: sleep?.wakeTime ?? '—' },
-                  ].map(s => (
-                    <View key={s.label} style={styles.sleepStat}>
-                      <Text style={{ fontSize: 12, fontWeight: '800', color: '#fff' }}>{s.value}</Text>
-                      <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>{s.label}</Text>
-                    </View>
-                  ))}
-                </View>
-                <View style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.07)', marginBottom: 16 }} />
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-                  <View style={{ alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                    <Text style={styles.darkEy}>Battery</Text>
-                    <View>
-                      <View style={{ width: 18, height: 5, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 2, marginLeft: 13, marginBottom: -2, zIndex: 3 }} />
-                      <View style={{ width: 44, height: 78, borderRadius: 7, borderWidth: 2, borderColor: 'rgba(255,255,255,0.22)', overflow: 'hidden', justifyContent: 'flex-end' }}>
-                        {[25, 50, 75].map(pct => (
-                          <View key={pct} style={{ position: 'absolute', left: 0, right: 0, bottom: `${pct}%` as any, height: 1, backgroundColor: 'rgba(0,0,0,0.2)', zIndex: 2 }} />
-                        ))}
-                        <View style={{ height: `${batteryLevel}%` as any, backgroundColor: battColor, borderRadius: 1 }}>
-                          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '35%', backgroundColor: 'rgba(255,255,255,0.12)' }} />
-                        </View>
-                        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' }}>
-                          <Svg width={16} height={20} viewBox="0 0 24 24" fill="none">
-                            <Path d="M13 2L4.5 13.5H12L11 22L19.5 10.5H12L13 2Z" stroke="rgba(255,255,255,0.9)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                          </Svg>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 3, marginBottom: 4 }}>
-                      <Text style={{ fontSize: 40, fontWeight: '800', color: battColor, letterSpacing: -1.5, lineHeight: 44 }}>{batteryLevel || '--'}</Text>
-                      {batteryLevel > 0 && <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.3)' }}>%</Text>}
-                    </View>
-                    <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontWeight: '600', marginBottom: 12 }}>
-                      {batteryLevel >= 60 ? 'Gut · ↑ steigend' : batteryLevel >= 30 ? 'Moderat' : batteryLevel > 0 ? 'Niedrig' : 'Kein Eintrag'}
-                    </Text>
-                    {[
-                      { label: 'Max heute', value: battery?.max ? `${battery.max}%` : '—' },
-                      { label: 'Seit 8h', value: battery?.delta ? `+${battery.delta}%` : '—' },
-                    ].map(r => (
-                      <View key={r.label} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 }}>
-                        <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>{r.label}</Text>
-                        <Text style={{ fontSize: 9, color: battColor, fontWeight: '700' }}>{r.value}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-                <TouchableOpacity style={styles.sleepBtn} onPress={() => router.push('/sleep' as any)} activeOpacity={0.8}>
-                  <View style={styles.sleepBtnIcon}>
-                    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
-                      <Path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="#5B9BD5" strokeWidth={2} strokeLinecap="round" />
-                    </Svg>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#5B9BD5', letterSpacing: -0.2 }}>Zur Schlafanalyse</Text>
-                    <Text style={{ fontSize: 9, color: 'rgba(91,155,213,0.5)', marginTop: 2 }}>Tiefschlaf · REM · Verlauf</Text>
-                  </View>
-                  <View style={styles.sleepBtnArrow}><IconChevron color="#5B9BD5" /></View>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* ERNÄHRUNG */}
-          {visibleWidgets.nutrition && (
-            <View style={styles.section}>
-              <View style={styles.lightCard}>
-                <Text style={styles.lightEy}>Ernährung heute</Text>
-                <View style={{ alignItems: 'center', marginVertical: 20 }}>
-                  <AnimatedRing value={kcalPct} size={150} strokeWidth={12} color="#7B4A2D" trackColor="#F5EFE8">
-                    <View style={{ alignItems: 'center' }}>
-                      <Text style={{ fontSize: 34, fontWeight: '800', color: '#1A1209', letterSpacing: -1.5, lineHeight: 36 }}>{kcalEaten || '--'}</Text>
-                      <Text style={{ fontSize: 9, color: '#B0A89E', fontWeight: '600', marginTop: 3 }}>kcal</Text>
-                      <View style={{ backgroundColor: '#7B4A2D', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3, marginTop: 7 }}>
-                        <Text style={{ fontSize: 11, fontWeight: '800', color: '#fff' }}>{kcalPct}%</Text>
-                      </View>
-                    </View>
-                  </AnimatedRing>
-                </View>
-                <View style={styles.macroRow}>
-                  {[
-                    { label: 'Protein', value: protein, unit: 'g', color: '#4A8C5C' },
-                    { label: 'Carbs', value: carbs, unit: 'g', color: '#3A7AC0' },
-                    { label: 'Fett', value: fat, unit: 'g', color: '#8B6914' },
-                  ].map((m, i) => (
-                    <React.Fragment key={m.label}>
-                      {i > 0 && <View style={styles.macroSep} />}
-                      <View style={styles.macroItem}>
-                        <Text style={[styles.macroVal, { color: m.color }]}>{m.value || '--'}<Text style={styles.macroUnit}>{m.value ? m.unit : ''}</Text></Text>
-                        <Text style={styles.macroLbl}>{m.label}</Text>
-                      </View>
-                    </React.Fragment>
-                  ))}
-                </View>
-                <TouchableOpacity style={styles.nutritionBtn} onPress={() => router.push('/nutrition' as any)} activeOpacity={0.85}>
-                  <View style={styles.nutritionBtnIcon}>
-                    <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
-                      <Path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth={2.2} strokeLinecap="round" />
-                    </Svg>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff', letterSpacing: -0.2 }}>Zur Ernährung</Text>
-                    <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>Details · Eintragen · Verlauf</Text>
-                  </View>
-                  <IconChevron color="rgba(255,255,255,0.4)" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* TRAININGSBEREITSCHAFT */}
-          {visibleWidgets.training && (
-            <View style={styles.section}>
-              <View style={{ backgroundColor: '#1A1209', borderRadius: 24, padding: 20, overflow: 'hidden' }}>
-                <View style={{ position: 'absolute', width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(74,140,92,0.08)', top: -60, right: -40 }} />
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
-                  <View>
-                    <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)', marginBottom: 8 }}>Trainingsbereitschaft</Text>
-                    <Text style={{ fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: -1 }}>Push Day</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 }}>
-                      <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: '#4ADE80' }} />
-                      <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontWeight: '600' }}>{readyCount} von 12 bereit</Text>
-                    </View>
-                  </View>
-                  <View style={{ backgroundColor: 'rgba(74,222,128,0.12)', borderRadius: 16, padding: 10, paddingHorizontal: 14, alignItems: 'center', borderWidth: 0.5, borderColor: 'rgba(74,222,128,0.2)' }}>
-                    <Text style={{ fontSize: 26, fontWeight: '800', color: '#4ADE80', letterSpacing: -1 }}>{readyCount}</Text>
-                    <Text style={{ fontSize: 8, color: 'rgba(74,222,128,0.5)', fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>/12</Text>
-                  </View>
-                </View>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 16 }}>
-                  {[
-                    { name: 'Brust', pct: muscles['Brust']?.level ?? 100 },
-                    { name: 'Rücken', pct: muscles['Rücken']?.level ?? 100 },
-                    { name: 'Schultern', pct: muscles['Schultern']?.level ?? 100 },
-                    { name: 'Bizeps', pct: muscles['Bizeps']?.level ?? 100 },
-                    { name: 'Trizeps', pct: muscles['Trizeps']?.level ?? 100 },
-                    { name: 'Quadrizeps', pct: muscles['Quadrizeps']?.level ?? 100 },
-                    { name: 'Hamstrings', pct: muscles['Hamstrings']?.level ?? 100 },
-                    { name: 'Gesäß', pct: muscles['Gluteus']?.level ?? 100 },
-                    { name: 'Waden', pct: muscles['Waden']?.level ?? 100 },
-                    { name: 'Core', pct: muscles['Core']?.level ?? 100 },
-                    { name: 'Abduktoren', pct: muscles['Abduktoren']?.level ?? 100 },
-                    { name: 'Olympic', pct: 100 },
-                  ].map(m => {
-                    const col = m.pct >= 80 ? '#4ADE80' : m.pct >= 50 ? '#E8C547' : '#E87B6E';
-                    const bg = m.pct >= 80 ? 'rgba(74,222,128,0.12)' : m.pct >= 50 ? 'rgba(232,197,71,0.12)' : 'rgba(232,123,110,0.12)';
-                    return (
-                      <View key={m.name} style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: bg, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 4 }}>
-                        <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: col }} />
-                        <Text style={{ fontSize: 9, fontWeight: '700', color: col }}>{m.name}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-                <View style={{ flexDirection: 'row', gap: 7 }}>
-                  <TouchableOpacity style={{ flex: 1.3, backgroundColor: '#fff', borderRadius: 14, padding: 12, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }} onPress={() => router.push('/training' as any)} activeOpacity={0.85}>
-                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#1A1209' }}>Zum Training</Text>
-                    <IconChevron color="rgba(0,0,0,0.3)" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 14, padding: 12, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.1)' }} onPress={() => router.push('/body' as any)} activeOpacity={0.85}>
-                    <Text style={{ fontSize: 12, fontWeight: '800', color: 'rgba(255,255,255,0.7)' }}>Regen.</Text>
-                    <IconChevron color="rgba(255,255,255,0.3)" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* HABITS */}
-          {visibleWidgets.habits && totalHabits > 0 && (
-            <View style={styles.section}>
-              <View style={styles.lightCard}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <Text style={styles.lightEy}>Habits heute</Text>
-                  <View style={{ backgroundColor: '#F5EFE8', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 0.5, borderColor: '#D8D0C6' }}>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: '#7B4A2D' }}>{completedHabits}/{totalHabits} ✓</Text>
-                  </View>
-                </View>
-                {habits.slice(0, 4).map((h, i) => (
-                  <View key={h.id} style={[styles.taskRow, i === Math.min(habits.length, 4) - 1 && { borderBottomWidth: 0, paddingBottom: 0 }]}>
-                    <View style={[styles.taskCheck, h.completedToday && { backgroundColor: '#7B4A2D', borderColor: '#7B4A2D' }]}>
-                      {h.completedToday && (
-                        <Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
-                          <Path d="M20 6L9 17l-5-5" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
-                        </Svg>
-                      )}
-                    </View>
-                    <Text style={{ fontSize: 12, fontWeight: '600', color: h.completedToday ? '#B0A89E' : '#1A1209', flex: 1, textDecorationLine: h.completedToday ? 'line-through' : 'none' }}>{h.name}</Text>
-                    {h.streak > 0 && <Text style={{ fontSize: 10, color: '#7B4A2D', fontWeight: '700' }}>🔥 {h.streak}</Text>}
-                  </View>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* HEUTE ERLEDIGEN */}
-          {visibleWidgets.today && (
-            <View style={styles.section}>
-              <View style={styles.lightCard}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                  <Text style={styles.lightEy}>Heute erledigen</Text>
-                  <Text style={{ fontSize: 9, color: '#7B4A2D', fontWeight: '700' }}>
-                    {[sleep, checkin, batteryLevel > 0].filter(Boolean).length}/3
+          {/* ── HABITS ── */}
+          {habTotal > 0 && (
+            <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <View>
+                  <SectionLabel label="Habits heute" light={isDark} />
+                  <Text style={{ fontSize: 22, fontWeight: '800', color: textPrimary, letterSpacing: -0.5 }}>
+                    {habDone}<Text style={{ fontSize: 14, color: textMuted, fontWeight: '600' }}>/{habTotal}</Text>
                   </Text>
                 </View>
-                {[
-                  { label: 'Schlaf Log', done: sleep !== null, route: '/sleep' },
-                  { label: 'Daily Check-in', done: checkin !== null, route: '/checkin' },
-                  { label: 'Body Battery', done: batteryLevel > 0, route: '/battery' },
-                ].map((item, i) => (
-                  <TouchableOpacity key={item.label} style={[styles.taskRow, i === 2 && { borderBottomWidth: 0, paddingBottom: 0 }]} onPress={() => router.push(item.route as any)} activeOpacity={0.7}>
-                    <View style={[styles.taskCheck, item.done && { backgroundColor: '#7B4A2D', borderColor: '#7B4A2D' }]}>
-                      {item.done && (
-                        <Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
-                          <Path d="M20 6L9 17l-5-5" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
-                        </Svg>
-                      )}
-                    </View>
-                    <Text style={{ fontSize: 12, fontWeight: '600', flex: 1, color: item.done ? '#B0A89E' : '#1A1209', textDecorationLine: item.done ? 'line-through' : 'none' }}>{item.label}</Text>
-                    {!item.done && <IconChevron />}
-                  </TouchableOpacity>
-                ))}
+                <Ring value={(habDone / habTotal) * 100} size={56} stroke={5} color={habDone === habTotal ? '#4ADE80' : colors.accent} track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
+                  <Text style={{ fontSize: 11, fontWeight: '800', color: textPrimary }}>{Math.round((habDone/habTotal)*100)}%</Text>
+                </Ring>
               </View>
+              <View style={{ height: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)', borderRadius: 2, overflow: 'hidden', marginBottom: 14 }}>
+                <View style={{ height: 4, width: `${(habDone/habTotal)*100}%`, backgroundColor: habDone === habTotal ? '#4ADE80' : colors.accent, borderRadius: 2 }} />
+              </View>
+              {habits.slice(0, 4).map((h, i) => (
+                <View key={h.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10,
+                  borderBottomWidth: i < Math.min(habits.length, 4) - 1 ? 1 : 0,
+                  borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
+                  <View style={{ width: 22, height: 22, borderRadius: 11,
+                    backgroundColor: h.completedToday ? colors.accent : 'transparent',
+                    borderWidth: 1.5, borderColor: h.completedToday ? colors.accent : isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
+                    alignItems: 'center', justifyContent: 'center' }}>
+                    {h.completedToday && (
+                      <Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
+                        <Path d="M20 6L9 17l-5-5" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
+                      </Svg>
+                    )}
+                  </View>
+                  <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: h.completedToday ? textDim : textPrimary,
+                    textDecorationLine: h.completedToday ? 'line-through' : 'none' }}>{h.name}</Text>
+                  {h.streak > 0 && <Text style={{ fontSize: 11, color: colors.accent, fontWeight: '700' }}>🔥 {h.streak}</Text>}
+                </View>
+              ))}
             </View>
           )}
 
-          {/* WIDGETS BEARBEITEN BUTTON */}
-          <View style={{ alignItems: 'center', paddingVertical: 8, marginBottom: 8 }}>
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.07)' }}
-              onPress={() => setEditWidgets(true)}
-              activeOpacity={0.8}
-            >
-              <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-                <Path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke="#B0A89E" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-              </Svg>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: '#B0A89E', letterSpacing: 0.3 }}>Widgets bearbeiten</Text>
-            </TouchableOpacity>
+          {/* ── DAILY JOURNAL ── */}
+          <TouchableOpacity
+            onPress={() => setJournalOpen(true)}
+            style={[s.card, { marginHorizontal: 16, marginBottom: 12,
+              backgroundColor: journal ? colors.card : 'transparent',
+              borderColor: journal ? cardBorder : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+              borderStyle: journal ? 'solid' : 'dashed' }]}
+            activeOpacity={0.8}
+          >
+            {journal ? (
+              // Has entry — show preview
+              <View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={{ fontSize: 20 }}>{journalMoodEmoji}</Text>
+                    <View>
+                      <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: journalMoodColor }}>
+                        Tagesnotiz
+                      </Text>
+                      <Text style={{ fontSize: 11, color: textDim, marginTop: 1 }}>
+                        {MOOD_LABELS[journal.mood - 1]} · {formatTime(journal.saved)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: journalMoodColor + '20' }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: journalMoodColor }}>Bearbeiten</Text>
+                  </View>
+                </View>
+                {journal.text ? (
+                  <Text style={{ fontSize: 14, color: textMuted, lineHeight: 21 }} numberOfLines={3}>
+                    {journal.text}
+                  </Text>
+                ) : (
+                  <Text style={{ fontSize: 14, color: textDim, fontStyle: 'italic' }}>Keine Notiz — nur Stimmung erfasst.</Text>
+                )}
+              </View>
+            ) : (
+              // Empty state
+              <View style={{ alignItems: 'center', paddingVertical: 8 }}>
+                <Text style={{ fontSize: 28, marginBottom: 8 }}>📓</Text>
+                <Text style={{ fontSize: 15, fontWeight: '700', color: textPrimary, marginBottom: 4 }}>Tagesnotiz schreiben</Text>
+                <Text style={{ fontSize: 13, color: textDim, textAlign: 'center' }}>
+                  Wie war dein Tag? Stimmung, Training, Gedanken.
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+
+          {/* ── HEUTE ERLEDIGEN ── */}
+          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 24 }]}>
+            <SectionLabel label="Heute erledigen" light={isDark} />
+            {[
+              { label: 'Schlaf erfassen',  done: !!sleep,       route: '/sleep',   icon: '🌙' },
+              { label: 'Daily Check-in',   done: !!checkin,     route: '/checkin', icon: '✅' },
+              { label: 'Body Battery',     done: battLevel > 0, route: '/battery', icon: '⚡' },
+              { label: 'Tagesnotiz',       done: !!journal,     route: null,       icon: '📓', onPress: () => setJournalOpen(true) },
+            ].map((item, i) => (
+              <TouchableOpacity key={item.label}
+                onPress={() => {
+                  if (item.done) return;
+                  if (item.onPress) item.onPress();
+                  else if (item.route) router.push(item.route as any);
+                }}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12,
+                  borderBottomWidth: i < 3 ? 1 : 0,
+                  borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
+                activeOpacity={item.done ? 1 : 0.7}>
+                <Text style={{ fontSize: 18, opacity: item.done ? 0.4 : 1 }}>{item.icon}</Text>
+                <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: item.done ? textDim : textPrimary,
+                  textDecorationLine: item.done ? 'line-through' : 'none' }}>{item.label}</Text>
+                {item.done
+                  ? <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#4ADE80', alignItems: 'center', justifyContent: 'center' }}>
+                      <Text style={{ fontSize: 10, color: '#fff', fontWeight: '700' }}>✓</Text>
+                    </View>
+                  : <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                      <Path d="M9 18l6-6-6-6" stroke={textDim} strokeWidth={2} strokeLinecap="round" />
+                    </Svg>
+                }
+              </TouchableOpacity>
+            ))}
           </View>
 
         </Animated.View>
       </ScrollView>
 
-      {/* SIDE MENU */}
-      {menuVisible && (
+      {/* ── SIDE MENU ── */}
+      {menuOpen && (
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: menuFade }]}>
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeMenu} activeOpacity={1}>
-            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' }} />
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} />
           </TouchableOpacity>
-          <Animated.View style={[styles.menuPanel, { backgroundColor: colors.card, transform: [{ translateX: menuSlide }] }]}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
-              <TouchableOpacity style={[styles.menuProfileRow, { borderBottomColor: colors.cardSecondary }]} onPress={() => { closeMenu(); setTimeout(() => router.push('/profile' as any), 250); }} activeOpacity={0.7}>
-                <View style={[styles.menuAvatar, { backgroundColor: colors.cardSecondary }]}>
-                  <Text style={[styles.menuAvatarText, { color: colors.accent }]}>{initial}</Text>
+          <Animated.View style={[s.menuPanel, { backgroundColor: colors.card, transform: [{ translateX: menuX }] }]}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+              <View style={{ paddingHorizontal: 24, paddingTop: 60, paddingBottom: 24, borderBottomWidth: 1, borderBottomColor: cardBorder }}>
+                <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: colors.accent + '25', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: colors.accent }}>{initial}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.menuProfileName, { color: theme.textPrimary }]}>{fullName}</Text>
-                  <Text style={[styles.menuProfileSub, { color: theme.textSecondary }]}>{`Pro · ${profile?.sport ?? 'Gym'}`}</Text>
-                </View>
-                <IconChevron />
-              </TouchableOpacity>
-              {menuSections.map(s => (
-                <MenuSection key={s.title} title={s.title} items={s.items} colors={colors} />
+                <Text style={{ fontSize: 18, fontWeight: '800', color: textPrimary }}>{profile?.name ?? 'Athlet'}</Text>
+                <Text style={{ fontSize: 13, color: textMuted, marginTop: 3 }}>{profile?.sport ?? 'Performance Athlete'}</Text>
+              </View>
+              {[
+                { label: 'Erscheinungsbild', icon: '🎨', onPress: () => { closeMenu(); setTimeout(() => setThemePicker(true), 300); }},
+                { label: 'Mein Profil',       icon: '👤', onPress: () => { closeMenu(); router.push('/profile' as any); }},
+                { label: 'Abzeichen',         icon: '🏆', onPress: () => { closeMenu(); router.push('/achievements' as any); }},
+              ].map(item => (
+                <TouchableOpacity key={item.label} onPress={item.onPress} activeOpacity={0.7}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: cardBorder }}>
+                  <Text style={{ fontSize: 20 }}>{item.icon}</Text>
+                  <Text style={{ flex: 1, fontSize: 15, fontWeight: '600', color: textPrimary }}>{item.label}</Text>
+                  <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                    <Path d="M9 18l6-6-6-6" stroke={textDim} strokeWidth={2} strokeLinecap="round" />
+                  </Svg>
+                </TouchableOpacity>
               ))}
-              <TouchableOpacity style={[styles.menuLogoutBtn, { borderTopColor: colors.cardSecondary }]} onPress={() => {}} activeOpacity={0.7}>
-                <IconLogout />
-                <Text style={styles.menuLogoutText}>Abmelden</Text>
-              </TouchableOpacity>
-              <Text style={[styles.menuFooter, { color: theme.textTertiary }]}>Stride · v1.0</Text>
-              <View style={{ height: 40 }} />
+              <Text style={{ fontSize: 11, color: textDim, textAlign: 'center', marginTop: 32 }}>Stride · v1.0</Text>
             </ScrollView>
-            <TouchableOpacity onPress={closeMenu} style={[styles.menuCloseBtn, { backgroundColor: colors.cardSecondary }]} activeOpacity={0.7}>
-              <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-                <Path d="M18 6L6 18M6 6L18 18" stroke={theme.textSecondary} strokeWidth={2} strokeLinecap="round" />
-              </Svg>
-            </TouchableOpacity>
           </Animated.View>
         </Animated.View>
       )}
 
-      {/* THEME PICKER */}
-      <Modal visible={themePickerVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setThemePickerVisible(false)}>
+      {/* ── THEME PICKER ── */}
+      <Modal visible={themePicker} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setThemePicker(false)}>
         <View style={{ flex: 1, backgroundColor: colors.bg, padding: 24 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, marginTop: 8 }}>
-            <Text style={{ fontSize: 22, fontWeight: '700', color: theme.textPrimary }}>Erscheinungsbild</Text>
-            <TouchableOpacity onPress={() => setThemePickerVisible(false)} activeOpacity={0.7}>
+            <Text style={{ fontSize: 22, fontWeight: '700', color: textPrimary }}>Erscheinungsbild</Text>
+            <TouchableOpacity onPress={() => setThemePicker(false)}>
               <Text style={{ color: colors.accent, fontSize: 16, fontWeight: '600' }}>Fertig</Text>
             </TouchableOpacity>
           </View>
           <ScrollView showsVerticalScrollIndicator={false}>
             {THEMES.map((t, i) => (
-              <TouchableOpacity key={t.name} onPress={() => setTheme(i)} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: 14, marginBottom: 8, backgroundColor: colors.card, borderWidth: themeIndex === i ? 2 : 0.5, borderColor: themeIndex === i ? t.accent : 'rgba(0,0,0,0.08)' }}>
+              <TouchableOpacity key={t.name} onPress={() => setTheme(i)} activeOpacity={0.7}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, borderRadius: 16, marginBottom: 8,
+                  backgroundColor: colors.card, borderWidth: themeIndex === i ? 2 : 1,
+                  borderColor: themeIndex === i ? t.accent : cardBorder }}>
                 <View style={{ flexDirection: 'row', gap: 5 }}>
-                  {[t.accent, t.bg, t.cardSecondary].map((c, j) => (
-                    <View key={j} style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: c }} />
+                  {[t.accent, t.bg, t.card].map((c, j) => (
+                    <View key={j} style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: c, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.1)' }} />
                   ))}
                 </View>
-                <Text style={{ flex: 1, fontSize: 15, color: t.accent, fontWeight: '600' }}>{t.name}</Text>
+                <Text style={{ flex: 1, fontSize: 15, fontWeight: '600', color: textPrimary }}>{t.name}</Text>
                 {themeIndex === i && (
                   <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>
@@ -661,104 +733,24 @@ export default function UebersichtScreen() {
         </View>
       </Modal>
 
-      {/* WIDGET EDIT MODAL */}
-      <Modal visible={editWidgets} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setEditWidgets(false)}>
-        <View style={{ flex: 1, backgroundColor: '#EEE8E0' }}>
-          <View style={{ paddingTop: 24, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#fff', borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.06)' }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <View>
-                <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase', color: '#B0A89E', marginBottom: 5 }}>Übersicht</Text>
-                <Text style={{ fontSize: 24, fontWeight: '800', color: '#1A1209', letterSpacing: -0.8 }}>Widgets bearbeiten</Text>
-              </View>
-              <TouchableOpacity style={{ backgroundColor: '#1A1209', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9 }} onPress={() => setEditWidgets(false)} activeOpacity={0.8}>
-                <Text style={{ fontSize: 12, fontWeight: '800', color: '#fff' }}>Fertig</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
-            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: '#B0A89E', marginBottom: 12, marginLeft: 4 }}>Sichtbare Widgets</Text>
-            {[
-              { key: 'score', label: 'Performance Score', desc: 'Dein täglicher Gesamtscore' },
-              { key: 'sleep', label: 'Schlaf & Battery', desc: 'Schlafanalyse und Energielevel' },
-              { key: 'nutrition', label: 'Ernährung', desc: 'Kalorien und Makronährstoffe' },
-              { key: 'training', label: 'Trainingsbereitschaft', desc: 'Muskelbereitschaft und Empfehlung' },
-              { key: 'habits', label: 'Habits', desc: 'Tägliche Gewohnheiten' },
-              { key: 'today', label: 'Heute erledigen', desc: 'Schlaf Log, Check-in, Battery' },
-            ].map(w => (
-              <TouchableOpacity key={w.key} style={{ backgroundColor: '#fff', borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.06)', marginBottom: 8 }} onPress={() => toggleWidget(w.key)} activeOpacity={0.8}>
-                <View style={{ gap: 3 }}>
-                  <View style={{ width: 14, height: 1.5, backgroundColor: '#D8D0C6', borderRadius: 1 }} />
-                  <View style={{ width: 14, height: 1.5, backgroundColor: '#D8D0C6', borderRadius: 1 }} />
-                  <View style={{ width: 14, height: 1.5, backgroundColor: '#D8D0C6', borderRadius: 1 }} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#1A1209', marginBottom: 2 }}>{w.label}</Text>
-                  <Text style={{ fontSize: 11, color: '#B0A89E' }}>{w.desc}</Text>
-                </View>
-                <View style={{ width: 44, height: 26, borderRadius: 13, backgroundColor: visibleWidgets[w.key] ? '#1A1209' : '#E8E2DA', justifyContent: 'center', paddingHorizontal: 3 }}>
-                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#fff', transform: [{ translateX: visibleWidgets[w.key] ? 18 : 0 }] }} />
-                </View>
-              </TouchableOpacity>
-            ))}
-            <Text style={{ fontSize: 11, color: '#B0A89E', textAlign: 'center', marginTop: 8 }}>Tippe auf ein Widget um es ein- oder auszublenden</Text>
-            <View style={{ height: 60 }} />
-          </ScrollView>
-        </View>
-      </Modal>
+      {/* ── JOURNAL MODAL ── */}
+      <JournalModal
+        visible={journalOpen}
+        entry={journal}
+        accent={colors.accent}
+        isDark={isDark}
+        onSave={saveJournal}
+        onClose={() => setJournalOpen(false)}
+      />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingTop: 58, paddingHorizontal: 20, paddingBottom: 16 },
-  dateLabel: { fontSize: 9, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase', color: '#B0A89E', marginBottom: 7 },
-  greeting: { fontSize: 30, fontWeight: '800', color: '#1A1209', letterSpacing: -1, lineHeight: 32 },
-  subGreeting: { fontSize: 11, color: '#B0A89E', marginTop: 5 },
-  headerBtn: { width: 38, height: 38, borderRadius: 13, backgroundColor: '#fff', borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.06)', alignItems: 'center', justifyContent: 'center', gap: 4 },
-  menuLine: { width: 16, height: 1.5, backgroundColor: '#1A1209', borderRadius: 1 },
-  section: { paddingHorizontal: 14, marginBottom: 10 },
-  scoreCard: { borderRadius: 24, padding: 20 },
-  scoreEy: { fontSize: 9, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)' },
-  scoreNum: { fontSize: 56, fontWeight: '800', color: '#fff', letterSpacing: -2.5, lineHeight: 56 },
-  scorePill: { flexDirection: 'row', alignItems: 'center', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, marginTop: 8, alignSelf: 'flex-start' },
-  darkCard: { borderRadius: 24, padding: 20, overflow: 'hidden' },
-  darkEy: { fontSize: 9, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase', color: 'rgba(255,255,255,0.3)' },
-  darkBigNum: { fontSize: 52, fontWeight: '800', color: '#fff', letterSpacing: -2.5, lineHeight: 52 },
-  sleepStat: { flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: 8, alignItems: 'center' },
-  sleepBtn: { backgroundColor: 'rgba(91,155,213,0.12)', borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 0.5, borderColor: 'rgba(91,155,213,0.25)' },
-  sleepBtnIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: 'rgba(91,155,213,0.2)', alignItems: 'center', justifyContent: 'center' },
-  sleepBtnArrow: { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(91,155,213,0.15)', alignItems: 'center', justifyContent: 'center' },
-  lightCard: { backgroundColor: '#fff', borderRadius: 22, padding: 18, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.06)' },
-  lightEy: { fontSize: 9, fontWeight: '700', letterSpacing: 2.5, textTransform: 'uppercase', color: '#B0A89E', marginBottom: 0 },
-  macroRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F5F1', borderRadius: 16, padding: 14, marginBottom: 16 },
-  macroItem: { flex: 1, alignItems: 'center' },
-  macroVal: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
-  macroUnit: { fontSize: 11, fontWeight: '600' },
-  macroLbl: { fontSize: 9, color: '#B0A89E', textTransform: 'uppercase', letterSpacing: 1, marginTop: 3, fontWeight: '700' },
-  macroSep: { width: 0.5, height: 32, backgroundColor: 'rgba(0,0,0,0.07)' },
-  nutritionBtn: { backgroundColor: '#7B4A2D', borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  nutritionBtnIcon: { width: 32, height: 32, borderRadius: 11, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
-  taskRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.05)' },
-  taskCheck: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#D8D0C6', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  menuPanel: { position: 'absolute', top: 0, right: 0, bottom: 0, width: '80%', paddingTop: 56, borderLeftWidth: 0.5, borderLeftColor: 'rgba(0,0,0,0.08)' },
-  menuProfileRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 20, paddingVertical: 18, borderBottomWidth: 0.5 },
-  menuAvatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
-  menuAvatarText: { fontSize: 20, fontWeight: '700' },
-  menuProfileName: { fontSize: 16, fontWeight: '700' },
-  menuProfileSub: { fontSize: 12, marginTop: 2 },
-  menuSection: { paddingBottom: 4, marginBottom: 4 },
-  menuSectionTitle: { color: theme.textTertiary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1.5, fontWeight: '600', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
-  menuRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 16 },
-  menuRowBorder: { borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.05)' },
-  menuRowIcon: { width: 34, height: 34, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  menuRowLabel: { flex: 1, fontSize: 15 },
-  menuBadge: { backgroundColor: theme.greenLight, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 2, marginRight: 6 },
-  menuBadgeText: { color: '#27500A', fontSize: 10, fontWeight: '600' },
-  menuBadgePurple: { backgroundColor: theme.purpleLight },
-  menuBadgeTextPurple: { color: theme.purple },
-  menuLogoutBtn: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14, paddingHorizontal: 16, marginTop: 4, borderTopWidth: 0.5 },
-  menuLogoutText: { color: theme.red, fontSize: 15, fontWeight: '600' },
-  menuCloseBtn: { position: 'absolute', top: 14, right: 14, width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-  menuFooter: { fontSize: 11, textAlign: 'center', marginTop: 16 },
+const s = StyleSheet.create({
+  header:    { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  card:      { borderRadius: 20, padding: 20, borderWidth: 1 },
+  cardBtn:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, marginTop: 4 },
+  iconBtn:   { width: 40, height: 40, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  menuLine:  { width: 16, height: 1.5, borderRadius: 1 },
+  menuPanel: { position: 'absolute', top: 0, right: 0, bottom: 0, width: '78%', borderLeftWidth: 1, borderLeftColor: 'rgba(0,0,0,0.06)' },
 });
