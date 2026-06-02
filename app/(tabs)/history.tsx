@@ -1,397 +1,406 @@
+// app/(tabs)/history.tsx
+// History Screen — Theme-aware, SVG charts, Oura-Stil
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useRef, useState } from 'react';
-import { Alert, Animated, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { LineChart } from 'react-native-chart-kit';
-import { theme } from '../../constants/theme';
+import React, { useCallback, useRef, useState } from 'react';
+import {
+  Alert, Animated, ScrollView, Text,
+  TouchableOpacity, View,
+} from 'react-native';
+import Svg, { Circle, Line, Polyline } from 'react-native-svg';
+import { useAppTheme } from '../../constants/ThemeContext';
 
-const screenWidth = Dimensions.get('window').width - 40;
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface DayData {
+  date:         string;
+  label:        string; // DD.MM
+  perfScore?:   number;
+  workoutScore?:number;
+  sleepScore?:  number;
+  sleepHours?:  number;
+  hrv?:         number;
+  restingHR?:   number;
+  battLevel?:   number;
+  workouts?:    number;
+  kcal?:        number;
+  recovery?:    number;
+}
 
-type DayData = {
-  date: string;
-  dateLabel: string;
-  checkinScore?: number;
-  sleepScore?: number;
-  batteryLevel?: number;
-  totalKcal?: number;
-  hrv?: number;
-  schlafStunden?: number;
-  workouts?: number;
-  workoutScore?: number;
-};
+type MetricKey = keyof Omit<DayData, 'date' | 'label'>;
+type Range = 7 | 14 | 30 | 90;
 
-const METRICS = [
-  { key: 'checkinScore',   label: 'Performance',     color: theme.blue,    emoji: '⚡' },
-  { key: 'workoutScore',   label: 'Trainingsscore',  color: '#7C3AED',     emoji: '🏋️' },
-  { key: 'sleepScore',     label: 'Sleep Score',     color: theme.pink,    emoji: '😴' },
-  { key: 'schlafStunden',  label: 'Schlafdauer',     color: theme.purple,  emoji: '🌙' },
-  { key: 'hrv',            label: 'HRV',             color: theme.teal,    emoji: '💓' },
-  { key: 'batteryLevel',   label: 'Battery',         color: theme.green,   emoji: '🔋' },
-  { key: 'workouts',       label: 'Trainings',       color: theme.orange,  emoji: '📅' },
-  { key: 'totalKcal',      label: 'Kalorien',        color: '#FB923C',     emoji: '🍽️' },
+// ─── Metrics config ───────────────────────────────────────────────────────────
+const METRICS: { key: MetricKey; label: string; color: string; emoji: string; unit?: string }[] = [
+  { key: 'perfScore',    label: 'Performance',   color: '#818CF8', emoji: '⚡', unit: 'pts' },
+  { key: 'workoutScore', label: 'Training',      color: '#C084FC', emoji: '🏋️', unit: 'pts' },
+  { key: 'sleepScore',   label: 'Schlaf Score',  color: '#60A5FA', emoji: '😴', unit: 'pts' },
+  { key: 'sleepHours',   label: 'Schlafdauer',   color: '#818CF8', emoji: '🌙', unit: 'h'   },
+  { key: 'hrv',          label: 'HRV',           color: '#4ADE80', emoji: '💓', unit: 'ms'  },
+  { key: 'restingHR',    label: 'Ruhepuls',      color: '#F87171', emoji: '❤️', unit: 'bpm' },
+  { key: 'battLevel',    label: 'Energie',       color: '#FBBF24', emoji: '🔋', unit: '%'   },
+  { key: 'recovery',     label: 'Erholung',      color: '#34D399', emoji: '🧘', unit: 'pts' },
 ];
 
-function formatDate(dateString: string) {
-  const date = new Date(dateString);
-  return `${date.getDate()}.${date.getMonth() + 1}`;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function dateLabel(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getDate()}.${d.getMonth() + 1}`;
+}
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
-function getDayKey(dateString: string) {
-  const date = new Date(dateString);
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-}
-
-function normalizeData(data: (number | undefined)[]): number[] {
-  const valid = data.filter(v => v !== undefined && v > 0) as number[];
-  if (valid.length === 0) return data.map(() => 0);
+// ─── Mini Line Chart ──────────────────────────────────────────────────────────
+function MiniChart({ data, color, isDark }: {
+  data: (number | null)[];
+  color: string;
+  isDark: boolean;
+}) {
+  const W = 280; const H = 56; const PAD = 6;
+  const valid = data.filter(v => v !== null) as number[];
+  if (valid.length < 2) return (
+    <View style={{ height: H, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', fontSize: 12 }}>
+        Noch zu wenig Daten
+      </Text>
+    </View>
+  );
   const min = Math.min(...valid);
   const max = Math.max(...valid);
-  if (max === min) return data.map(v => v !== undefined && v > 0 ? 50 : 0);
-  return data.map(v => v !== undefined && v > 0 ? Math.round(((v - min) / (max - min)) * 100) : 0);
-}
-
-export default function HistoryScreen() {
-  const [days, setDays] = useState<DayData[]>([]);
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['workoutScore', 'sleepScore', 'checkinScore']);
-  const [timeRange, setTimeRange] = useState<7 | 14 | 30>(14);
-
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
-
-  useFocusEffect(useCallback(() => {
-    load();
-    fadeAnim.setValue(0); slideAnim.setValue(20);
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
-    ]).start();
-  }, []));
-
-  async function load() {
-    const rawCheckin  = await AsyncStorage.getItem('checkinHistory');
-    const rawSleep    = await AsyncStorage.getItem('sleepHistory');
-    const rawWorkouts = await AsyncStorage.getItem('workouts');
-    const rawWH       = await AsyncStorage.getItem('workoutHistory');
-
-    const dayMap: Record<string, DayData> = {};
-
-    if (rawCheckin) {
-      JSON.parse(rawCheckin).forEach((e: any) => {
-        const key = getDayKey(e.date);
-        if (!dayMap[key]) dayMap[key] = { date: e.date, dateLabel: formatDate(e.date) };
-        dayMap[key].checkinScore = e.score;
-      });
-    }
-
-    if (rawSleep) {
-      JSON.parse(rawSleep).forEach((e: any) => {
-        const key = getDayKey(e.date);
-        if (!dayMap[key]) dayMap[key] = { date: e.date, dateLabel: formatDate(e.date) };
-        dayMap[key].sleepScore = e.sleepScore;
-        dayMap[key].hrv = e.hrv;
-        dayMap[key].schlafStunden = e.schlafStunden;
-      });
-    }
-
-    if (rawWorkouts) {
-      JSON.parse(rawWorkouts).forEach((w: any) => {
-        const key = getDayKey(w.date);
-        if (!dayMap[key]) dayMap[key] = { date: w.date, dateLabel: formatDate(w.date) };
-        dayMap[key].workouts = (dayMap[key].workouts ?? 0) + 1;
-      });
-    }
-
-    // Workout scores from workoutHistory
-    if (rawWH) {
-      JSON.parse(rawWH).forEach((w: any) => {
-        const key = getDayKey(w.date);
-        if (!dayMap[key]) dayMap[key] = { date: w.date, dateLabel: formatDate(w.date) };
-        // Take highest score of the day
-        dayMap[key].workoutScore = Math.max(dayMap[key].workoutScore ?? 0, w.score ?? 0);
-      });
-    }
-
-    const sorted = Object.values(dayMap).sort((a, b) =>
-      new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-    setDays(sorted);
-  }
-
-  async function clearHistory() {
-    Alert.alert('Verlauf löschen?', 'Diese Aktion kann nicht rückgängig gemacht werden.', [
-      { text: 'Abbrechen', style: 'cancel' },
-      {
-        text: 'Löschen', style: 'destructive', onPress: async () => {
-          await AsyncStorage.multiRemove(['checkinHistory', 'sleepHistory', 'workoutHistory']);
-          setDays([]);
-        }
-      }
-    ]);
-  }
-
-  function toggleMetric(key: string) {
-    setSelectedMetrics(prev => {
-      if (prev.includes(key)) {
-        if (prev.length === 1) return prev; // keep at least 1
-        return prev.filter(k => k !== key);
-      }
-      return [...prev, key]; // no upper limit
-    });
-  }
-
-  const rangedDays = days.slice(-timeRange);
-  const labels = rangedDays.map(d => d.dateLabel);
-
-  // Build multi-line datasets
-  const multiDatasets = selectedMetrics.map(key => {
-    const m = METRICS.find(m => m.key === key)!;
-    const raw = rangedDays.map(d => d[key as keyof DayData] as number | undefined);
-    const normalized = normalizeData(raw);
-    return {
-      data: normalized.map(v => Math.max(v, 0.1)),
-      color: (opacity = 1) => m.color + Math.round(opacity * 255).toString(16).padStart(2, '0'),
-      strokeWidth: 2,
-    };
-  });
-
-  // Summary stats
-  const avgScore = days.filter(d => d.checkinScore).length > 0
-    ? Math.round(days.reduce((s, d) => s + (d.checkinScore ?? 0), 0) / days.filter(d => d.checkinScore).length) : 0;
-  const avgWorkoutScore = days.filter(d => d.workoutScore && d.workoutScore > 0).length > 0
-    ? Math.round(days.filter(d => d.workoutScore && d.workoutScore > 0).reduce((s, d) => s + (d.workoutScore ?? 0), 0) / days.filter(d => d.workoutScore && d.workoutScore > 0).length) : 0;
-  const bestSleep = days.length > 0 ? Math.max(...days.map(d => d.sleepScore ?? 0)) : 0;
-  const totalWorkouts = days.reduce((s, d) => s + (d.workouts ?? 0), 0);
-
-  const chartConfig = {
-    backgroundColor: 'transparent',
-    backgroundGradientFrom: theme.card,
-    backgroundGradientTo: theme.card,
-    decimalPlaces: 0,
-    color: (opacity = 1) => `rgba(26,115,232,${opacity})`,
-    labelColor: () => theme.textSecondary,
-    propsForDots: { r: '3', strokeWidth: '1' },
-    propsForBackgroundLines: { stroke: theme.borderLight },
-  };
+  const range = max - min || 1;
+  const pts = data.map((v, i) => ({
+    x: PAD + (i / (data.length - 1)) * (W - PAD * 2),
+    y: v !== null ? PAD + (1 - (v - min) / range) * (H - PAD * 2) : null,
+  }));
+  const validPts = pts.filter(p => p.y !== null) as { x: number; y: number }[];
+  const poly = validPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+  const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-
-        <Text style={styles.headerLabel}>Verlauf</Text>
-        <Text style={styles.title}>Dein{'\n'}Fortschritt</Text>
-
-        {/* Summary Cards */}
-        <View style={styles.summaryGrid}>
-          {[
-            { val: avgScore || '--',        lbl: 'Ø Performance',   color: theme.blue },
-            { val: avgWorkoutScore || '--', lbl: 'Ø Training',      color: '#7C3AED' },
-            { val: bestSleep || '--',       lbl: 'Bester Schlaf',   color: theme.pink },
-            { val: totalWorkouts,           lbl: 'Trainings total', color: theme.orange },
-          ].map(s => (
-            <View key={s.lbl} style={styles.summaryCard}>
-              <Text style={[styles.summaryVal, { color: s.color }]}>{s.val}</Text>
-              <Text style={styles.summaryLbl}>{s.lbl}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Time range selector */}
-        <View style={styles.timeRangeRow}>
-          {([7, 14, 30] as const).map(r => (
-            <TouchableOpacity key={r} style={[styles.rangeBtn, timeRange === r && styles.rangeBtnActive]} onPress={() => setTimeRange(r)}>
-              <Text style={[styles.rangeBtnText, timeRange === r && { color: theme.blue }]}>{r}T</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Metric selector – unlimited */}
-        <Text style={styles.sectionTitle}>Metriken vergleichen</Text>
-        <Text style={styles.sectionSub}>Wähle beliebig viele Metriken</Text>
-        <View style={styles.metricGrid}>
-          {METRICS.map(m => {
-            const selected = selectedMetrics.includes(m.key);
-            return (
-              <TouchableOpacity
-                key={m.key}
-                style={[styles.metricChip, selected && { backgroundColor: m.color + '18', borderColor: m.color }]}
-                onPress={() => toggleMetric(m.key)}
-              >
-                <Text style={{ fontSize: 13 }}>{m.emoji}</Text>
-                <Text style={[styles.metricChipText, { color: selected ? m.color : theme.textSecondary }]}>{m.label}</Text>
-                {selected && <View style={[styles.metricChipDot, { backgroundColor: m.color }]} />}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* Legend */}
-        {selectedMetrics.length > 0 && (
-          <View style={styles.legendRow}>
-            {selectedMetrics.map(key => {
-              const m = METRICS.find(m => m.key === key)!;
-              return (
-                <View key={key} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: m.color }]} />
-                  <Text style={[styles.legendText, { color: m.color }]}>{m.label}</Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
-
-        {/* Multi-metric chart */}
-        {multiDatasets.length > 0 && rangedDays.length >= 2 ? (
-          <View style={styles.chartCard}>
-            <LineChart
-              data={{ labels, datasets: multiDatasets }}
-              width={screenWidth - 32}
-              height={220}
-              chartConfig={chartConfig}
-              bezier
-              style={styles.chart}
-              withInnerLines={true}
-              withOuterLines={false}
-              withDots={rangedDays.length <= 14}
-            />
-            <Text style={styles.normalizedNote}>* Alle Werte normalisiert auf 0–100 für Vergleichbarkeit</Text>
-          </View>
-        ) : (
-          <View style={styles.emptyChart}>
-            <Text style={styles.emptyChartText}>Noch zu wenig Daten für ein Diagramm</Text>
-          </View>
-        )}
-
-        {/* Per-metric raw value cards */}
-        <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Rohwerte</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            {selectedMetrics.map(key => {
-              const m = METRICS.find(m => m.key === key)!;
-              const values = rangedDays.map(d => d[key as keyof DayData] as number | undefined).filter(v => v !== undefined && v > 0) as number[];
-              const avg = values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null;
-              const best = values.length > 0 ? Math.max(...values) : null;
-              const latest = rangedDays.slice().reverse().find(d => d[key as keyof DayData] !== undefined)?.[key as keyof DayData] as number | undefined;
-              return (
-                <View key={key} style={[styles.rawCard, { borderTopColor: m.color }]}>
-                  <Text style={{ fontSize: 20 }}>{m.emoji}</Text>
-                  <Text style={[styles.rawCardLabel, { color: m.color }]}>{m.label}</Text>
-                  {latest !== undefined && <Text style={[styles.rawCardVal, { color: m.color }]}>{latest}</Text>}
-                  {avg !== null && <Text style={styles.rawCardSub}>Ø {avg}</Text>}
-                  {best !== null && <Text style={styles.rawCardSub}>Max {best}</Text>}
-                </View>
-              );
-            })}
-          </View>
-        </ScrollView>
-
-        {/* Day Cards */}
-        <Text style={styles.sectionTitle}>Tagesübersicht</Text>
-        {rangedDays.slice().reverse().map((day, i) => (
-          <View key={i} style={styles.dayCard}>
-            <View style={styles.dayHeader}>
-              <Text style={styles.dayDate}>{day.dateLabel}</Text>
-              <View style={{ flexDirection: 'row', gap: 6 }}>
-                {day.workoutScore !== undefined && day.workoutScore > 0 && (
-                  <View style={[styles.dayScorePill, { backgroundColor: '#7C3AED20' }]}>
-                    <Text style={[styles.dayScoreText, { color: '#7C3AED' }]}>🏋️ {day.workoutScore}</Text>
-                  </View>
-                )}
-                {day.checkinScore && (
-                  <View style={[styles.dayScorePill, { backgroundColor: theme.blueLight }]}>
-                    <Text style={[styles.dayScoreText, { color: theme.blue }]}>⚡ {day.checkinScore}</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-            <View style={styles.dayStats}>
-              {day.sleepScore !== undefined && (
-                <View style={styles.dayStat}>
-                  <Text style={[styles.dayStatVal, { color: theme.pink }]}>{day.sleepScore}</Text>
-                  <Text style={styles.dayStatLbl}>Schlaf</Text>
-                </View>
-              )}
-              {day.hrv !== undefined && (
-                <View style={styles.dayStat}>
-                  <Text style={[styles.dayStatVal, { color: theme.teal }]}>{day.hrv}</Text>
-                  <Text style={styles.dayStatLbl}>HRV</Text>
-                </View>
-              )}
-              {day.schlafStunden !== undefined && (
-                <View style={styles.dayStat}>
-                  <Text style={[styles.dayStatVal, { color: theme.purple }]}>{day.schlafStunden}h</Text>
-                  <Text style={styles.dayStatLbl}>Dauer</Text>
-                </View>
-              )}
-              {day.workouts !== undefined && day.workouts > 0 && (
-                <View style={styles.dayStat}>
-                  <Text style={[styles.dayStatVal, { color: theme.orange }]}>{day.workouts}×</Text>
-                  <Text style={styles.dayStatLbl}>Training</Text>
-                </View>
-              )}
-            </View>
-          </View>
-        ))}
-
-        <TouchableOpacity style={styles.clearBtn} onPress={clearHistory}>
-          <Text style={styles.clearBtnText}>Verlauf löschen</Text>
-        </TouchableOpacity>
-
-        <View style={{ height: 100 }} />
-      </Animated.View>
-    </ScrollView>
+    <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+      {[0.25, 0.5, 0.75].map(f => (
+        <Line key={f} x1={PAD} y1={H * f} x2={W - PAD} y2={H * f}
+          stroke={gridColor} strokeWidth={1} />
+      ))}
+      {validPts.length > 1 && (
+        <Polyline points={poly} fill="none" stroke={color} strokeWidth={2.5}
+          strokeLinecap="round" strokeLinejoin="round" />
+      )}
+      {pts.map((p, i) => p.y !== null ? (
+        <Circle key={i} cx={p.x} cy={p.y}
+          r={i === pts.length - 1 ? 5 : 3}
+          fill={i === pts.length - 1 ? color : (isDark ? '#1C1917' : '#fff')}
+          stroke={color} strokeWidth={2} />
+      ) : null)}
+    </Svg>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 24 },
+// ─── Main Screen ──────────────────────────────────────────────────────────────
+export default function HistoryScreen() {
+  const { colors } = useAppTheme();
+  const [days,     setDays]    = useState<DayData[]>([]);
+  const [selected, setSelected]= useState<MetricKey[]>(['perfScore', 'sleepScore', 'hrv']);
+  const [range,    setRange]   = useState<Range>(14);
+  const [loaded,   setLoaded]  = useState(false);
+  const fade = useRef(new Animated.Value(0)).current;
 
-  summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  summaryCard: { width: '48%', backgroundColor: theme.card, borderRadius: 14, padding: 14, ...theme.shadow },
-  summaryVal: { fontSize: 28, fontWeight: '600' },
-  summaryLbl: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3 },
+  const isDark     = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
+  const bg         = colors.bg;
+  const card       = colors.card;
+  const cardAlt    = colors.cardSecondary;
+  const border     = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+  const text       = isDark ? '#F5F0EE' : '#1A1209';
+  const textMuted  = isDark ? 'rgba(245,240,238,0.45)' : 'rgba(26,18,9,0.45)';
+  const textDim    = isDark ? 'rgba(245,240,238,0.22)' : 'rgba(26,18,9,0.22)';
 
-  timeRangeRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
-  rangeBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center', backgroundColor: theme.card, ...theme.shadow },
-  rangeBtnActive: { backgroundColor: theme.blueLight },
-  rangeBtnText: { color: theme.textSecondary, fontSize: 13, fontWeight: '600' },
+  const load = useCallback(async () => {
+    const map: Record<string, DayData> = {};
 
-  sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 6 },
-  sectionSub: { color: theme.textSecondary, fontSize: 12, marginBottom: 12 },
+    const ensure = (key: string, iso: string) => {
+      if (!map[key]) map[key] = { date: iso, label: dateLabel(iso) };
+    };
 
-  metricGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  metricChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.card, borderWidth: 1, borderColor: theme.border, ...theme.shadow },
-  metricChipDot: { width: 6, height: 6, borderRadius: 3 },
-  metricChipText: { fontSize: 12, fontWeight: '500' },
+    // Checkin / Performance
+    const rc = await AsyncStorage.getItem('checkinHistory');
+    if (rc) JSON.parse(rc).forEach((e: any) => {
+      const k = dayKey(e.date); ensure(k, e.date);
+      map[k].perfScore = e.score;
+    });
 
-  legendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { fontSize: 11, fontWeight: '500' },
+    // Sleep
+    const rs = await AsyncStorage.getItem('sleepHistory');
+    if (rs) JSON.parse(rs).forEach((e: any) => {
+      const k = dayKey(e.date); ensure(k, e.date);
+      map[k].sleepScore  = e.sleepScore;
+      map[k].sleepHours  = e.schlafStunden;
+      map[k].hrv         = e.hrv || undefined;
+    });
 
-  chartCard: { backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 20, ...theme.shadow },
-  chart: { borderRadius: 12, marginLeft: -16 },
-  normalizedNote: { color: theme.textTertiary, fontSize: 10, fontStyle: 'italic', marginTop: 8 },
+    // Health (stride_health_history)
+    const rh = await AsyncStorage.getItem('stride_health_history');
+    if (rh) JSON.parse(rh).forEach((e: any) => {
+      const k = dayKey(e.date); ensure(k, e.date);
+      if (e.hrv)           map[k].hrv        = e.hrv;
+      if (e.restingHR)     map[k].restingHR  = e.restingHR;
+      if (e.sleepHours)    map[k].sleepHours = e.sleepHours;
+      if (e.recoveryScore) map[k].recovery   = e.recoveryScore;
+    });
 
-  emptyChart: { backgroundColor: theme.card, borderRadius: 18, padding: 32, alignItems: 'center', marginBottom: 20, ...theme.shadow },
-  emptyChartText: { color: theme.textSecondary, fontSize: 13 },
+    // Battery
+    const rb = await AsyncStorage.getItem('batteryHistory');
+    if (rb) JSON.parse(rb).forEach((e: any) => {
+      const k = dayKey(e.date); ensure(k, e.date);
+      map[k].battLevel = e.level;
+    });
 
-  rawCard: { backgroundColor: theme.card, borderRadius: 14, padding: 14, width: 110, borderTopWidth: 3, alignItems: 'center', gap: 4, ...theme.shadow },
-  rawCardLabel: { fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.8, textAlign: 'center' },
-  rawCardVal: { fontSize: 24, fontWeight: '700' },
-  rawCardSub: { color: theme.textSecondary, fontSize: 10 },
+    // Workouts
+    const rw = await AsyncStorage.getItem('workouts');
+    if (rw) JSON.parse(rw).forEach((w: any) => {
+      const k = dayKey(w.date); ensure(k, w.date);
+      map[k].workouts = (map[k].workouts ?? 0) + 1;
+    });
+    const rwh = await AsyncStorage.getItem('workoutHistory');
+    if (rwh) JSON.parse(rwh).forEach((w: any) => {
+      const k = dayKey(w.date); ensure(k, w.date);
+      map[k].workoutScore = Math.max(map[k].workoutScore ?? 0, w.score ?? 0);
+    });
 
-  dayCard: { backgroundColor: theme.card, borderRadius: 14, padding: 14, marginBottom: 8, ...theme.shadow },
-  dayHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  dayDate: { color: theme.textPrimary, fontSize: 14, fontWeight: '600' },
-  dayScorePill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
-  dayScoreText: { fontSize: 11, fontWeight: '500' },
-  dayStats: { flexDirection: 'row', gap: 16 },
-  dayStat: { alignItems: 'center' },
-  dayStatVal: { fontSize: 16, fontWeight: '600' },
-  dayStatLbl: { color: theme.textSecondary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 },
+    const sorted = Object.values(map).sort((a, b) =>
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    setDays(sorted);
+    setLoaded(true);
+  }, []);
 
-  clearBtn: { padding: 14, alignItems: 'center', marginBottom: 20, borderRadius: 14, backgroundColor: '#FFEBEE' },
-  clearBtnText: { color: theme.red, fontSize: 13, fontWeight: '500' },
-});
+  useFocusEffect(useCallback(() => {
+    load();
+    fade.setValue(0);
+    Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+  }, [load]));
+
+  function toggleMetric(key: MetricKey) {
+    setSelected(prev => prev.includes(key)
+      ? prev.length > 1 ? prev.filter(k => k !== key) : prev
+      : [...prev, key]
+    );
+  }
+
+  async function clearHistory() {
+    Alert.alert('Verlauf löschen?', 'Kann nicht rückgängig gemacht werden.', [
+      { text: 'Abbrechen', style: 'cancel' },
+      { text: 'Löschen', style: 'destructive', onPress: async () => {
+        await AsyncStorage.multiRemove(['checkinHistory','sleepHistory','workoutHistory','batteryHistory']);
+        setDays([]);
+      }},
+    ]);
+  }
+
+  const ranged = days.slice(-range);
+
+  // Summary stats
+  const totalWorkouts = days.reduce((s, d) => s + (d.workouts ?? 0), 0);
+  const avgPerf = (() => {
+    const v = days.filter(d => d.perfScore).map(d => d.perfScore!);
+    return v.length ? Math.round(v.reduce((a,b)=>a+b)/v.length) : null;
+  })();
+  const avgSleep = (() => {
+    const v = days.filter(d => d.sleepHours).map(d => d.sleepHours!);
+    return v.length ? Math.round(v.reduce((a,b)=>a+b)/v.length * 10) / 10 : null;
+  })();
+  const avgHRV = (() => {
+    const v = days.filter(d => d.hrv).map(d => d.hrv!);
+    return v.length ? Math.round(v.reduce((a,b)=>a+b)/v.length) : null;
+  })();
+
+  const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: border, marginBottom: 12 };
+
+  if (!loaded) return (
+    <View style={{ flex: 1, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+      <Text style={{ color: textMuted }}>Lade…</Text>
+    </View>
+  );
+
+  return (
+    <View style={{ flex: 1, backgroundColor: bg }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 60, paddingBottom: 120 }}>
+        <Animated.View style={{ opacity: fade }}>
+
+          {/* ── Header ── */}
+          <View style={{ marginBottom: 24 }}>
+            <Text style={{ fontSize: 11, color: textDim, fontWeight: '600', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 }}>
+              {new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </Text>
+            <Text style={{ fontSize: 30, fontWeight: '800', color: text, letterSpacing: -0.8 }}>Verlauf</Text>
+          </View>
+
+          {/* ── Summary ── */}
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+            {[
+              { label: 'Trainings',   value: totalWorkouts.toString(), color: colors.accent },
+              { label: 'Ø Performance',value: avgPerf ? `${avgPerf}` : '—', color: '#818CF8' },
+              { label: 'Ø Schlaf',    value: avgSleep ? `${avgSleep}h` : '—', color: '#60A5FA' },
+              { label: 'Ø HRV',       value: avgHRV ? `${avgHRV}ms` : '—', color: '#4ADE80' },
+            ].map(s => (
+              <View key={s.label} style={{ flex: 1, backgroundColor: card, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: border, alignItems: 'center' }}>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: s.color, letterSpacing: -0.5 }}>{s.value}</Text>
+                <Text style={{ fontSize: 9, color: textDim, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4, textAlign: 'center', fontWeight: '600' }}>{s.label}</Text>
+              </View>
+            ))}
+          </View>
+
+          {/* ── Range Selector ── */}
+          <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+            {([7, 14, 30, 90] as Range[]).map(r => (
+              <TouchableOpacity key={r} onPress={() => setRange(r)}
+                style={{ flex: 1, paddingVertical: 9, borderRadius: 12, alignItems: 'center',
+                  backgroundColor: range === r ? colors.accent : card,
+                  borderWidth: 1, borderColor: range === r ? colors.accent : border }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: range === r ? '#fff' : textMuted }}>
+                  {r}T
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* ── Metric Selector ── */}
+          <View style={cardStyle}>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 12 }}>Metriken</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {METRICS.map(m => {
+                const active = selected.includes(m.key);
+                return (
+                  <TouchableOpacity key={m.key} onPress={() => toggleMetric(m.key)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 6,
+                      paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20,
+                      backgroundColor: active ? m.color + '20' : cardAlt,
+                      borderWidth: 1, borderColor: active ? m.color : border }}>
+                    <Text style={{ fontSize: 12 }}>{m.emoji}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: active ? m.color : textMuted }}>{m.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* ── Charts per selected metric ── */}
+          {selected.map(key => {
+            const m = METRICS.find(x => x.key === key)!;
+            const vals = ranged.map(d => {
+              const v = d[key] as number | undefined;
+              return v !== undefined && v > 0 ? v : null;
+            });
+            const nonNull = vals.filter(v => v !== null) as number[];
+            const avg  = nonNull.length ? Math.round(nonNull.reduce((a,b)=>a+b)/nonNull.length * 10) / 10 : null;
+            const best = nonNull.length ? Math.max(...nonNull) : null;
+            const latest = [...vals].reverse().find(v => v !== null) ?? null;
+
+            return (
+              <View key={key} style={[cardStyle, { borderTopWidth: 3, borderTopColor: m.color }]}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                  <View>
+                    <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: m.color, marginBottom: 4 }}>
+                      {m.emoji} {m.label}
+                    </Text>
+                    {latest !== null && (
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+                        <Text style={{ fontSize: 28, fontWeight: '800', color: text, letterSpacing: -1 }}>{latest}</Text>
+                        <Text style={{ fontSize: 12, color: textMuted }}>{m.unit}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    {avg !== null && (
+                      <View style={{ backgroundColor: m.color + '18', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }}>
+                        <Text style={{ fontSize: 11, color: m.color, fontWeight: '700' }}>Ø {avg} {m.unit}</Text>
+                      </View>
+                    )}
+                    {best !== null && (
+                      <Text style={{ fontSize: 11, color: textDim }}>Max {best} {m.unit}</Text>
+                    )}
+                  </View>
+                </View>
+
+                <MiniChart data={vals} color={m.color} isDark={isDark} />
+
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                  <Text style={{ fontSize: 10, color: textDim }}>{ranged[0]?.label ?? ''}</Text>
+                  <Text style={{ fontSize: 10, color: textDim }}>Heute</Text>
+                </View>
+              </View>
+            );
+          })}
+
+          {/* ── Daily Log ── */}
+          {ranged.length > 0 && (
+            <View style={cardStyle}>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 14 }}>
+                Tagesübersicht
+              </Text>
+              {[...ranged].reverse().map((day, i) => (
+                <View key={day.date} style={{ paddingVertical: 12,
+                  borderBottomWidth: i < ranged.length - 1 ? 1 : 0,
+                  borderBottomColor: border }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: text }}>{day.label}</Text>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      {day.workoutScore ? (
+                        <View style={{ backgroundColor: '#C084FC20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 }}>
+                          <Text style={{ fontSize: 11, color: '#C084FC', fontWeight: '700' }}>🏋️ {day.workoutScore}</Text>
+                        </View>
+                      ) : null}
+                      {day.perfScore ? (
+                        <View style={{ backgroundColor: '#818CF820', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 }}>
+                          <Text style={{ fontSize: 11, color: '#818CF8', fontWeight: '700' }}>⚡ {day.perfScore}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
+                    {day.sleepHours && <StatCell label="Schlaf" value={`${day.sleepHours}h`} color="#60A5FA" />}
+                    {day.hrv && <StatCell label="HRV" value={`${day.hrv}ms`} color="#4ADE80" />}
+                    {day.restingHR && <StatCell label="RHR" value={`${day.restingHR}bpm`} color="#F87171" />}
+                    {day.battLevel && <StatCell label="Energie" value={`${day.battLevel}%`} color="#FBBF24" />}
+                    {day.recovery && <StatCell label="Erholung" value={`${day.recovery}`} color="#34D399" />}
+                    {day.workouts && <StatCell label="Training" value={`${day.workouts}×`} color={colors.accent} />}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {days.length === 0 && (
+            <View style={[cardStyle, { alignItems: 'center', paddingVertical: 48 }]}>
+              <Text style={{ fontSize: 40, marginBottom: 12 }}>📊</Text>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: text, marginBottom: 6 }}>Noch keine Daten</Text>
+              <Text style={{ fontSize: 13, color: textMuted, textAlign: 'center' }}>
+                Trage Schlaf, Check-in und Training ein um hier deinen Verlauf zu sehen.
+              </Text>
+            </View>
+          )}
+
+          {/* ── Clear Button ── */}
+          {days.length > 0 && (
+            <TouchableOpacity onPress={clearHistory}
+              style={{ paddingVertical: 14, alignItems: 'center', borderRadius: 16,
+                backgroundColor: isDark ? 'rgba(248,113,113,0.1)' : '#FFF0F0',
+                borderWidth: 1, borderColor: isDark ? 'rgba(248,113,113,0.2)' : '#FECACA',
+                marginBottom: 8 }}>
+              <Text style={{ color: '#F87171', fontSize: 13, fontWeight: '600' }}>Verlauf löschen</Text>
+            </TouchableOpacity>
+          )}
+
+        </Animated.View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const StatCell: React.FC<{ label: string; value: string; color: string }> = ({ label, value, color }) => (
+  <View style={{ alignItems: 'center' }}>
+    <Text style={{ fontSize: 13, fontWeight: '700', color }}>{value}</Text>
+    <Text style={{ fontSize: 9, color: 'rgba(128,128,128,0.6)', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{label}</Text>
+  </View>
+);

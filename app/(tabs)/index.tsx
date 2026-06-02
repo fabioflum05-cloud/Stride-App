@@ -684,6 +684,7 @@ export default function HomeScreen() {
                 { label: 'Erscheinungsbild', icon: '🎨', onPress: () => { closeMenu(); setTimeout(() => setThemePicker(true), 300); }},
                 { label: 'Mein Profil',       icon: '👤', onPress: () => { closeMenu(); router.push('/profile' as any); }},
                 { label: 'Abzeichen',         icon: '🏆', onPress: () => { closeMenu(); router.push('/achievements' as any); }},
+                { label: 'Verlauf', icon: '📊', onPress: () => { closeMenu(); router.push('/(tabs)/history' as any); }},
               ].map(item => (
                 <TouchableOpacity key={item.label} onPress={item.onPress} activeOpacity={0.7}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: cardBorder }}>
