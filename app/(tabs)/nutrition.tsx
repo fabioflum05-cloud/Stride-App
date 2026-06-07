@@ -150,7 +150,37 @@ async function analyzeWithAI(base64: string): Promise<Partial<FoodEntry> | null>
         contents: [{
           parts: [
             { inline_data: { mime_type: 'image/jpeg', data: base64 } },
-            { text: 'Analysiere diese Mahlzeit. Antworte NUR mit JSON:\n{"label":"Name","amount":300,"unit":"g","kcal":450,"protein":35,"carbs":40,"fat":12}' }
+            { text: `Du bist ein Ernährungsexperte. Analysiere diese Mahlzeit genau.
+Identifiziere alle sichtbaren Zutaten und schätze die Nährwerte so genau wie möglich.
+Antworte NUR mit validem JSON, kein Markdown:
+{
+  "label": "Name der Mahlzeit auf Deutsch",
+  "ingredients": "alle sichtbaren Zutaten",
+  "amount": 400,
+  "unit": "g",
+  "kcal": 650,
+  "protein": 35,
+  "carbs": 70,
+  "fat": 18,
+  "fiber": 4,
+  "sugar": 8,
+  "salt": 1.5,
+  "saturatedFat": 5,
+  "vitaminA": 120,
+  "vitaminB6": 0.4,
+  "vitaminB12": 1.2,
+  "vitaminC": 15,
+  "vitaminD": 1.5,
+  "vitaminE": 2,
+  "folate": 40,
+  "calcium": 80,
+  "iron": 3,
+  "magnesium": 45,
+  "zinc": 3,
+  "potassium": 450,
+  "phosphorus": 200,
+  "sodium": 600
+}` }
           ]
         }],
         generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
@@ -158,15 +188,13 @@ async function analyzeWithAI(base64: string): Promise<Partial<FoodEntry> | null>
     });
 
     const data = await response.json();
-    
+
     if (!response.ok) {
-      Alert.alert('API Fehler ' + response.status, JSON.stringify(data?.error?.message ?? data).slice(0, 200));
       return null;
     }
 
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     if (!text) {
-      Alert.alert('Leere Antwort', JSON.stringify(data).slice(0, 300));
       return null;
     }
 
@@ -174,14 +202,84 @@ async function analyzeWithAI(base64: string): Promise<Partial<FoodEntry> | null>
     const p = JSON.parse(cleaned);
 
     return {
-      label:  p.label  || 'KI-Analyse',
-      amount: p.amount || 100,
-      unit:   p.unit   || 'g',
-      source: 'ai',
-      macros: { kcal: p.kcal||0, protein: p.protein||0, carbs: p.carbs||0, fat: p.fat||0 },
+      label:   p.label       || 'KI-Analyse',
+      amount:  p.amount      || 100,
+      unit:    p.unit        || 'g',
+      source:  'ai',
+      macros: {
+        kcal:    p.kcal    || 0,
+        protein: p.protein || 0,
+        carbs:   p.carbs   || 0,
+        fat:     p.fat     || 0,
+      },
+      micros: {
+        fiber:        p.fiber        || undefined,
+        sugar:        p.sugar        || undefined,
+        salt:         p.salt         || undefined,
+        saturatedFat: p.saturatedFat || undefined,
+        vitaminA:     p.vitaminA     || undefined,
+        vitaminB6:    p.vitaminB6    || undefined,
+        vitaminB12:   p.vitaminB12   || undefined,
+        vitaminC:     p.vitaminC     || undefined,
+        vitaminD:     p.vitaminD     || undefined,
+        vitaminE:     p.vitaminE     || undefined,
+        folate:       p.folate       || undefined,
+        calcium:      p.calcium      || undefined,
+        iron:         p.iron         || undefined,
+        magnesium:    p.magnesium    || undefined,
+        zinc:         p.zinc         || undefined,
+        potassium:    p.potassium    || undefined,
+        phosphorus:   p.phosphorus   || undefined,
+        sodium:       p.sodium       || undefined,
+      },
     };
   } catch (e: any) {
-    Alert.alert('Catch Fehler', e?.message ?? String(e));
+    Alert.alert('Analyse fehlgeschlagen', e?.message ?? String(e));
+    return null;
+  }
+}
+async function generateDayReport(entries: FoodEntry[], goal: Macros): Promise<string | null> {
+  try {
+    const totals = sumMacros(entries);
+    const micros = sumMicros(entries);
+    
+    const prompt = `Du bist ein Ernährungscoach. Analysiere diesen Ernährungstag und schreibe einen kurzen, motivierenden Report auf Deutsch.
+
+Gegessen heute:
+${entries.map(e => `- ${e.label}: ${e.macros.kcal} kcal, ${e.macros.protein}g Protein`).join('\n')}
+
+Gesamte Makros: ${Math.round(totals.kcal)} kcal, ${Math.round(totals.protein)}g Protein, ${Math.round(totals.carbs)}g KH, ${Math.round(totals.fat)}g Fett
+Ziel: ${goal.kcal} kcal, ${goal.protein}g Protein
+
+Mikronährstoffe (% des Tagesbedarfs):
+- Magnesium: ${Math.round(((micros.magnesium||0)/375)*100)}%
+- Vitamin C: ${Math.round(((micros.vitaminC||0)/80)*100)}%
+- Calcium: ${Math.round(((micros.calcium||0)/1000)*100)}%
+- Eisen: ${Math.round(((micros.iron||0)/14)*100)}%
+- Vitamin D: ${Math.round(((micros.vitaminD||0)/20)*100)}%
+- Zink: ${Math.round(((micros.zinc||0)/10)*100)}%
+
+Schreibe einen Report mit:
+1. Kurze Bewertung des Tages (1-2 Sätze)
+2. Was gut war
+3. Was fehlt — mit konkreten Lebensmittelempfehlungen und warum es wichtig ist
+4. Ein motivierender Abschlusssatz
+
+Halte es kurz, direkt und hilfreich. Maximal 200 Wörter.`;
+
+    const response = await fetch(GEMINI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 512 }
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) return null;
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  } catch {
     return null;
   }
 }
@@ -256,7 +354,7 @@ function AddOptionsSheet({ onBarcode, onCamera, onGallery, onManual, onClose, lo
   const opts = [
     { label:'Barcode scannen', sub:'Verpacktes Produkt', onPress:onBarcode },
     { label:'Manuell',         sub:'Selbst eintragen', onPress:onManual },
-    { label:'KI-Foto', sub:'Mahlzeit fotografieren', onPress: () => { Alert.alert('KI-Foto getippt'); onCamera(); }, ai:true },
+    { label:'KI-Foto', sub:'Mahlzeit fotografieren', onPress: onCamera, ai:true },
 { label:'Aus Galerie', sub:'Foto aus Bibliothek', onPress: () => { Alert.alert('Galerie getippt'); onGallery(); }, ai:true },
   ];
   return (
@@ -714,6 +812,20 @@ export default function NutritionScreen() {
   const [prefill, setPrefill]                 = useState<Partial<FoodEntry>|undefined>();
   const [aiLoading, setAiLoading]             = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [showReport, setShowReport]   = useState(false);
+const [reportText, setReportText]   = useState('');
+const [reportLoading, setReportLoading] = useState(false);
+async function handleDayReport() {
+  if (dayLog.entries.length === 0) {
+    Alert.alert('Keine Einträge', 'Trage zuerst Mahlzeiten ein.');
+    return;
+  }
+  setReportLoading(true);
+  setShowReport(true);
+  const report = await generateDayReport(dayLog.entries, dayLog.goal);
+  setReportText(report || 'Konnte keinen Report generieren.');
+  setReportLoading(false);
+} 
 
   useFocusEffect(useCallback(() => {
     loadAll();
@@ -884,10 +996,15 @@ async function handlePhoto(fromCamera: boolean) {
                 <Text style={{fontSize:14,color:t.textSec,fontWeight:'600'}}>/100</Text>
                 <Text style={{fontSize:12,color:t.textSec,marginLeft:4}}>Nutrition Score</Text>
               </View>
-              <TouchableOpacity style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:5,marginBottom:6}} onPress={()=>setShowVerlauf(true)}>
-                <Svg width={11} height={11} viewBox="0 0 24 24" fill="none"><Path d="M3 3V21M3 17L9 11L13 15L21 7" stroke={t.text} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></Svg>
-                <Text style={{fontSize:10,fontWeight:'600',color:t.text}}>Verlauf</Text>
-              </TouchableOpacity>
+              <View style={{flexDirection:'row',gap:6}}>
+  <TouchableOpacity style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:5}} onPress={()=>setShowVerlauf(true)}>
+    <Svg width={11} height={11} viewBox="0 0 24 24" fill="none"><Path d="M3 3V21M3 17L9 11L13 15L21 7" stroke={t.text} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></Svg>
+    <Text style={{fontSize:10,fontWeight:'600',color:t.text}}>Verlauf</Text>
+  </TouchableOpacity>
+  <TouchableOpacity style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:5}} onPress={handleDayReport}>
+    <Text style={{fontSize:10,fontWeight:'600',color:t.text}}>📊 Report</Text>
+  </TouchableOpacity>
+</View>
             </View>
             <View style={{height:4,backgroundColor:'rgba(0,0,0,0.08)',borderRadius:2,overflow:'hidden'}}>
               <View style={{width:`${nutScore}%` as any,height:4,backgroundColor:nutCol,borderRadius:2}}/>
@@ -1076,6 +1193,30 @@ async function handlePhoto(fromCamera: boolean) {
 
       {showMacroDetail && <MacroDetailModal entries={dayLog.entries} goal={dayLog.goal} onClose={()=>setShowMacroDetail(false)}/>}
       {showMicroDetail && <MicroDetailModal entries={dayLog.entries} onClose={()=>setShowMicroDetail(false)}/>}
+        <Modal visible={showReport} transparent animationType="slide">
+  <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.5)',justifyContent:'flex-end'}}>
+    <View style={{backgroundColor:t.bg,borderTopLeftRadius:28,borderTopRightRadius:28,padding:24,maxHeight:'80%'}}>
+      <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <Text style={{fontSize:20,fontWeight:'800',color:t.text}}>📊 Tagesreport</Text>
+        <TouchableOpacity onPress={()=>setShowReport(false)}
+          style={{paddingHorizontal:12,paddingVertical:6,borderRadius:20,backgroundColor:'rgba(0,0,0,0.06)'}}>
+          <Text style={{color:t.textSec,fontWeight:'600'}}>Schliessen</Text>
+        </TouchableOpacity>
+      </View>
+      {reportLoading ? (
+        <View style={{alignItems:'center',paddingVertical:40,gap:14}}>
+          <ActivityIndicator size="large" color={t.greenDark}/>
+          <Text style={{color:t.textSec,fontSize:14}}>KI analysiert deinen Tag…</Text>
+        </View>
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <Text style={{fontSize:15,color:t.text,lineHeight:24}}>{reportText}</Text>
+          <View style={{height:40}}/>
+        </ScrollView>
+      )}
+    </View>
+  </View>
+</Modal>
     </View>
   );
 }
