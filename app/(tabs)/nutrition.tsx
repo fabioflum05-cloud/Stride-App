@@ -1,5 +1,4 @@
-const GEMINI_API_KEY = '';
-const USDA_API_KEY = '';
+// app/(tabs)/nutrition.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -11,10 +10,10 @@ import {
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle, Line, Path, Polyline, Text as SvgText } from 'react-native-svg';
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
 
 const W = Dimensions.get('window').width;
 
-// ─── Theme ────────────────────────────────────────────────────
 const t = {
   bg:        '#EEE8E0',
   card:      '#FFFFFF',
@@ -34,7 +33,6 @@ const t = {
   blue:      '#3A7AC0',
 };
 
-// ─── Types ────────────────────────────────────────────────────
 type Macros = { kcal: number; protein: number; carbs: number; fat: number };
 type Micros = {
   fiber?: number; sugar?: number; salt?: number; saturatedFat?: number;
@@ -50,9 +48,8 @@ type FoodEntry = {
 type DayLog = { date: string; entries: FoodEntry[]; goal: Macros; burned: number };
 
 const DEFAULT_GOAL: Macros = { kcal: 2000, protein: 150, carbs: 250, fat: 70 };
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-// ─── Helpers ──────────────────────────────────────────────────
 function getDateKey(offset = 0) {
   const d = new Date();
   d.setDate(d.getDate() + offset);
@@ -99,7 +96,6 @@ function sumMicros(entries: FoodEntry[]): Micros {
   return total;
 }
 
-// ─── Score Calculation ────────────────────────────────────────
 const MICRO_REFS: Record<string, number> = {
   fiber:30, sugar:50, salt:6, saturatedFat:20, vitaminA:800,
   vitaminB6:1.4, vitaminB12:2.4, vitaminC:80, vitaminD:20, vitaminE:12,
@@ -133,8 +129,8 @@ function calcKcalScore(entries: FoodEntry[], adjustedGoal: number): number {
 function calcNutritionScore(entries: FoodEntry[], goal: Macros, burned: number): number {
   const adjustedGoal = goal.kcal + burned;
   const kcal  = calcKcalScore(entries, adjustedGoal);
-  const macro  = calcMacroScore(entries, goal);
-  const micro  = calcMicroScore(entries);
+  const macro = calcMacroScore(entries, goal);
+  const micro = calcMicroScore(entries);
   return Math.round(kcal * 0.30 + macro * 0.40 + micro * 0.30);
 }
 function scoreColor(score: number): string {
@@ -143,120 +139,51 @@ function scoreColor(score: number): string {
   if (score >= 40) return t.orange;
   return t.red;
 }
-function scoreLabel(score: number): string {
-  if (score >= 80) return 'Optimal';
-  if (score >= 60) return 'Gut';
-  if (score >= 40) return 'Mässig';
-  if (score > 0)   return 'Schlecht';
-  return '—';
-}
 
-// ─── USDA + Gemini ────────────────────────────────────────────
-const USDA_IDS: Record<string, number> = {
-  vitaminA:1106, vitaminC:1162, vitaminD:1114, vitaminB12:1178,
-  vitaminB6:1175, vitaminE:1109, folate:1177, calcium:1087, iron:1089,
-  magnesium:1090, zinc:1095, potassium:1092, sodium:1093, phosphorus:1091,
-  fiber:1079, sugar:2000, saturatedFat:1258,
-};
-async function lookupUSDAMicros(name: string): Promise<Partial<Micros>> {
+// ─── AI Analysis ──────────────────────────────────────────────
+async function analyzeWithAI(base64: string): Promise<Partial<FoodEntry> | null> {
   try {
-    const r = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?query=${encodeURIComponent(name)}&dataType=Foundation,SR%20Legacy&pageSize=1&api_key=${USDA_API_KEY}`);
-    if (!r.ok) return {};
-    const d = await r.json();
-    const food = d.foods?.[0]; if (!food) return {};
-    const micros: Partial<Micros> = {};
-    const ns: any[] = food.foodNutrients || [];
-    for (const [k, id] of Object.entries(USDA_IDS)) {
-      const n = ns.find((n:any) => n.nutrientId === id);
-      if (n?.value > 0) (micros as any)[k] = Math.round(n.value * 10) / 10;
+    const response = await fetch(GEMINI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+            { text: 'Analysiere diese Mahlzeit. Antworte NUR mit JSON:\n{"label":"Name","amount":300,"unit":"g","kcal":450,"protein":35,"carbs":40,"fat":12}' }
+          ]
+        }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
+      })
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      Alert.alert('API Fehler ' + response.status, JSON.stringify(data?.error?.message ?? data).slice(0, 200));
+      return null;
     }
-    return micros;
-  } catch { return {}; }
-}
-async function geminiMicros(name: string, ingredients: string, macros: Macros): Promise<Partial<Micros>> {
-  try {
-    const prompt = `Produkt: ${name}\n${ingredients?`Zutaten: ${ingredients.substring(0,500)}`:''}
-Makros: ${macros.kcal}kcal, ${macros.protein}g Protein. Schätze Mikronährstoffe pro 100g. NUR JSON:
-{"vitaminA":0,"vitaminB6":0,"vitaminB12":0,"vitaminC":0,"vitaminD":0,"vitaminE":0,"folate":0,"calcium":0,"iron":0,"magnesium":0,"zinc":0,"potassium":0,"phosphorus":0,"sodium":0}`;
-    const r = await fetch(GEMINI_URL, { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:{temperature:0.1,maxOutputTokens:200} }) });
-    const d = await r.json();
-    const text = d.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const p = JSON.parse(text.replace(/```json|```/g,'').trim());
-    const res: Partial<Micros> = {};
-    for (const [k,v] of Object.entries(p)) if (typeof v==='number' && v>0) (res as any)[k]=v;
-    return res;
-  } catch { return {}; }
-}
-async function analyzeWithAI(base64: string): Promise<Partial<FoodEntry>|null> {
-  try {
-    const r = await fetch(GEMINI_URL, { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ contents:[{ parts:[
-        {inline_data:{mime_type:'image/jpeg',data:base64}},
-        {text:'Analysiere diese Mahlzeit. NUR JSON:\n{"label":"Name","amount":300,"unit":"g","kcal":450,"protein":35,"carbs":40,"fat":12,"fiber":4,"sugar":8,"salt":1.2,"saturatedFat":3,"vitaminC":15,"vitaminD":2,"calcium":80,"iron":2.5,"magnesium":35,"zinc":2,"potassium":400}'}
-      ]}], generationConfig:{temperature:0.1,maxOutputTokens:800} }) });
-    const d = await r.json();
-    const text = d.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    const p = JSON.parse(text.replace(/```json|```/g,'').trim());
+
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!text) {
+      Alert.alert('Leere Antwort', JSON.stringify(data).slice(0, 300));
+      return null;
+    }
+
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const p = JSON.parse(cleaned);
+
     return {
-      label:p.label||'KI-Analyse', amount:p.amount||100, unit:p.unit||'g', source:'ai',
-      macros:{kcal:p.kcal||0,protein:p.protein||0,carbs:p.carbs||0,fat:p.fat||0},
-      micros:{fiber:p.fiber||undefined,sugar:p.sugar||undefined,salt:p.salt||undefined,
-        saturatedFat:p.saturatedFat||undefined,vitaminC:p.vitaminC||undefined,
-        vitaminD:p.vitaminD||undefined,calcium:p.calcium||undefined,iron:p.iron||undefined,
-        magnesium:p.magnesium||undefined,zinc:p.zinc||undefined,potassium:p.potassium||undefined},
+      label:  p.label  || 'KI-Analyse',
+      amount: p.amount || 100,
+      unit:   p.unit   || 'g',
+      source: 'ai',
+      macros: { kcal: p.kcal||0, protein: p.protein||0, carbs: p.carbs||0, fat: p.fat||0 },
     };
-  } catch { return null; }
-}
-
-// ─── SVG Ring ─────────────────────────────────────────────────
-function KcalRing({ eaten, goal, burned }: { eaten: number; goal: number; burned: number }) {
-  const adjustedGoal = goal + burned;
-  const R = 88, SW = 16, CX = 105, CY = 105;
-  const CIRC = 2 * Math.PI * R;
-  const eatPct  = Math.min(0.98, adjustedGoal > 0 ? eaten / adjustedGoal : 0);
-  const burnPct = adjustedGoal > 0 ? Math.min(0.98 - eatPct, burned / adjustedGoal) : 0;
-  const eatDash  = eatPct * CIRC;
-  const burnDash = burnPct * CIRC;
-  // offsets: start at top (-90°), dashoffset = CIRC*0.25 for green
-  // red starts after green: offset = CIRC*0.25 - eatDash
-  const greenOffset = CIRC * 0.25;
-  const redOffset   = CIRC * 0.25 - eatDash;
-  const gapDash = 3;
-
-  return (
-    <Svg width={210} height={210} viewBox="0 0 210 210">
-      {/* Track */}
-      <Circle cx={CX} cy={CY} r={R} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth={SW}/>
-      {/* Eaten green */}
-      {eatPct > 0 && (
-        <Circle cx={CX} cy={CY} r={R} fill="none" stroke={t.greenDark} strokeWidth={SW}
-          strokeDasharray={`${eatDash} ${CIRC - eatDash}`}
-          strokeDashoffset={greenOffset}
-          strokeLinecap="butt"
-          transform={`rotate(-90 ${CX} ${CY})`}
-        />
-      )}
-      {/* Burned red */}
-      {burnPct > 0 && (
-        <Circle cx={CX} cy={CY} r={R} fill="none" stroke={t.red} strokeWidth={SW}
-          strokeDasharray={`${burnDash} ${CIRC - burnDash}`}
-          strokeDashoffset={redOffset}
-          strokeLinecap="butt"
-          transform={`rotate(-90 ${CX} ${CY})`}
-        />
-      )}
-      {/* Gap between segments */}
-      {eatPct > 0 && burnPct > 0 && (
-        <Circle cx={CX} cy={CY} r={R} fill="none" stroke={t.bg} strokeWidth={SW + 2}
-          strokeDasharray={`${gapDash} ${CIRC - gapDash}`}
-          strokeDashoffset={CIRC * 0.25 - eatDash + 1}
-          strokeLinecap="butt"
-          transform={`rotate(-90 ${CX} ${CY})`}
-        />
-      )}
-    </Svg>
-  );
+  } catch (e: any) {
+    Alert.alert('Catch Fehler', e?.message ?? String(e));
+    return null;
+  }
 }
 
 // ─── Barcode Scanner ──────────────────────────────────────────
@@ -276,18 +203,22 @@ function BarcodeScanner({ onResult, onClose }: { onResult:(f:Partial<FoodEntry>)
       clearTimeout(to);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const json = await r.json();
-      if (json.status !== 1 || !json.product) { Alert.alert('Nicht gefunden','Manuell eingeben.',[{text:'OK',onPress:()=>{ref.current=false;setScanned(false);setLoading(false);}}]); return; }
+      if (json.status !== 1 || !json.product) {
+        Alert.alert('Nicht gefunden','Manuell eingeben.',[{text:'OK',onPress:()=>{ref.current=false;setScanned(false);setLoading(false);}}]);
+        return;
+      }
       const p = json.product, n = p.nutriments||{};
       const v = (k:string) => { const val=n[`${k}_100g`]??n[`${k}_value`]??n[k]; return val!==undefined?Math.round(parseFloat(String(val))*10)/10:0; };
       const kcal = v('energy-kcal')||Math.round(v('energy')/4.184);
       const name = [p.brands,p.product_name].filter(Boolean).join(' – ')||'Unbekannt';
-      let micros: Micros = { fiber:v('fiber')||undefined, sugar:v('sugars')||undefined, salt:v('salt')||undefined, saturatedFat:v('saturated-fat')||undefined, calcium:v('calcium')||undefined, iron:v('iron')||undefined, magnesium:v('magnesium')||undefined, zinc:v('zinc')||undefined, potassium:v('potassium')||undefined, sodium:v('sodium')||undefined, vitaminC:v('vitamin-c')||undefined, vitaminD:v('vitamin-d')||undefined, vitaminA:v('vitamin-a')||undefined, vitaminB12:v('vitamin-b12')||undefined, vitaminB6:v('vitamin-b6')||undefined };
-      const usdaMicros = await lookupUSDAMicros(name);
-      micros = { ...usdaMicros, ...micros };
-      if (!micros.vitaminC && !micros.calcium && !micros.iron) {
-        const gm = await geminiMicros(name, p.ingredients_text||'', {kcal,protein:v('proteins'),carbs:v('carbohydrates'),fat:v('fat')});
-        micros = { ...gm, ...micros };
-      }
+      const micros: Micros = {
+        fiber: v('fiber')||undefined, sugar: v('sugars')||undefined,
+        salt: v('salt')||undefined, saturatedFat: v('saturated-fat')||undefined,
+        calcium: v('calcium')||undefined, iron: v('iron')||undefined,
+        magnesium: v('magnesium')||undefined, zinc: v('zinc')||undefined,
+        potassium: v('potassium')||undefined, sodium: v('sodium')||undefined,
+        vitaminC: v('vitamin-c')||undefined, vitaminD: v('vitamin-d')||undefined,
+      };
       onResult({ label:name, unit:'g', source:'barcode', macros:{kcal,protein:v('proteins'),carbs:v('carbohydrates'),fat:v('fat')}, micros });
     } catch (e:any) {
       Alert.alert('Fehler', e?.name==='AbortError'?'Zeitüberschreitung.':'Netzwerkfehler.',[{text:'OK',onPress:()=>{ref.current=false;setScanned(false);setLoading(false);}}]);
@@ -324,9 +255,9 @@ function AddOptionsSheet({ onBarcode, onCamera, onGallery, onManual, onClose, lo
 }) {
   const opts = [
     { label:'Barcode scannen', sub:'Verpacktes Produkt', onPress:onBarcode },
-    { label:'KI-Foto',         sub:'Foto analysieren lassen', onPress:onCamera, ai:true },
-    { label:'Aus Galerie',     sub:'Bild hochladen', onPress:onGallery, ai:true },
     { label:'Manuell',         sub:'Selbst eintragen', onPress:onManual },
+    { label:'KI-Foto', sub:'Mahlzeit fotografieren', onPress: () => { Alert.alert('KI-Foto getippt'); onCamera(); }, ai:true },
+{ label:'Aus Galerie', sub:'Foto aus Bibliothek', onPress: () => { Alert.alert('Galerie getippt'); onGallery(); }, ai:true },
   ];
   return (
     <View style={{flex:1,justifyContent:'flex-end',backgroundColor:'rgba(0,0,0,0.3)'}}>
@@ -334,13 +265,16 @@ function AddOptionsSheet({ onBarcode, onCamera, onGallery, onManual, onClose, lo
       <View style={{backgroundColor:t.bg,borderTopLeftRadius:28,borderTopRightRadius:28,padding:24,gap:10}}>
         <Text style={{fontSize:18,fontWeight:'800',color:t.text,letterSpacing:-0.4,marginBottom:4}}>Kalorien eintragen</Text>
         {opts.map(o => (
-          <TouchableOpacity key={o.label} style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingVertical:14,borderBottomWidth:0.5,borderBottomColor:t.border}} onPress={o.onPress} disabled={loading&&!!o.ai} activeOpacity={0.7}>
+          <TouchableOpacity key={o.label}
+            style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingVertical:14,borderBottomWidth:0.5,borderBottomColor:t.border}}
+            onPress={o.onPress} disabled={loading&&!!o.ai} activeOpacity={0.7}>
             <View>
               <Text style={{fontSize:15,fontWeight:'700',color:t.text,marginBottom:2}}>{o.label}</Text>
               <Text style={{fontSize:11,color:t.textSec}}>{o.sub}</Text>
             </View>
-            {loading && o.ai ? <ActivityIndicator size="small" color={t.textSec}/> :
-              <Svg width={13} height={13} viewBox="0 0 24 24" fill="none"><Path d="M9 18l6-6-6-6" stroke={t.textSec} strokeWidth={2.2} strokeLinecap="round"/></Svg>
+            {loading && o.ai
+              ? <ActivityIndicator size="small" color={t.textSec}/>
+              : <Svg width={13} height={13} viewBox="0 0 24 24" fill="none"><Path d="M9 18l6-6-6-6" stroke={t.textSec} strokeWidth={2.2} strokeLinecap="round"/></Svg>
             }
           </TouchableOpacity>
         ))}
@@ -369,35 +303,55 @@ function AddEntryModal({ prefill, onSave, onClose }: { prefill?:Partial<FoodEntr
   const [iron, setIron]       = useState('');
   const [magnesium, setMagnesium] = useState('');
   const base = prefill?.amount||100;
-  function scale(v:number) { const a=parseFloat(amount)||100; return Math.round((v/base)*a*10)/10; }
+
+  function scale(v:number) {
+    const a = parseFloat(amount)||100;
+    return Math.round((v/base)*a*10)/10;
+  }
   function save() {
     if (!label.trim()) { Alert.alert('Name fehlt'); return; }
     const amt = parseFloat(amount)||100;
     const entry: FoodEntry = {
-      id:Date.now().toString(), time:getTimeStr(), label:label.trim(), amount:amt,
-      unit:prefill?.unit||'g', source:prefill?.source||'manual',
-      macros: prefill ? { kcal:scale(prefill.macros?.kcal||0), protein:scale(prefill.macros?.protein||0), carbs:scale(prefill.macros?.carbs||0), fat:scale(prefill.macros?.fat||0) }
-                      : { kcal:parseFloat(kcal)||0, protein:parseFloat(protein)||0, carbs:parseFloat(carbs)||0, fat:parseFloat(fat)||0 },
-      micros: prefill?.micros || (fiber||sugar||salt||vitC||calcium ? { fiber:parseFloat(fiber)||undefined, sugar:parseFloat(sugar)||undefined, salt:parseFloat(salt)||undefined, vitaminC:parseFloat(vitC)||undefined, calcium:parseFloat(calcium)||undefined, iron:parseFloat(iron)||undefined, magnesium:parseFloat(magnesium)||undefined } : undefined),
+      id: Date.now().toString(), time: getTimeStr(), label: label.trim(), amount: amt,
+      unit: prefill?.unit||'g', source: prefill?.source||'manual',
+      macros: prefill
+        ? { kcal:scale(prefill.macros?.kcal||0), protein:scale(prefill.macros?.protein||0), carbs:scale(prefill.macros?.carbs||0), fat:scale(prefill.macros?.fat||0) }
+        : { kcal:parseFloat(kcal)||0, protein:parseFloat(protein)||0, carbs:parseFloat(carbs)||0, fat:parseFloat(fat)||0 },
+      micros: prefill?.micros || (fiber||sugar||salt||vitC||calcium
+        ? { fiber:parseFloat(fiber)||undefined, sugar:parseFloat(sugar)||undefined, salt:parseFloat(salt)||undefined, vitaminC:parseFloat(vitC)||undefined, calcium:parseFloat(calcium)||undefined, iron:parseFloat(iron)||undefined, magnesium:parseFloat(magnesium)||undefined }
+        : undefined),
     };
     onSave(entry);
   }
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':'height'} style={{flex:1,justifyContent:'flex-end'}}>
       <ScrollView style={{backgroundColor:t.bg,borderTopLeftRadius:28,borderTopRightRadius:28,maxHeight:'92%'}} contentContainerStyle={{padding:24,gap:12}} keyboardShouldPersistTaps="handled">
         <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
-          <Text style={{fontSize:18,fontWeight:'800',color:t.text,letterSpacing:-0.4}}>{prefill?.source==='barcode'?'Barcode':prefill?.source==='ai'?'KI-Analyse':'Manuell'}</Text>
-          <TouchableOpacity onPress={onClose}><Svg width={14} height={14} viewBox="0 0 24 24" fill="none"><Path d="M18 6L6 18M6 6L18 18" stroke={t.text} strokeWidth={2} strokeLinecap="round"/></Svg></TouchableOpacity>
+          <Text style={{fontSize:18,fontWeight:'800',color:t.text,letterSpacing:-0.4}}>
+            {prefill?.source==='barcode'?'Barcode':prefill?.source==='ai'?'KI-Analyse':'Manuell'}
+          </Text>
+          <TouchableOpacity onPress={onClose}>
+            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none"><Path d="M18 6L6 18M6 6L18 18" stroke={t.text} strokeWidth={2} strokeLinecap="round"/></Svg>
+          </TouchableOpacity>
         </View>
+
         <Text style={s.lbl}>Name</Text>
         <TextInput style={s.inp} value={label} onChangeText={setLabel} placeholder="z.B. Haferflocken" placeholderTextColor={t.textTer}/>
+
         <Text style={s.lbl}>{`Menge (${prefill?.unit||'g'})`}</Text>
         <TextInput style={s.inp} value={amount} onChangeText={setAmount} keyboardType="numeric" placeholderTextColor={t.textTer}/>
+
         {prefill ? (
           <View style={{backgroundColor:'rgba(58,122,192,0.08)',borderRadius:14,padding:14,gap:10}}>
-            <Text style={{color:t.blue,fontSize:11,fontWeight:'700',textTransform:'uppercase'}}>Nährstoffe für {amount||100}{prefill.unit||'g'}</Text>
+            <Text style={{color:t.blue,fontSize:11,fontWeight:'700',textTransform:'uppercase'}}>Nährwerte für {amount||100}{prefill.unit||'g'}</Text>
             <View style={{flexDirection:'row',justifyContent:'space-around'}}>
-              {[{l:'kcal',v:scale(prefill.macros?.kcal||0),c:'#D97706'},{l:'Protein',v:scale(prefill.macros?.protein||0),c:t.blue},{l:'KH',v:scale(prefill.macros?.carbs||0),c:t.green},{l:'Fett',v:scale(prefill.macros?.fat||0),c:t.fat}].map(m=>(
+              {[
+                {l:'kcal',v:scale(prefill.macros?.kcal||0),c:'#D97706'},
+                {l:'Protein',v:scale(prefill.macros?.protein||0),c:t.blue},
+                {l:'KH',v:scale(prefill.macros?.carbs||0),c:t.green},
+                {l:'Fett',v:scale(prefill.macros?.fat||0),c:t.fat},
+              ].map(m=>(
                 <View key={m.l} style={{alignItems:'center'}}>
                   <Text style={{color:m.c,fontSize:18,fontWeight:'800'}}>{m.v}</Text>
                   <Text style={{color:t.textSec,fontSize:9,textTransform:'uppercase'}}>{m.l}</Text>
@@ -438,6 +392,7 @@ function AddEntryModal({ prefill, onSave, onClose }: { prefill?:Partial<FoodEntr
             )}
           </View>
         )}
+
         <TouchableOpacity style={s.darkBtn} onPress={save}><Text style={s.darkBtnTxt}>Hinzufügen</Text></TouchableOpacity>
         <TouchableOpacity style={{padding:14,alignItems:'center'}} onPress={onClose}><Text style={{color:t.textSec}}>Abbrechen</Text></TouchableOpacity>
         <View style={{height:20}}/>
@@ -530,11 +485,6 @@ function MealDetailModal({ meal, entries, onDelete, onClose, onAdd }: {
 // ─── Macro Detail Modal ───────────────────────────────────────
 function MacroDetailModal({ entries, goal, onClose }: { entries:FoodEntry[]; goal:Macros; onClose:()=>void }) {
   const tot = sumMacros(entries);
-  const items = [
-    {l:'Protein',v:tot.protein,g:goal.protein,c:t.blue},
-    {l:'Kohlenhydrate',v:tot.carbs,g:goal.carbs,c:t.carbs},
-    {l:'Fett',v:tot.fat,g:goal.fat,c:t.fat},
-  ];
   return (
     <Modal visible animationType="slide">
       <View style={{flex:1,backgroundColor:t.bg}}>
@@ -548,7 +498,7 @@ function MacroDetailModal({ entries, goal, onClose }: { entries:FoodEntry[]; goa
           </View>
         </View>
         <ScrollView contentContainerStyle={{padding:20}}>
-          {items.map(item=>{
+          {[{l:'Protein',v:tot.protein,g:goal.protein,c:t.blue},{l:'Kohlenhydrate',v:tot.carbs,g:goal.carbs,c:t.carbs},{l:'Fett',v:tot.fat,g:goal.fat,c:t.fat}].map(item=>{
             const pct = Math.min(100, item.g > 0 ? (item.v/item.g)*100 : 0);
             return (
               <View key={item.l} style={{marginBottom:24}}>
@@ -618,88 +568,47 @@ function MicroDetailModal({ entries, onClose }: { entries:FoodEntry[]; onClose:(
   );
 }
 
-// ─── Nutrition Score Verlauf Screen ───────────────────────────
+// ─── Nutrition Score Verlauf ──────────────────────────────────
 type Range = '1W'|'2W'|'1M'|'2M'|'6M'|'1J'|'2J'|'Alles';
 const RANGES: Range[] = ['1W','2W','1M','2M','6M','1J','2J','Alles'];
 
 function NutriVerlaufScreen({ onClose, allLogs }: { onClose:()=>void; allLogs: Record<string,DayLog> }) {
   const [range, setRange] = useState<Range>('1W');
-
-  // Build chart data from logs
-  function buildData(): { label:string; score:number; kcal:number; macro:number; micro:number }[] {
+  function buildData() {
     const today = new Date();
     let days = 7;
-    if (range==='2W') days=14;
-    else if (range==='1M') days=30;
-    else if (range==='2M') days=60;
-    else if (range==='6M') days=180;
-    else if (range==='1J') days=365;
-    else if (range==='2J') days=730;
-    else if (range==='Alles') days=730;
-
+    if (range==='2W') days=14; else if (range==='1M') days=30; else if (range==='2M') days=60;
+    else if (range==='6M') days=180; else if (range==='1J') days=365; else days=730;
     const result = [];
     for (let i = days-1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
+      const d = new Date(today); d.setDate(d.getDate() - i);
       const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const log = allLogs[key];
       const entries = log?.entries || [];
       const goal = log?.goal || DEFAULT_GOAL;
       const burned = log?.burned || 0;
-      const score = calcNutritionScore(entries, goal, burned);
-      const macro = calcMacroScore(entries, goal);
-      const micro = calcMicroScore(entries);
-      const kcal  = calcKcalScore(entries, goal.kcal + burned);
-      // label: show day of week for <=14, date for more
-      const lbl = days <= 14
-        ? ['So','Mo','Di','Mi','Do','Fr','Sa'][d.getDay()]
-        : days <= 60
-          ? `${d.getDate()}.${d.getMonth()+1}`
-          : `${d.getMonth()+1}.${String(d.getFullYear()).slice(2)}`;
-      result.push({ label:lbl, score, kcal, macro, micro });
+      const lbl = days <= 14 ? ['So','Mo','Di','Mi','Do','Fr','Sa'][d.getDay()] : days <= 60 ? `${d.getDate()}.${d.getMonth()+1}` : `${d.getMonth()+1}.${String(d.getFullYear()).slice(2)}`;
+      result.push({ label:lbl, score:calcNutritionScore(entries,goal,burned), kcal:calcKcalScore(entries,goal.kcal+burned), macro:calcMacroScore(entries,goal), micro:calcMicroScore(entries) });
     }
     return result;
   }
-
   const data = buildData();
   const scores = data.map(d => d.score);
   const avgScore = data.length > 0 ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length) : 0;
-  const maxScore = Math.max(...scores, 1);
-  const minScore = Math.min(...scores);
-
-  // chart dims
-  const chartW = W - 64;
-  const chartH = 120;
-  const padL = 28, padB = 18, padT = 16;
-  const plotW = chartW - padL;
-  const plotH = chartH - padB - padT;
-
-  // Determine which points to show labels (avoid crowding)
+  const chartW = W - 64, chartH = 120, padL = 28, padB = 18, padT = 16;
+  const plotW = chartW - padL, plotH = chartH - padB - padT;
   const step = data.length > 30 ? Math.ceil(data.length/8) : data.length > 14 ? 2 : 1;
-
-  // Build polyline points
-  const points = data.map((d,i) => {
-    const x = padL + (i / (data.length-1||1)) * plotW;
-    const y = padT + plotH - ((d.score / 100) * plotH);
-    return { x, y, ...d };
-  });
+  const points = data.map((d,i) => ({ x: padL + (i/(data.length-1||1))*plotW, y: padT + plotH - ((d.score/100)*plotH), ...d }));
   const polyline = points.map(p=>`${p.x},${p.y}`).join(' ');
-
-  // Best/Worst
+  const col = scoreColor(avgScore);
   let bestIdx = 0, worstIdx = 0;
   scores.forEach((s,i) => { if(s>scores[bestIdx]) bestIdx=i; if(s<scores[worstIdx]) worstIdx=i; });
-
-  // Week comparison
-  const lastWeekScores = data.slice(0,7).map(d=>d.score);
-  const thisWeekScores = data.slice(-7).map(d=>d.score);
-  const lastAvg = lastWeekScores.length ? Math.round(lastWeekScores.reduce((a,b)=>a+b,0)/lastWeekScores.length) : 0;
-  const thisAvg = thisWeekScores.length ? Math.round(thisWeekScores.reduce((a,b)=>a+b,0)/thisWeekScores.length) : 0;
+  const thisAvg = Math.round(data.slice(-7).reduce((a,d)=>a+d.score,0)/Math.min(7,data.length));
+  const lastAvg = Math.round(data.slice(0,7).reduce((a,d)=>a+d.score,0)/Math.min(7,data.length));
   const delta = thisAvg - lastAvg;
-  const col = scoreColor(avgScore);
 
   return (
     <View style={{flex:1,backgroundColor:t.bg}}>
-      {/* Header */}
       <View style={{paddingTop:56,paddingHorizontal:20,paddingBottom:14,borderBottomWidth:0.5,borderBottomColor:t.border,flexDirection:'row',alignItems:'center',gap:12}}>
         <TouchableOpacity style={s.navBtn} onPress={onClose}>
           <Svg width={13} height={13} viewBox="0 0 24 24" fill="none"><Path d="M15 18l-6-6 6-6" stroke={t.text} strokeWidth={2.2} strokeLinecap="round"/></Svg>
@@ -709,9 +618,7 @@ function NutriVerlaufScreen({ onClose, allLogs }: { onClose:()=>void; allLogs: R
           <Text style={{fontSize:20,fontWeight:'800',color:t.text,letterSpacing:-0.5}}>Performance</Text>
         </View>
       </View>
-
       <ScrollView showsVerticalScrollIndicator={false}>
-        {/* Range Selector */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:6,paddingHorizontal:16,paddingVertical:14,flexDirection:'row'}}>
           {RANGES.map(r=>(
             <TouchableOpacity key={r} style={{backgroundColor:range===r?t.text:'rgba(0,0,0,0.06)',borderRadius:20,paddingHorizontal:14,paddingVertical:6}} onPress={()=>setRange(r)}>
@@ -719,85 +626,43 @@ function NutriVerlaufScreen({ onClose, allLogs }: { onClose:()=>void; allLogs: R
             </TouchableOpacity>
           ))}
         </ScrollView>
-
-        {/* Big score */}
         <View style={{paddingHorizontal:20,paddingBottom:16}}>
           <View style={{flexDirection:'row',alignItems:'baseline',gap:5,marginBottom:4}}>
             <Text style={{fontSize:52,fontWeight:'800',color:col,letterSpacing:-3,lineHeight:52}}>{avgScore||'—'}</Text>
             <Text style={{fontSize:15,color:t.textSec,fontWeight:'600'}}>/100</Text>
           </View>
-          <View style={{flexDirection:'row',alignItems:'center',gap:8}}>
-            <Text style={{fontSize:11,color:t.textSec}}>Ø {range}</Text>
-            {delta !== 0 && (
+          {delta !== 0 && (
+            <View style={{flexDirection:'row',alignItems:'center',gap:8}}>
+              <Text style={{fontSize:11,color:t.textSec}}>Ø {range}</Text>
               <View style={{backgroundColor:delta>0?'rgba(34,197,94,0.1)':'rgba(192,57,43,0.1)',borderRadius:20,paddingHorizontal:8,paddingVertical:3}}>
                 <Text style={{fontSize:10,fontWeight:'700',color:delta>0?t.green:t.red}}>{delta>0?'↑':'↓'} {delta>0?'+':''}{delta} vs. vorher</Text>
               </View>
-            )}
-          </View>
+            </View>
+          )}
         </View>
-
         <View style={{height:0.5,backgroundColor:t.border,marginHorizontal:20,marginBottom:16}}/>
-
-        {/* Chart */}
         <View style={{paddingHorizontal:20,marginBottom:16}}>
           <Text style={{fontSize:9,fontWeight:'700',letterSpacing:1.5,textTransform:'uppercase',color:t.textSec,marginBottom:12}}>Nutrition Score · {range}</Text>
           <Svg width={chartW} height={chartH}>
-            {/* Y grid */}
-            {[20,40,60,80,100].map(v=>{
-              const y = padT + plotH - ((v/100)*plotH);
-              return (
-                <Line key={v} x1={padL} y1={y} x2={chartW} y2={y} stroke="rgba(0,0,0,0.06)" strokeWidth={0.5}/>
-              );
-            })}
-            {/* Y labels */}
-            {[20,60,100].map(v=>{
-              const y = padT + plotH - ((v/100)*plotH);
-              return <SvgText key={v} x={0} y={y+3} fontSize={8} fill={t.textSec}>{v}</SvgText>;
-            })}
-            {/* Area */}
-            {points.length > 1 && (
-              <Path
-                d={`M${points[0].x},${padT+plotH} L${points.map(p=>`${p.x},${p.y}`).join(' L')} L${points[points.length-1].x},${padT+plotH} Z`}
-                fill={`${col}15`}
-              />
-            )}
-            {/* Line */}
-            {points.length > 1 && (
-              <Polyline points={polyline} fill="none" stroke={col} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
-            )}
-            {/* Dots + labels (selective) */}
+            {[20,40,60,80,100].map(v=>{ const y = padT + plotH - ((v/100)*plotH); return <Line key={v} x1={padL} y1={y} x2={chartW} y2={y} stroke="rgba(0,0,0,0.06)" strokeWidth={0.5}/>; })}
+            {[20,60,100].map(v=>{ const y = padT + plotH - ((v/100)*plotH); return <SvgText key={v} x={0} y={y+3} fontSize={8} fill={t.textSec}>{v}</SvgText>; })}
+            {points.length > 1 && <Path d={`M${points[0].x},${padT+plotH} L${points.map(p=>`${p.x},${p.y}`).join(' L')} L${points[points.length-1].x},${padT+plotH} Z`} fill={`${col}15`}/>}
+            {points.length > 1 && <Polyline points={polyline} fill="none" stroke={col} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>}
             {points.map((p,i)=>{
-              const isToday = i === points.length-1;
-              const showLabel = i%step===0 || isToday;
+              const isT = i===points.length-1;
               return (
                 <>
-                  {isToday ? (
-                    <>
-                      <Circle key={`oc${i}`} cx={p.x} cy={p.y} r={5} fill={col}/>
-                      <Circle key={`ic${i}`} cx={p.x} cy={p.y} r={2.5} fill={t.bg}/>
-                    </>
-                  ) : (
-                    <Circle key={`c${i}`} cx={p.x} cy={p.y} r={2.5} fill={col}/>
-                  )}
-                  {showLabel && (
-                    <SvgText key={`xl${i}`} x={p.x} y={chartH} fontSize={8} fill={isToday?t.text:t.textSec} textAnchor="middle" fontWeight={isToday?'700':'400'}>{p.label}</SvgText>
-                  )}
+                  {isT ? (<><Circle key={`oc${i}`} cx={p.x} cy={p.y} r={5} fill={col}/><Circle key={`ic${i}`} cx={p.x} cy={p.y} r={2.5} fill={t.bg}/></>) : (<Circle key={`c${i}`} cx={p.x} cy={p.y} r={2.5} fill={col}/>)}
+                  {(i%step===0||isT) && <SvgText key={`xl${i}`} x={p.x} y={chartH} fontSize={8} fill={isT?t.text:t.textSec} textAnchor="middle" fontWeight={isT?'700':'400'}>{p.label}</SvgText>}
                 </>
               );
             })}
           </Svg>
         </View>
-
         <View style={{height:0.5,backgroundColor:t.border,marginHorizontal:20,marginBottom:16}}/>
-
-        {/* Breakdown bars */}
         <View style={{paddingHorizontal:20,marginBottom:16}}>
           <Text style={{fontSize:9,fontWeight:'700',letterSpacing:1.5,textTransform:'uppercase',color:t.textSec,marginBottom:14}}>Aufschlüsselung</Text>
-          {[
-            {l:'Kalorien',val:Math.round(data.reduce((a,d)=>a+d.kcal,0)/(data.length||1)),c:t.greenDark},
-            {l:'Makros',val:Math.round(data.reduce((a,d)=>a+d.macro,0)/(data.length||1)),c:t.blue},
-            {l:'Mikros',val:Math.round(data.reduce((a,d)=>a+d.micro,0)/(data.length||1)),c:t.orange},
-          ].map(item=>(
+          {[{l:'Kalorien',val:Math.round(data.reduce((a,d)=>a+d.kcal,0)/(data.length||1)),c:t.greenDark},{l:'Makros',val:Math.round(data.reduce((a,d)=>a+d.macro,0)/(data.length||1)),c:t.blue},{l:'Mikros',val:Math.round(data.reduce((a,d)=>a+d.micro,0)/(data.length||1)),c:t.orange}].map(item=>(
             <View key={item.l} style={{marginBottom:14}}>
               <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
                 <Text style={{fontSize:13,fontWeight:'600',color:t.text}}>{item.l}</Text>
@@ -809,10 +674,7 @@ function NutriVerlaufScreen({ onClose, allLogs }: { onClose:()=>void; allLogs: R
             </View>
           ))}
         </View>
-
         <View style={{height:0.5,backgroundColor:t.border,marginHorizontal:20,marginBottom:16}}/>
-
-        {/* Best / Worst */}
         <View style={{paddingHorizontal:20,marginBottom:40}}>
           <Text style={{fontSize:9,fontWeight:'700',letterSpacing:1.5,textTransform:'uppercase',color:t.textSec,marginBottom:12}}>Highlights</Text>
           <View style={{flexDirection:'row',gap:10}}>
@@ -860,7 +722,6 @@ export default function NutritionScreen() {
   },[]));
 
   async function loadAll() {
-    // Load all stored logs for verlauf
     const logs: Record<string,DayLog> = {};
     for (let i = 0; i < 730; i++) {
       const key = getDateKey(-i);
@@ -876,7 +737,6 @@ export default function NutritionScreen() {
     const raw = await AsyncStorage.getItem(`nutrition_${key}`);
     const rawGoal = await AsyncStorage.getItem('nutritionGoal');
     let goal = rawGoal ? JSON.parse(rawGoal) : DEFAULT_GOAL;
-    // Adjust from profile
     const rawProfile = await AsyncStorage.getItem('profile');
     if (rawProfile) {
       const prof = JSON.parse(rawProfile);
@@ -884,15 +744,12 @@ export default function NutritionScreen() {
       if (prof.goal==='Masse aufbauen') { goal.protein=Math.round(bw*2.2); goal.kcal=Math.round(bw*40); }
       else if (prof.goal==='Fett verlieren') { goal.protein=Math.round(bw*2.0); goal.kcal=Math.round(bw*28); }
     }
-    // Get burned from workouts for this day
     const rawWorkouts = await AsyncStorage.getItem('workouts');
     let burned = 0;
     if (rawWorkouts) {
       const ws = JSON.parse(rawWorkouts);
       const dayKey = getDateKey(offset);
-      ws.forEach((w:any) => {
-        if (w.date?.startsWith(dayKey) && w.caloriesBurned) burned += w.caloriesBurned;
-      });
+      ws.forEach((w:any) => { if (w.date?.startsWith(dayKey) && w.caloriesBurned) burned += w.caloriesBurned; });
     }
     if (raw) setDayLog({...JSON.parse(raw), goal, burned});
     else setDayLog({date:key, entries:[], goal, burned});
@@ -915,7 +772,10 @@ export default function NutritionScreen() {
 
   async function addEntry(entry: FoodEntry) {
     await saveDay([...dayLog.entries, entry]);
-    setPrefill(undefined); setShowAddModal(false); setShowScanner(false); setShowAddSheet(false);
+    setPrefill(undefined);
+    setShowAddModal(false);
+    setShowScanner(false);
+    setShowAddSheet(false);
   }
 
   async function deleteEntry(id: string) {
@@ -925,18 +785,32 @@ export default function NutritionScreen() {
     ]);
   }
 
-  async function handlePhoto(fromCamera: boolean) {
-    setShowAddSheet(false);
+async function handlePhoto(fromCamera: boolean) {
+  setShowAddSheet(false);
+  await new Promise(resolve => setTimeout(resolve, 600));
+
+  try {
     const result = fromCamera
-      ? await ImagePicker.launchCameraAsync({base64:true,quality:0.7})
-      : await ImagePicker.launchImageLibraryAsync({mediaTypes:ImagePicker.MediaTypeOptions.Images,base64:true,quality:0.7});
-    if (result.canceled||!result.assets[0].base64) return;
+      ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.4 })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'] as any,
+          base64: true,
+          quality: 0.4,
+        });
+
+    if (result.canceled || !result.assets?.[0]?.base64) return;
+
     setAiLoading(true);
     const food = await analyzeWithAI(result.assets[0].base64);
+    if (!food) { Alert.alert('Fehler', 'KI Analyse fehlgeschlagen.'); return; }
+    setPrefill(food);
+    setShowAddModal(true);
+  } catch (e: any) {
+    Alert.alert('Fehler', e?.message ?? 'Unbekannt');
+  } finally {
     setAiLoading(false);
-    if (!food) { Alert.alert('Analyse fehlgeschlagen','Versuche ein klareres Bild.'); return; }
-    setPrefill(food); setShowAddModal(true);
   }
+}
 
   async function saveGoals(g: Macros) {
     await AsyncStorage.setItem('nutritionGoal', JSON.stringify(g));
@@ -944,21 +818,19 @@ export default function NutritionScreen() {
     setShowGoals(false);
   }
 
-  // Computed values
-  const totals      = sumMacros(dayLog.entries);
+  const totals       = sumMacros(dayLog.entries);
   const adjustedGoal = dayLog.goal.kcal + dayLog.burned;
-  const kcalLeft    = adjustedGoal - totals.kcal;
-  const nutScore    = calcNutritionScore(dayLog.entries, dayLog.goal, dayLog.burned);
-  const macScore    = calcMacroScore(dayLog.entries, dayLog.goal);
-  const micScore    = calcMicroScore(dayLog.entries);
-  const nutCol      = scoreColor(nutScore);
-  const macCol      = scoreColor(macScore);
-  const micCol      = scoreColor(micScore);
+  const kcalLeft     = adjustedGoal - totals.kcal;
+  const nutScore     = calcNutritionScore(dayLog.entries, dayLog.goal, dayLog.burned);
+  const macScore     = calcMacroScore(dayLog.entries, dayLog.goal);
+  const micScore     = calcMicroScore(dayLog.entries);
+  const nutCol       = scoreColor(nutScore);
+  const macCol       = scoreColor(macScore);
+  const micCol       = scoreColor(micScore);
 
   const mealGroups: Record<MealSlot,FoodEntry[]> = { Frühstück:[], Mittagessen:[], Abendessen:[], Snacks:[] };
   dayLog.entries.forEach(e => { const slot=getMealSlot(e.time); mealGroups[slot].push(e); });
 
-  // Micro status dots
   const micros = sumMicros(dayLog.entries);
   const microKeys = ['vitaminC','vitaminD','calcium','iron','magnesium','zinc'];
   const microDots = microKeys.map(k => {
@@ -1022,13 +894,20 @@ export default function NutritionScreen() {
             </View>
           </View>
 
-          {/* DIVIDER */}
           <View style={{height:0.5,backgroundColor:t.border,marginBottom:20}}/>
 
           {/* KALORIENRING */}
           <View style={{alignItems:'center',marginBottom:16}}>
             <View style={{position:'relative',width:210,height:210,marginBottom:14}}>
-              <KcalRing eaten={totals.kcal} goal={dayLog.goal.kcal} burned={dayLog.burned}/>
+              <Svg width={210} height={210} viewBox="0 0 210 210">
+                <Circle cx={105} cy={105} r={88} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth={16}/>
+                {totals.kcal > 0 && (
+                  <Circle cx={105} cy={105} r={88} fill="none" stroke={t.greenDark} strokeWidth={16}
+                    strokeDasharray={`${Math.min(0.98, adjustedGoal > 0 ? totals.kcal/adjustedGoal : 0) * 2 * Math.PI * 88} ${2 * Math.PI * 88}`}
+                    strokeDashoffset={2 * Math.PI * 88 * 0.25} strokeLinecap="butt"
+                    transform="rotate(-90 105 105)"/>
+                )}
+              </Svg>
               <View style={{position:'absolute',top:0,left:0,right:0,bottom:0,alignItems:'center',justifyContent:'center',gap:3}}>
                 <Text style={{fontSize:44,fontWeight:'800',color:t.text,letterSpacing:-2.5,lineHeight:44}}>{Math.round(totals.kcal)||'—'}</Text>
                 <Text style={{fontSize:10,color:t.textSec,fontWeight:'500'}}>von {adjustedGoal} kcal</Text>
@@ -1039,8 +918,6 @@ export default function NutritionScreen() {
                 )}
               </View>
             </View>
-
-            {/* 3 stats */}
             <View style={{flexDirection:'row',width:'100%'}}>
               <View style={{flex:1,alignItems:'center',borderRightWidth:0.5,borderRightColor:t.border}}>
                 <Text style={{fontSize:17,fontWeight:'800',color:t.greenDark,letterSpacing:-0.5,marginBottom:2}}>{Math.round(Math.max(0,kcalLeft))}</Text>
@@ -1051,23 +928,20 @@ export default function NutritionScreen() {
                 <Text style={{fontSize:8,color:t.textSec,textTransform:'uppercase',letterSpacing:0.8}}>Basis-Ziel</Text>
               </View>
               <View style={{flex:1,alignItems:'center'}}>
-                <View style={{flexDirection:'row',alignItems:'center',gap:4,marginBottom:2}}>
-                  {dayLog.burned > 0 && <View style={{width:5,height:5,borderRadius:3,backgroundColor:t.red}}/>}
-                  <Text style={{fontSize:17,fontWeight:'800',color:dayLog.burned>0?t.red:t.textTer,letterSpacing:-0.5}}>{dayLog.burned||'—'}</Text>
-                </View>
+                <Text style={{fontSize:17,fontWeight:'800',color:dayLog.burned>0?t.red:t.textTer,letterSpacing:-0.5,marginBottom:2}}>{dayLog.burned||'—'}</Text>
                 <Text style={{fontSize:8,color:t.textSec,textTransform:'uppercase',letterSpacing:0.8}}>Verbrannt</Text>
               </View>
             </View>
           </View>
 
           {/* MAKROS */}
-          <View style={{flexDirection:'row',gap:0,marginBottom:20}}>
+          <View style={{flexDirection:'row',marginBottom:20}}>
             {[
               {l:'Protein',v:Math.round(totals.protein),g:dayLog.goal.protein,c:t.blue},
               {l:'Carbs',v:Math.round(totals.carbs),g:dayLog.goal.carbs,c:t.carbs},
               {l:'Fett',v:Math.round(totals.fat),g:dayLog.goal.fat,c:t.fat},
             ].map((m,i)=>(
-              <View key={m.l} style={{flex:1,paddingHorizontal:0,borderRightWidth:i<2?0.5:0,borderRightColor:t.border,paddingRight:i<2?12:0,paddingLeft:i>0?12:0}}>
+              <View key={m.l} style={{flex:1,borderRightWidth:i<2?0.5:0,borderRightColor:t.border,paddingRight:i<2?12:0,paddingLeft:i>0?12:0}}>
                 <Text style={{fontSize:14,fontWeight:'800',color:m.c,marginBottom:2}}>{m.v}g</Text>
                 <View style={{height:2,backgroundColor:`${m.c}20`,borderRadius:1,overflow:'hidden',marginBottom:3}}>
                   <View style={{width:`${Math.min(100,(m.v/m.g)*100)}%` as any,height:2,backgroundColor:m.c,borderRadius:1}}/>
@@ -1077,10 +951,9 @@ export default function NutritionScreen() {
             ))}
           </View>
 
-          {/* DIVIDER */}
           <View style={{height:0.5,backgroundColor:t.border,marginBottom:16}}/>
 
-          {/* MACRO SCORE ROW */}
+          {/* MACRO SCORE */}
           <TouchableOpacity style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingVertical:4,marginBottom:16}} onPress={()=>setShowMacroDetail(true)} activeOpacity={0.7}>
             <View>
               <Text style={{fontSize:13,fontWeight:'700',color:t.text,marginBottom:3}}>Makros</Text>
@@ -1105,10 +978,9 @@ export default function NutritionScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* DIVIDER */}
           <View style={{height:0.5,backgroundColor:t.border,marginBottom:16}}/>
 
-          {/* MICRO SCORE ROW */}
+          {/* MICRO SCORE */}
           <TouchableOpacity style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingVertical:4,marginBottom:20}} onPress={()=>setShowMicroDetail(true)} activeOpacity={0.7}>
             <View>
               <Text style={{fontSize:13,fontWeight:'700',color:t.text,marginBottom:3}}>Mikros</Text>
@@ -1129,7 +1001,6 @@ export default function NutritionScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* DIVIDER */}
           <View style={{height:0.5,backgroundColor:t.border,marginBottom:16}}/>
 
           {/* MAHLZEITEN */}
@@ -1156,6 +1027,17 @@ export default function NutritionScreen() {
           <View style={{height:100}}/>
         </Animated.View>
       </ScrollView>
+
+      {/* AI Loading Overlay */}
+      {aiLoading && (
+        <View style={{position:'absolute',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.6)',alignItems:'center',justifyContent:'center'}}>
+          <View style={{backgroundColor:t.card,borderRadius:20,padding:28,alignItems:'center',gap:14,minWidth:200}}>
+            <ActivityIndicator size="large" color={t.greenDark}/>
+            <Text style={{fontSize:15,fontWeight:'700',color:t.text}}>KI analysiert Mahlzeit…</Text>
+            <Text style={{fontSize:12,color:t.textSec,textAlign:'center'}}>Das dauert ein paar Sekunden</Text>
+          </View>
+        </View>
+      )}
 
       {/* ADD SHEET */}
       <Modal visible={showAddSheet} transparent animationType="slide">
@@ -1192,16 +1074,12 @@ export default function NutritionScreen() {
         />
       )}
 
-      {/* MACRO DETAIL */}
       {showMacroDetail && <MacroDetailModal entries={dayLog.entries} goal={dayLog.goal} onClose={()=>setShowMacroDetail(false)}/>}
-
-      {/* MICRO DETAIL */}
       {showMicroDetail && <MicroDetailModal entries={dayLog.entries} onClose={()=>setShowMicroDetail(false)}/>}
     </View>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────
 const s = StyleSheet.create({
   center:     { flex:1, backgroundColor:t.bg, alignItems:'center', justifyContent:'center', padding:24 },
   ey:         { fontSize:9, fontWeight:'700', letterSpacing:2, textTransform:'uppercase', color:t.textSec },

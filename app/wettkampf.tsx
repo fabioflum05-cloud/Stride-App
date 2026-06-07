@@ -7,16 +7,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useState } from 'react';
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 // ─── Colours (lokal) ─────────────────────────────────────────────────────────
@@ -892,3 +892,4 @@ const ms = StyleSheet.create({
     borderColor: C.border,
   },
 });
+export default WettkampfModal;
