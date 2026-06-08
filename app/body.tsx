@@ -1,10 +1,10 @@
 import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Defs, Ellipse, G, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 import { theme } from '../constants/theme';
-
 type MuscleState = { level: number; lastTrained: string | null; };
 type MuscleMap = Record<string, MuscleState>;
 
@@ -328,41 +328,49 @@ export default function BodyScreen() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
 
-  useEffect(() => {
-    load();
-    fadeAnim.setValue(0);
-    slideAnim.setValue(20);
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
-    ]).start();
-  }, []);
+  useFocusEffect(useCallback(() => {
+  load();
+  fadeAnim.setValue(0);
+  slideAnim.setValue(20);
+  Animated.parallel([
+    Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+    Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 60, friction: 10 }),
+  ]).start();
+}, []));
 
   async function load() {
-    const rawWorkouts = await AsyncStorage.getItem('workouts');
-    if (!rawWorkouts) {
-      const def: MuscleMap = {};
-      MUSCLES.forEach(m => { def[m] = { level: 100, lastTrained: null }; });
-      setMuscles(def);
-      return;
-    }
-    const workouts = JSON.parse(rawWorkouts);
-    const lastTrainedMap: Record<string, string> = {};
-    workouts.forEach((w: any) => {
-      w.exercises?.forEach((ex: any) => {
-        const mg = ex.muscleGroup;
-        if (!lastTrainedMap[mg] || new Date(w.date) > new Date(lastTrainedMap[mg])) {
-          lastTrainedMap[mg] = w.date;
-        }
-      });
-    });
-    const newMuscles: MuscleMap = {};
-    MUSCLES.forEach(m => {
-      const lastTrained = lastTrainedMap[m] ?? null;
-      newMuscles[m] = { level: calculateRecovery(lastTrained, MUSCLE_RECOVERY_HOURS[m]), lastTrained };
-    });
-    setMuscles(newMuscles);
+  // Zuerst gecachte Muscle Recovery laden (von training.tsx gesetzt)
+  const rawCached = await AsyncStorage.getItem('muscleRecovery');
+  if (rawCached) {
+    setMuscles(JSON.parse(rawCached));
+    return;
   }
+
+  // Fallback: selbst berechnen
+  const rawWorkouts = await AsyncStorage.getItem('workouts');
+  if (!rawWorkouts) {
+    const def: MuscleMap = {};
+    MUSCLES.forEach(m => { def[m] = { level: 100, lastTrained: null }; });
+    setMuscles(def);
+    return;
+  }
+  const workouts = JSON.parse(rawWorkouts);
+  const lastTrainedMap: Record<string, string> = {};
+  workouts.forEach((w: any) => {
+    w.exercises?.forEach((ex: any) => {
+      const mg = ex.muscleGroup;
+      if (!lastTrainedMap[mg] || new Date(w.date) > new Date(lastTrainedMap[mg])) {
+        lastTrainedMap[mg] = w.date;
+      }
+    });
+  });
+  const newMuscles: MuscleMap = {};
+  MUSCLES.forEach(m => {
+    const lastTrained = lastTrainedMap[m] ?? null;
+    newMuscles[m] = { level: calculateRecovery(lastTrained, MUSCLE_RECOVERY_HOURS[m]), lastTrained };
+  });
+  setMuscles(newMuscles);
+}
 
   const warnings = MUSCLES.filter(m => (muscles[m]?.level ?? 100) < 40);
   const ready = MUSCLES.filter(m => (muscles[m]?.level ?? 100) >= 80);
