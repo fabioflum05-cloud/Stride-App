@@ -183,7 +183,7 @@ Antworte NUR mit validem JSON, kein Markdown:
 }` }
           ]
         }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 1024 }
+        generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
       })
     });
 
@@ -352,11 +352,11 @@ function AddOptionsSheet({ onBarcode, onCamera, onGallery, onManual, onClose, lo
   onBarcode:()=>void; onCamera:()=>void; onGallery:()=>void; onManual:()=>void; onClose:()=>void; loading:boolean;
 }) {
   const opts = [
-    { label:'Barcode scannen', sub:'Verpacktes Produkt', onPress:onBarcode },
-    { label:'Manuell',         sub:'Selbst eintragen', onPress:onManual },
-    { label:'KI-Foto', sub:'Mahlzeit fotografieren', onPress: onCamera, ai:true },
-{ label:'Aus Galerie', sub:'Foto aus Bibliothek', onPress: () => { Alert.alert('Galerie getippt'); onGallery(); }, ai:true },
-  ];
+  { label:'Barcode scannen', sub:'Verpacktes Produkt', onPress:onBarcode },
+  { label:'Manuell',         sub:'Selbst eintragen',   onPress:onManual },
+  { label:'KI-Foto',         sub:'Mahlzeit fotografieren', onPress:onCamera, ai:true },
+  { label:'Aus Galerie',     sub:'Foto aus Bibliothek',    onPress:onGallery, ai:true },
+];
   return (
     <View style={{flex:1,justifyContent:'flex-end',backgroundColor:'rgba(0,0,0,0.3)'}}>
       <TouchableOpacity style={{flex:1}} onPress={onClose} activeOpacity={1}/>
