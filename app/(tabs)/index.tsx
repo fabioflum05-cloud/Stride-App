@@ -688,7 +688,8 @@ const ws = rawWorkouts ? JSON.parse(rawWorkouts) : [];
                 { label: 'Mein Profil',       icon: '👤', onPress: () => { closeMenu(); router.push('/profile' as any); }},
                 { label: 'Abzeichen',         icon: '🏆', onPress: () => { closeMenu(); router.push('/achievements' as any); }},
                 { label: 'Verlauf', icon: '📊', onPress: () => { closeMenu(); router.push('/(tabs)/history' as any); }},
-                { label: 'Freunde', icon: '👥', onPress: () => { closeMenu(); router.push('/friends' as any); }},
+                { label: 'Freunde',           icon: '👥', onPress: () => { closeMenu(); router.push('/friends' as any); }},
+{ label: 'Fortschrittsfotos', icon: '📸', onPress: () => { closeMenu(); router.push('/progress-photos' as any); }},
               ].map(item => (
                 <TouchableOpacity key={item.label} onPress={item.onPress} activeOpacity={0.7}
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: cardBorder }}>
