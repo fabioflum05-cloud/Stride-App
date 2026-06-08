@@ -242,6 +242,7 @@ export default function HomeScreen() {
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [themePicker, setThemePicker]   = useState(false);
   const [journalOpen, setJournalOpen]   = useState(false);
+  const [streak, setStreak] = useState(0);
 
   const fade     = useRef(new Animated.Value(0)).current;
   const menuX    = useRef(new Animated.Value(W)).current;
@@ -255,6 +256,7 @@ export default function HomeScreen() {
 
   async function loadAll() {
     try {
+       
       const today = todayKey();
       const rawWorkouts = await AsyncStorage.getItem('workouts');
 const ws = rawWorkouts ? JSON.parse(rawWorkouts) : [];
@@ -349,6 +351,17 @@ const ws = rawWorkouts ? JSON.parse(rawWorkouts) : [];
               <Text style={{ fontSize: 13, color: textMuted, marginTop: 5, fontWeight: '500' }}>
                 Willkommen zurück, {name} 👋
               </Text>
+              {streak > 0 && (
+  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5,
+      backgroundColor: streak >= 7 ? 'rgba(249,115,22,0.12)' : 'rgba(251,191,36,0.12)',
+      borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 }}>
+      <Text style={{ fontSize: 14 }}>🔥</Text>
+      <Text style={{ fontSize: 13, fontWeight: '800',
+        color: streak >= 7 ? '#F97316' : '#FBBF24' }}>{streak} Tage</Text>
+    </View>
+  </View>
+)}
             </View>
             <TouchableOpacity onPress={openMenu} style={[s.iconBtn, { backgroundColor: colors.card, borderColor: cardBorder }]} activeOpacity={0.7}>
               <View style={{ gap: 4, alignItems: 'center' }}>

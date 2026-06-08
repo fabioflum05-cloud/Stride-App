@@ -915,8 +915,25 @@ async function handlePhoto(fromCamera: boolean) {
     setAiLoading(true);
     const food = await analyzeWithAI(result.assets[0].base64);
     if (!food) { Alert.alert('Fehler', 'KI Analyse fehlgeschlagen.'); return; }
-    setPrefill(food);
-    setShowAddModal(true);
+    // Bestätigungs-Dialog
+Alert.alert(
+  '🍽 Mahlzeit erkannt',
+  `${food.label}\n\n${Math.round(food.macros?.kcal||0)} kcal · ${Math.round(food.macros?.protein||0)}g Protein · ${Math.round(food.macros?.carbs||0)}g KH · ${Math.round(food.macros?.fat||0)}g Fett\n\nStimmt das?`,
+  [
+    { text: 'Korrigieren', onPress: () => { setPrefill(food); setShowAddModal(true); }},
+    { text: 'Hinzufügen ✓', style: 'default', onPress: async () => {
+        const entry: any = {
+          id: Date.now().toString(), time: getTimeStr(),
+          label: food.label||'KI-Analyse', amount: food.amount||100,
+          unit: food.unit||'g', source: 'ai',
+          macros: food.macros, micros: food.micros,
+        };
+        await addEntry(entry);
+      }
+    },
+    { text: 'Abbrechen', style: 'cancel' },
+  ]
+);
   } catch (e: any) {
     Alert.alert('Fehler', e?.message ?? 'Unbekannt');
   } finally {
