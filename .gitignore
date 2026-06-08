@@ -42,3 +42,7 @@ app-example
 /ios
 /android
 constants/keys.ts
+eas.json
+env.local
+eas.json
+.env*.local

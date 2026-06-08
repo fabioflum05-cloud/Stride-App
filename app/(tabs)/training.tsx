@@ -2133,6 +2133,14 @@ setCompletedWorkoutData({
   exerciseCount: finished.exercises.length,
   newPRs, streak: streakVal, weekDays: weekD,
 });
+// Muscle Recovery neu berechnen
+const rawWAfter = await AsyncStorage.getItem('workouts');
+const allWAfter: Workout[] = rawWAfter ? JSON.parse(rawWAfter) : [];
+const newMuscles = calculateMuscleRecovery(allWAfter);
+setMuscles(newMuscles);
+await AsyncStorage.setItem('muscleRecovery', JSON.stringify(newMuscles));
+setMuscles(newMuscles);
+await AsyncStorage.setItem('muscleRecovery', JSON.stringify(newMuscles));
 setShowWorkoutComplete(true);
 await loadAll();
   }

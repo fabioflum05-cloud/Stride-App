@@ -31,9 +31,12 @@ function HealthIcon({ color }: { color: string }) {
 
 function TrainingIcon({ color }: { color: string }) {
   return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.5} />
-      <Path d="M10 8.5L16 12L10 15.5V8.5Z" fill={color} />
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Rect x={2} y={11} width={4} height={6} rx={1.5} fill={color} />
+      <Rect x={18} y={11} width={4} height={6} rx={1.5} fill={color} />
+      <Rect x={5} y={9} width={3} height={10} rx={1.5} fill={color} />
+      <Rect x={16} y={9} width={3} height={10} rx={1.5} fill={color} />
+      <Rect x={8} y={12} width={8} height={3} rx={1.5} fill={color} />
     </Svg>
   );
 }
@@ -279,10 +282,7 @@ export default function TabLayout() {
           <View style={{ flex: 1, paddingBottom: 100 }}>
             <AnimatedScreen />
           </View>
-          {isTraining
-            ? <TrainingTabBar onStop={stopTraining} />
-            : <MainTabBar pathname={pathname} />
-          }
+          {!isTraining && <MainTabBar pathname={pathname} />}
         </View>
       </KeyboardAvoidingView>
     </GestureDetector>

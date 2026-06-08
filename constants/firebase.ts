@@ -1,15 +1,14 @@
-// constants/firebase.ts
 import { getApps, initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey:            'AIzaSyCv8NhB9ozbKcrGJccOPUmGxMed6IfD-D0',
+  apiKey:            process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain:        'strideapp-e1d8c.firebaseapp.com',
-  projectId:         'strideapp-e1d8c',
+  projectId:         process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
   storageBucket:     'strideapp-e1d8c.firebasestorage.app',
-  messagingSenderId: '709025713919',
-  appId:             '1:709025713919:web:852c1cfb8b51a7b66886ca',
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId:             process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
