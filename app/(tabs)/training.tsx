@@ -8,6 +8,7 @@ import Svg, {
   Path, RadialGradient, Rect, Stop
 } from 'react-native-svg';
 import { useAppTheme } from '../../constants/ThemeContext';
+import { useLanguage } from '../../constants/LanguageContext';
 
 function getT(colors: any) {
   const dark = colors.bg < '#888888';
@@ -407,9 +408,9 @@ function isToday(dateString: string) {
 function daysSince(dateString: string) {
   return Math.floor((Date.now() - new Date(dateString).getTime()) / (1000 * 60 * 60 * 24));
 }
-function formatDateLabel(iso: string) {
+function formatDateLabel(iso: string, todayStr = 'Heute') {
   const d = new Date(iso);
-  if (isToday(iso)) return `Heute, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  if (isToday(iso)) return `${todayStr}, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}. ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 function getWeekTrainings(workouts: Workout[]): boolean[] {
@@ -447,9 +448,9 @@ function calcWorkoutScore(workout: Workout, userMaxes: UserMaxes): number {
 function getNutritionAdvice(score: number, duration: number, bodyWeight: number) {
   const w = bodyWeight || 75;
   const intensity = score >= 70 ? 'high' : score >= 40 ? 'medium' : 'low';
-  if (intensity === 'high') return { immediate: { protein: Math.round(w * 0.4), carbs: Math.round(w * 0.8), timing: 'Sofort (0–30 Min.)' }, later: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timing: '2–3 Stunden später' } };
-  if (intensity === 'medium') return { immediate: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timing: 'Sofort (0–45 Min.)' }, later: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timing: '3–4 Stunden später' } };
-  return { immediate: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timing: 'Innerhalb 1 Stunde' }, later: { protein: Math.round(w * 0.2), carbs: Math.round(w * 0.2), timing: '4–5 Stunden später' } };
+  if (intensity === 'high') return { immediate: { protein: Math.round(w * 0.4), carbs: Math.round(w * 0.8), timingKey: 'training_timing_now_high' }, later: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timingKey: 'training_timing_later_high' } };
+  if (intensity === 'medium') return { immediate: { protein: Math.round(w * 0.3), carbs: Math.round(w * 0.5), timingKey: 'training_timing_now_medium' }, later: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timingKey: 'training_timing_later_medium' } };
+  return { immediate: { protein: Math.round(w * 0.25), carbs: Math.round(w * 0.3), timingKey: 'training_timing_now_low' }, later: { protein: Math.round(w * 0.2), carbs: Math.round(w * 0.2), timingKey: 'training_timing_later_low' } };
 }
 
 const DAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -645,6 +646,7 @@ function Divider({ label }: { label: string }) {
 function SwipeToStart({ onStart }: { onStart: () => void }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
+  const { t } = useLanguage();
   const sw = { track: { backgroundColor: T.card, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 50, padding: 6, height: 68, overflow: 'hidden' as const, justifyContent: 'center' as const }, thumb: { width: 56, height: 56, borderRadius: 28, backgroundColor: T.orange, alignItems: 'center' as const, justifyContent: 'center' as const, zIndex: 2 }, label: { position: 'absolute' as const, left: 0, right: 0, textAlign: 'center' as const, fontSize: 13, fontWeight: '600' as const, color: T.text3 } };
   const THUMB = 56;
   const [trackWidth, setTrackWidth] = useState(SW - 64);
@@ -672,7 +674,7 @@ function SwipeToStart({ onStart }: { onStart: () => void }) {
   const labelOpacity = tx.interpolate({ inputRange: [0, MAX * 0.4], outputRange: [1, 0], extrapolate: 'clamp' });
   return (
     <View onLayout={e => setTrackWidth(e.nativeEvent.layout.width)} style={sw.track}>
-      <Animated.Text style={[sw.label, { opacity: labelOpacity }]}>schieben zum starten</Animated.Text>
+      <Animated.Text style={[sw.label, { opacity: labelOpacity }]}>{t('training_swipe_start')}</Animated.Text>
       <Animated.View style={[sw.thumb, { transform: [{ translateX: tx }] }]} {...pan.panHandlers}>
         <IconChevronsRight color="#fff" size={22} />
       </Animated.View>
@@ -756,6 +758,7 @@ function ExercisePicker({ onSelect, onClose }: {
 }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const [selectedMG, setSelectedMG] = useState<typeof PICKER_MUSCLE_GROUPS[0] | null>(null);
 
@@ -776,7 +779,7 @@ function ExercisePicker({ onSelect, onClose }: {
           <View style={{ padding: 20, paddingBottom: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1, letterSpacing: -0.5 }}>
-                {selectedMG ? selectedMG.name : 'Übung hinzufügen'}
+                {selectedMG ? selectedMG.name : t('training_add_exercise')}
               </Text>
               <TouchableOpacity onPress={selectedMG ? () => setSelectedMG(null) : onClose}
                 style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.cardAlt, borderWidth: 1, borderColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
@@ -792,10 +795,10 @@ function ExercisePicker({ onSelect, onClose }: {
               <IconSearch size={16} />
               <TextInput
                 style={{ flex: 1, fontSize: 14, color: T.text1 }}
-                placeholder="Übung suchen..."
+                placeholder={t('training_search_placeholder')}
                 placeholderTextColor={T.text4}
                 value={search}
-                onChangeText={t => { setSearch(t); if (t.length > 0) setSelectedMG(null); }}
+                onChangeText={v => { setSearch(v); if (v.length > 0) setSelectedMG(null); }}
               />
               {search.length > 0 && (
                 <TouchableOpacity onPress={() => setSearch('')}>
@@ -822,7 +825,7 @@ function ExercisePicker({ onSelect, onClose }: {
                   </TouchableOpacity>
                 ))}
                 {searchResults.length === 0 && (
-                  <Text style={{ color: T.text4, textAlign: 'center', padding: 20, fontSize: 13 }}>Keine Übung gefunden</Text>
+                  <Text style={{ color: T.text4, textAlign: 'center', padding: 20, fontSize: 13 }}>{t('training_no_exercise_found')}</Text>
                 )}
               </>
             )}
@@ -835,7 +838,7 @@ function ExercisePicker({ onSelect, onClose }: {
         style={{ width: (SW - 48) / 3, backgroundColor: T.cardAlt, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border, gap: 6 }}>
         <Image source={mg.image} style={{ width: 48, height: 48 }} resizeMode="contain" />
         <Text style={{ fontSize: 11, fontWeight: '700', color: T.text1, textAlign: 'center' }}>{mg.name}</Text>
-        <Text style={{ fontSize: 9, color: T.text4 }}>{ALL_EXERCISES.filter(e => mg.categories.includes(e.category)).length} Üb.</Text>
+        <Text style={{ fontSize: 9, color: T.text4 }}>{ALL_EXERCISES.filter(e => mg.categories.includes(e.category)).length} {t('training_exercises_abbr')}</Text>
       </TouchableOpacity>
     ))}
   </View>
@@ -859,7 +862,7 @@ function ExercisePicker({ onSelect, onClose }: {
           </ScrollView>
 
           <TouchableOpacity style={{ padding: 16, alignItems: 'center', borderTopWidth: 1, borderTopColor: T.borderSoft }} onPress={onClose}>
-            <Text style={{ fontSize: 14, color: T.text3 }}>Abbrechen</Text>
+            <Text style={{ fontSize: 14, color: T.text3 }}>{t('cancel')}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -878,6 +881,7 @@ function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: 
 }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
+  const { t } = useLanguage();
   const isEdit = !!editExercise;
   const [step, setStep] = useState<'exercise' | 'entry'>(isEdit ? 'entry' : 'exercise');
   const [exercise, setExercise] = useState(editExercise ?? '');
@@ -891,8 +895,8 @@ function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: 
       <View style={{ flex: 1, backgroundColor: T.bg }}>
         <View style={{ paddingTop: 60, paddingHorizontal: 20, paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: T.borderSoft, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', backgroundColor: T.card }}>
           <View>
-            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 5 }}>{isEdit ? 'PR bearbeiten' : 'Personal Record'}</Text>
-            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }}>{step === 'exercise' ? 'Übung wählen' : exercise}</Text>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 5 }}>{isEdit ? t('training_pr_edit') : t('training_pr')}</Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }}>{step === 'exercise' ? t('training_choose_exercise') : exercise}</Text>
           </View>
           <TouchableOpacity onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, borderWidth: 1, borderColor: T.border, alignItems: 'center', justifyContent: 'center' }}>
             <IconClose />
@@ -902,7 +906,7 @@ function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: 
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 20 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 20, borderWidth: 1, borderColor: T.border }}>
               <IconSearch />
-              <TextInput style={{ flex: 1, fontSize: 14, color: T.text1 }} placeholder="Übung suchen..." placeholderTextColor={T.text4} value={search} onChangeText={setSearch} />
+              <TextInput style={{ flex: 1, fontSize: 14, color: T.text1 }} placeholder={t('training_search_placeholder')} placeholderTextColor={T.text4} value={search} onChangeText={setSearch} />
             </View>
             {filtered.map(ex => (
               <TouchableOpacity key={ex.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }} onPress={() => { setExercise(ex.name); setStep('entry'); }}>
@@ -921,7 +925,7 @@ function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: 
               <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: T.text1 }}>{exercise}</Text>
               {!isEdit && <IconChevronRight color={T.text4} size={14} />}
             </TouchableOpacity>
-            <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, color: T.text4, marginBottom: 12 }}>Wiederholungen</Text>
+            <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, color: T.text4, marginBottom: 12 }}>{t('training_reps')}</Text>
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 28 }}>
               {([1, 2, 3] as const).map(r => {
                 const active = reps === r;
@@ -933,7 +937,7 @@ function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: 
                 );
               })}
             </View>
-            <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, color: T.text4, marginBottom: 12 }}>Gewicht</Text>
+            <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, color: T.text4, marginBottom: 12 }}>{t('training_weight')}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 10, backgroundColor: T.cardAlt, borderRadius: 16, paddingHorizontal: 20, paddingVertical: 16, borderWidth: 1, borderColor: T.border, marginBottom: 14 }}>
               <TextInput style={{ fontSize: 56, fontWeight: '800', color: T.text1, letterSpacing: -2, flex: 1, padding: 0 }} value={weight} onChangeText={setWeight} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={T.text4} autoFocus={!isEdit} returnKeyType="done" />
               <Text style={{ fontSize: 20, color: T.text4, fontWeight: '600' }}>kg</Text>
@@ -944,10 +948,10 @@ function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: 
                 <Text style={{ fontSize: 20, fontWeight: '800', color: T.orange }}>{estimated1RM} kg</Text>
               </View>
             )}
-            <TouchableOpacity style={{ backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center', justifyContent: 'center' }} onPress={() => { const w = parseFloat(weight); if (!w || w <= 0) { Alert.alert('Bitte Gewicht eingeben'); return; } onSave(exercise, w, reps); onClose(); }}>
-              <Text style={{ fontSize: 15, fontWeight: '700', color: T.white }}>{isEdit ? 'PR aktualisieren' : 'PR speichern'}</Text>
+            <TouchableOpacity style={{ backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center', justifyContent: 'center' }} onPress={() => { const w = parseFloat(weight); if (!w || w <= 0) { Alert.alert(t('training_enter_weight_alert')); return; } onSave(exercise, w, reps); onClose(); }}>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: T.white }}>{isEdit ? t('training_pr_update') : t('training_pr_save')}</Text>
             </TouchableOpacity>
-            {!isEdit && <TouchableOpacity style={{ padding: 14, alignItems: 'center', marginTop: 4 }} onPress={() => setStep('exercise')}><Text style={{ fontSize: 13, color: T.text3 }}>Andere Übung wählen</Text></TouchableOpacity>}
+            {!isEdit && <TouchableOpacity style={{ padding: 14, alignItems: 'center', marginTop: 4 }} onPress={() => setStep('exercise')}><Text style={{ fontSize: 13, color: T.text3 }}>{t('training_other_exercise')}</Text></TouchableOpacity>}
             <View style={{ height: 60 }} />
           </ScrollView>
         )}
@@ -959,6 +963,7 @@ function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: 
 function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (id: string) => void }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
+  const { t } = useLanguage();
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [runs, setRuns] = useState<RunData[]>([]);
   useEffect(() => {
@@ -972,9 +977,9 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
   ].sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
 
   async function handleDelete(item: Item) {
-    Alert.alert('Training löschen', 'Wirklich löschen?', [
-      { text: 'Abbrechen', style: 'cancel' },
-      { text: 'Löschen', style: 'destructive', onPress: async () => {
+    Alert.alert(t('training_delete_title'), t('training_delete_confirm'), [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('delete'), style: 'destructive', onPress: async () => {
         if (item._kind === 'workout') {
           const u = workouts.filter(w => w.id !== item.data.id);
           setWorkouts(u);
@@ -1003,8 +1008,8 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
         {/* Header */}
         <View style={{ paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
           <View>
-            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 4 }}>Training</Text>
-            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }}>Verlauf</Text>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 4 }}>{t('training_title')}</Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }}>{t('training_history_label')}</Text>
           </View>
           <TouchableOpacity onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border }}>
             <IconClose />
@@ -1015,21 +1020,21 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
         <View style={{ flexDirection: 'row', gap: 8, padding: 16, paddingBottom: 8 }}>
           <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
             <Text style={{ fontSize: 20, fontWeight: '800', color: T.text1 }}>{workouts.length + runs.length}</Text>
-            <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>Einheiten</Text>
+            <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>{t('training_units')}</Text>
           </View>
           <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
             <Text style={{ fontSize: 20, fontWeight: '800', color: T.text1 }}>{avgDuration}'</Text>
-            <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>Ø Dauer</Text>
+            <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>{t('training_avg_duration')}</Text>
           </View>
           <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
             <Text style={{ fontSize: 20, fontWeight: '800', color: T.green }}>{avgScore}</Text>
-            <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>Ø Score</Text>
+            <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>{t('training_avg_score')}</Text>
           </View>
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingTop: 8 }}>
           {all.length === 0 && (
-            <Text style={{ color: T.text3, textAlign: 'center', marginTop: 60 }}>Noch keine Einheiten</Text>
+            <Text style={{ color: T.text3, textAlign: 'center', marginTop: 60 }}>{t('training_no_sessions')}</Text>
           )}
 
           {all.map((item, i) => {
@@ -1046,7 +1051,7 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
                   <View>
                     <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>
-                      {formatDateLabel(item.data.date)}
+                      {formatDateLabel(item.data.date, t('today'))}
                     </Text>
                     <Text style={{ fontSize: 18, fontWeight: '800', color: '#fff', letterSpacing: -0.5 }}>{w?.name}</Text>
                   </View>
@@ -1064,15 +1069,15 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
                 <View style={{ flexDirection: 'row', gap: 6 }}>
                   <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 12, padding: 10, alignItems: 'center' }}>
                     <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>{w?.duration}'</Text>
-                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>Dauer</Text>
+                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>{t('training_duration')}</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 12, padding: 10, alignItems: 'center' }}>
                     <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>{w?.exercises?.length ?? 0}</Text>
-                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>Übungen</Text>
+                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>{t('training_exercises')}</Text>
                   </View>
                   <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: 12, padding: 10, alignItems: 'center' }}>
                     <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff' }}>{(vol / 1000).toFixed(1)}t</Text>
-                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>Volumen</Text>
+                    <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>{t('training_volume')}</Text>
                   </View>
                 </View>
               </View>
@@ -1086,10 +1091,10 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
                   </View>
                   <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={{ fontSize: 13, fontWeight: '700', color: T.text1 }} numberOfLines={1}>
-                      {isRun ? 'Lauftraining' : w?.name}
+                      {isRun ? t('training_run_session') : w?.name}
                     </Text>
                     <Text style={{ fontSize: 10, color: T.text4, marginTop: 2 }}>
-                      {formatDateLabel(item.data.date)} · {isRun && r ? `${r.distance.toFixed(1)} km` : `${w?.duration} Min`}
+                      {formatDateLabel(item.data.date, t('today'))} · {isRun && r ? `${r.distance.toFixed(1)} km` : `${w?.duration} Min`}
                     </Text>
                   </View>
                   {!isRun && score != null && (
@@ -1122,6 +1127,7 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
 }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
+  const { t } = useLanguage();
   const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border }, backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border, marginTop: 4 } };
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
   const field = { label: { fontSize: 10, fontWeight: '700' as const, textTransform: 'uppercase' as const, letterSpacing: 1.2, color: T.text4, marginBottom: 8, marginTop: 16 }, input: { backgroundColor: T.card, borderRadius: 14, padding: 14, color: T.text1, fontSize: 15, borderWidth: 1, borderColor: T.border }, list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12, borderWidth: 1, borderColor: T.border }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, padding: 14 }, rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft }, rowText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: T.text1 }, dot: { width: 8, height: 8, borderRadius: 4 } };
@@ -1136,8 +1142,8 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
   function openCreate() { setEditingRoutine(null); setNewName(''); setNewExercises([]); setShowForm(true); }
   function openEdit(r: Routine) { setEditingRoutine(r); setNewName(r.name); setNewExercises([...r.exercises]); setShowForm(true); }
   function saveForm() {
-    if (!newName.trim()) { Alert.alert('Bitte Namen eingeben'); return; }
-    if (newExercises.length === 0) { Alert.alert('Bitte mindestens eine Übung hinzufügen'); return; }
+    if (!newName.trim()) { Alert.alert(t('training_routine_name_required')); return; }
+    if (newExercises.length === 0) { Alert.alert(t('training_routine_exercise_required')); return; }
     if (editingRoutine) onUpdateRoutine({ ...editingRoutine, name: newName.trim(), exercises: newExercises });
     else onCreateRoutine({ id: Date.now().toString(), name: newName.trim(), exercises: newExercises });
     setShowForm(false);
@@ -1148,12 +1154,12 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
       <ScrollView style={{ flex: 1, backgroundColor: T.bg }}>
         <View style={screen.header}>
           <TouchableOpacity onPress={() => setShowForm(false)} style={screen.backBtn}><IconChevronLeft /></TouchableOpacity>
-          <View><Text style={screen.eyebrow}>{editingRoutine ? 'Bearbeiten' : 'Neue Routine'}</Text><Text style={screen.title}>{newName || 'Unbenannt'}</Text></View>
+          <View><Text style={screen.eyebrow}>{editingRoutine ? t('edit') : t('training_routine_new')}</Text><Text style={screen.title}>{newName || t('training_routine_unnamed')}</Text></View>
         </View>
         <View style={{ padding: 20 }}>
           <Text style={field.label}>Name</Text>
           <TextInput style={field.input} value={newName} onChangeText={setNewName} placeholder="z.B. Push Day" placeholderTextColor={T.text4} />
-          <Text style={field.label}>Übungen</Text>
+          <Text style={field.label}>{t('training_exercises')}</Text>
           {newExercises.map((ex, i) => (
             <View key={i} style={field.row}>
               <View style={[field.dot, { backgroundColor: MUSCLE_COLORS[ex.muscleGroup] }]} />
@@ -1161,8 +1167,8 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
               <TouchableOpacity onPress={() => setNewExercises(prev => prev.filter((_, idx) => idx !== i))}><IconClose /></TouchableOpacity>
             </View>
           ))}
-          <TouchableOpacity style={btn.outline} onPress={() => setShowPicker(true)}><IconPlus size={16} /><Text style={btn.outlineText}>Übung hinzufügen</Text></TouchableOpacity>
-          <TouchableOpacity style={[btn.primary, { marginTop: 16 }]} onPress={saveForm}><Text style={btn.primaryText}>Speichern</Text></TouchableOpacity>
+          <TouchableOpacity style={btn.outline} onPress={() => setShowPicker(true)}><IconPlus size={16} /><Text style={btn.outlineText}>{t('training_add_exercise')}</Text></TouchableOpacity>
+          <TouchableOpacity style={[btn.primary, { marginTop: 16 }]} onPress={saveForm}><Text style={btn.primaryText}>{t('save')}</Text></TouchableOpacity>
         </View>
       </ScrollView>
     </>
@@ -1171,13 +1177,13 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
     <ScrollView style={{ flex: 1, backgroundColor: T.bg }}>
       <View style={screen.header}>
         <TouchableOpacity onPress={onBack} style={screen.backBtn}><IconChevronLeft /></TouchableOpacity>
-        <View><Text style={screen.eyebrow}>Krafttraining</Text><Text style={screen.title}>Routinen</Text></View>
+        <View><Text style={screen.eyebrow}>{t('training_strength')}</Text><Text style={screen.title}>{t('training_routines')}</Text></View>
       </View>
       <View style={{ paddingHorizontal: 18 }}>
         <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
-          {(['mine', 'discover'] as const).map(t => (
-            <TouchableOpacity key={t} style={[tabSt.btn, tab === t && tabSt.btnActive]} onPress={() => setTab(t)}>
-              <Text style={[tabSt.text, tab === t && tabSt.textActive]}>{t === 'mine' ? 'Meine Routinen' : 'Entdecken'}</Text>
+          {(['mine', 'discover'] as const).map(tabKey => (
+            <TouchableOpacity key={tabKey} style={[tabSt.btn, tab === tabKey && tabSt.btnActive]} onPress={() => setTab(tabKey)}>
+              <Text style={[tabSt.text, tab === tabKey && tabSt.textActive]}>{tabKey === 'mine' ? t('training_my_routines') : t('training_discover')}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -1185,20 +1191,20 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
           <>
             <TouchableOpacity style={rSt.createCard} onPress={openCreate}>
               <View style={rSt.createIcon}><IconPlus size={20} /></View>
-              <View style={{ flex: 1 }}><Text style={rSt.createTitle}>Neue Routine</Text><Text style={rSt.createSub}>Selbst zusammenstellen</Text></View>
+              <View style={{ flex: 1 }}><Text style={rSt.createTitle}>{t('training_routine_new')}</Text><Text style={rSt.createSub}>{t('training_create_yourself')}</Text></View>
               <IconChevronRight />
             </TouchableOpacity>
-            {routines.length === 0 && <Text style={{ color: T.text4, textAlign: 'center', marginTop: 40 }}>Noch keine Routinen</Text>}
+            {routines.length === 0 && <Text style={{ color: T.text4, textAlign: 'center', marginTop: 40 }}>{t('training_no_routines')}</Text>}
             {routines.map(r => (
               <View key={r.id} style={rSt.card}>
                 <TouchableOpacity style={{ flex: 1 }} onPress={() => onSelectRoutine(r)}>
                   <Text style={rSt.name}>{r.name}</Text>
                   <Text style={rSt.meta}>{r.exercises.slice(0, 3).map(e => e.name).join(' · ')}{r.exercises.length > 3 ? ` +${r.exercises.length - 3}` : ''}</Text>
-                  <View style={rSt.chipRow}><View style={rSt.chip}><Text style={rSt.chipText}>{r.exercises.length} Übungen</Text></View></View>
+                  <View style={rSt.chipRow}><View style={rSt.chip}><Text style={rSt.chipText}>{r.exercises.length} {t('training_exercises')}</Text></View></View>
                 </TouchableOpacity>
                 <View style={{ gap: 6 }}>
                   <TouchableOpacity style={rSt.editBtn} onPress={() => openEdit(r)}><Text style={{ fontSize: 11, color: T.blue, fontWeight: '700' }}>Edit</Text></TouchableOpacity>
-                  <TouchableOpacity style={rSt.deleteBtn} onPress={() => Alert.alert('Löschen', `"${r.name}" löschen?`, [{ text: 'Abbrechen', style: 'cancel' }, { text: 'Löschen', style: 'destructive', onPress: () => onDeleteRoutine(r.id) }])}><IconTrash size={14} /></TouchableOpacity>
+                  <TouchableOpacity style={rSt.deleteBtn} onPress={() => Alert.alert(t('delete'), `"${r.name}" ${t('training_delete_item')}`, [{ text: t('cancel'), style: 'cancel' }, { text: t('delete'), style: 'destructive', onPress: () => onDeleteRoutine(r.id) }])}><IconTrash size={14} /></TouchableOpacity>
                 </View>
               </View>
             ))}
@@ -1212,7 +1218,7 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
                   <View style={rSt.communityBadge}><Text style={{ fontSize: 10, color: T.blue, fontWeight: '700' }}>Community</Text></View>
                 </View>
                 <Text style={rSt.meta}>{r.exercises.map(e => e.name).slice(0, 3).join(' · ')}</Text>
-                <View style={rSt.chipRow}><View style={rSt.chip}><Text style={rSt.chipText}>{r.exercises.length} Übungen</Text></View></View>
+                <View style={rSt.chipRow}><View style={rSt.chip}><Text style={rSt.chipText}>{r.exercises.length} {t('training_exercises')}</Text></View></View>
               </View>
               <IconChevronRight />
             </TouchableOpacity>
@@ -1227,6 +1233,7 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
 function RoutineDetail({ routine, onStart, onBack }: { routine: Routine; onStart: (r: Routine) => void; onBack: () => void }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
+  const { t } = useLanguage();
   const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border, marginTop: 4 } };
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
   const field = { list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12, borderWidth: 1, borderColor: T.border }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, padding: 14 }, rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft }, rowText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: T.text1 }, dot: { width: 8, height: 8, borderRadius: 4 } };
@@ -1239,7 +1246,7 @@ function RoutineDetail({ routine, onStart, onBack }: { routine: Routine; onStart
       <ScrollView style={{ flex: 1, backgroundColor: T.bg }}>
         <View style={screen.header}>
           <TouchableOpacity onPress={onBack} style={screen.backBtn}><IconChevronLeft /></TouchableOpacity>
-          <View><Text style={screen.eyebrow}>Routine</Text><Text style={screen.title}>{routine.name}</Text></View>
+          <View><Text style={screen.eyebrow}>{t('training_routine_label')}</Text><Text style={screen.title}>{routine.name}</Text></View>
         </View>
         <View style={{ padding: 18 }}>
           <View style={field.list}>
@@ -1251,7 +1258,7 @@ function RoutineDetail({ routine, onStart, onBack }: { routine: Routine; onStart
               </View>
             ))}
           </View>
-          <TouchableOpacity style={btn.outline} onPress={() => setShowPicker(true)}><IconPlus size={16} /><Text style={btn.outlineText}>Übung hinzufügen</Text></TouchableOpacity>
+          <TouchableOpacity style={btn.outline} onPress={() => setShowPicker(true)}><IconPlus size={16} /><Text style={btn.outlineText}>{t('training_add_exercise')}</Text></TouchableOpacity>
           <View style={{ marginTop: 16 }}><SwipeToStart onStart={() => onStart({ ...routine, exercises: all })} /></View>
         </View>
       </ScrollView>
@@ -1265,6 +1272,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
 }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
+  const { t } = useLanguage();
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
   const activeS = { header: { backgroundColor: T.card, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row' as const, alignItems: 'flex-start' as const, gap: 12, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, workoutTag: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 1.5, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, workoutTitle: { fontSize: 20, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.4 }, timerBadge: { backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border }, timerText: { fontSize: 18, fontWeight: '700' as const, color: T.text1, letterSpacing: 1 }, timerLabel: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, statsRow: { flexDirection: 'row' as const, gap: 8, padding: 12, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, statBox: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border }, statVal: { fontSize: 18, fontWeight: '700' as const }, statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, restCard: { backgroundColor: T.card, borderLeftWidth: 3, padding: 12, marginBottom: 12, marginTop: 12, borderRadius: 0 }, restLabel: { fontSize: 9, fontWeight: '700' as const, letterSpacing: 0.8, textTransform: 'uppercase' as const, marginBottom: 2 }, restTimer: { fontSize: 22, fontWeight: '800' as const, color: T.text1, letterSpacing: 1 }, restBtn: { backgroundColor: T.cardAlt, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: T.border }, restBtnText: { fontSize: 11, fontWeight: '600' as const, color: T.text3 }, exCard: { backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: T.border }, musclePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }, musclePillText: { fontSize: 11, fontWeight: '500' as const }, exName: { flex: 1, fontSize: 15, fontWeight: '700' as const, color: T.text1 }, recRow: { backgroundColor: T.blueAlpha, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: T.blueBorder }, recText: { fontSize: 12, color: T.blue, fontWeight: '500' as const }, lastRow: { flexDirection: 'row' as const, backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, marginBottom: 8 }, lastLabel: { fontSize: 11, color: T.text3 }, lastVal: { fontSize: 11, color: T.orange, fontWeight: '500' as const, flex: 1 }, oneRM: { fontSize: 11, color: T.text3, marginBottom: 10 }, setHdr: { fontSize: 9, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.8, textAlign: 'center' as const }, setRow: { flexDirection: 'row' as const, gap: 8, marginBottom: 8, alignItems: 'center' as const }, setNum: { fontSize: 13, color: T.text3, width: 24, textAlign: 'center' as const }, setInput: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 11, color: T.text1, fontSize: 15, textAlign: 'center' as const, borderWidth: 1, borderColor: T.border }, setInputDone: { borderColor: 'rgba(52,199,89,0.4)', color: T.green }, addSetBtn: { padding: 8, alignItems: 'center' as const }, addSetText: { fontSize: 13, color: T.orange, fontWeight: '500' as const } };
   const [showPicker, setShowPicker] = useState(false);
@@ -1297,8 +1305,8 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
       <ScrollView style={{ flex: 1, backgroundColor: T.bg }} showsVerticalScrollIndicator={false}>
         <View style={activeS.header}>
           <View style={{ flex: 1 }}>
-            <Text style={activeS.workoutTag}>{workout.name} · Aktiv</Text>
-            <Text style={activeS.workoutTitle}>{workout.exercises[0]?.name ?? 'Training läuft'}</Text>
+            <Text style={activeS.workoutTag}>{workout.name} · {t('training_active')}</Text>
+            <Text style={activeS.workoutTitle}>{workout.exercises[0]?.name ?? t('training_running_label')}</Text>
           </View>
           <View style={activeS.timerBadge}>
             <Text style={activeS.timerText}>{formatTime(workoutTimer.seconds)}</Text>
@@ -1306,7 +1314,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
           </View>
         </View>
         <View style={activeS.statsRow}>
-          {[{ v: workout.exercises.length, l: 'Übungen', c: T.orange }, { v: totalSets, l: 'Sets', c: T.green }, { v: Math.round(totalVol), l: 'kg Vol.', c: T.blue }].map(s => (
+          {[{ v: workout.exercises.length, l: t('training_exercises'), c: T.orange }, { v: totalSets, l: 'Sets', c: T.green }, { v: Math.round(totalVol), l: 'kg Vol.', c: T.blue }].map(s => (
             <View key={s.l} style={activeS.statBox}><Text style={[activeS.statVal, { color: s.c }]}>{s.v}</Text><Text style={activeS.statLbl}>{s.l}</Text></View>
           ))}
         </View>
@@ -1314,7 +1322,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
           <View style={[activeS.restCard, { borderLeftColor: restTimer.isRunning ? T.orange : T.border }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <View>
-                <Text style={[activeS.restLabel, { color: restTimer.isRunning ? T.orange : T.text4 }]}>{restTimer.isRunning ? 'Pause läuft' : 'Pause starten'}</Text>
+                <Text style={[activeS.restLabel, { color: restTimer.isRunning ? T.orange : T.text4 }]}>{restTimer.isRunning ? t('training_rest_active') : t('training_rest_start')}</Text>
                 {restTimer.isRunning && <Text style={activeS.restTimer}>{formatTime(restTimer.seconds)}</Text>}
               </View>
               <View style={{ flexDirection: 'row', gap: 6 }}>
@@ -1354,14 +1362,14 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
                     const updated = { ...workout, exercises: workout.exercises.map(ex => ex.id !== exercise.id ? ex : { ...ex, sets: newSets }) };
                     onUpdate(updated); await AsyncStorage.setItem('activeWorkout', JSON.stringify(updated));
                   }}>
-                    <Text style={activeS.recText}>💡 4 × 8 @ {rec} kg — Tippen zum Übernehmen</Text>
+                    <Text style={activeS.recText}>💡 4 × 8 @ {rec} kg — {t('training_rec_tap')}</Text>
                   </TouchableOpacity>
                 )}
-                {lastSets && <View style={activeS.lastRow}><Text style={activeS.lastLabel}>Letztes Mal: </Text><Text style={activeS.lastVal}>{lastSets.map(ls => `${ls.weight}×${ls.reps}`).join(' · ')}</Text></View>}
+                {lastSets && <View style={activeS.lastRow}><Text style={activeS.lastLabel}>{t('training_last_time')}: </Text><Text style={activeS.lastVal}>{lastSets.map(ls => `${ls.weight}×${ls.reps}`).join(' · ')}</Text></View>}
                 {best1RM > 0 && <Text style={activeS.oneRM}>Est. 1RM: <Text style={{ color: T.orange, fontWeight: '600' }}>{best1RM} kg</Text>{pct ? `  ·  ${pct}% Max` : ''}</Text>}
                 <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
                   <Text style={[activeS.setHdr, { width: 24 }]}>#</Text>
-                  <Text style={[activeS.setHdr, { flex: 1 }]}>Wdh.</Text>
+                  <Text style={[activeS.setHdr, { flex: 1 }]}>{t('training_reps_short')}</Text>
                   <Text style={[activeS.setHdr, { flex: 1 }]}>kg</Text>
                 </View>
                 {exercise.sets.map((set, si) => {
@@ -1378,9 +1386,9 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
               </View>
             );
           })}
-          <TouchableOpacity style={btn.outline} onPress={() => setShowPicker(true)}><IconPlus size={18} /><Text style={btn.outlineText}>Übung hinzufügen</Text></TouchableOpacity>
+          <TouchableOpacity style={btn.outline} onPress={() => setShowPicker(true)}><IconPlus size={18} /><Text style={btn.outlineText}>{t('training_add_exercise')}</Text></TouchableOpacity>
           <TouchableOpacity style={[btn.primary, { marginTop: 10, marginBottom: 20 }]} onPress={async () => { await workoutTimer.stop(); onFinish(); }}>
-            <Text style={btn.primaryText}>Training abschliessen</Text>
+            <Text style={btn.primaryText}>{t('training_finish_btn')}</Text>
           </TouchableOpacity>
           <View style={{ height: 100 }} />
         </View>
@@ -1393,6 +1401,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
 function RunScreen({ onStop }: { onStop: () => void }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
+  const { t } = useLanguage();
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white } };
   const runTimer = useWorkoutTimer('activeRunTimer');
   const [dist, setDist] = useState('');
@@ -1414,13 +1423,13 @@ function RunScreen({ onStop }: { onStop: () => void }) {
     const raw = await AsyncStorage.getItem('runs'); const runs = raw ? JSON.parse(raw) : [];
     runs.push(run); await AsyncStorage.setItem('runs', JSON.stringify(runs));
     await AsyncStorage.removeItem('activeWorkout');
-    Alert.alert('Lauf abgeschlossen!', `${d.toFixed(2)} km · ${formatTime(dur)} · ${formatPace(d > 0 ? dur / d : 0)} /km`, [{ text: 'OK', onPress: onStop }]);
+    Alert.alert(t('training_run_complete'), `${d.toFixed(2)} km · ${formatTime(dur)} · ${formatPace(d > 0 ? dur / d : 0)} /km`, [{ text: 'OK', onPress: onStop }]);
   }
   return (
     <ScrollView style={{ flex: 1, backgroundColor: T.bg, padding: 20 }}>
-      <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.green, marginTop: 60, marginBottom: 20 }}>Lauf aktiv</Text>
+      <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.green, marginTop: 60, marginBottom: 20 }}>{t('training_run_active')}</Text>
       <Animated.View style={{ backgroundColor: T.card, borderRadius: 24, padding: 28, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: T.green + '30', transform: [{ scale: pulse }] }}>
-        <Text style={{ fontSize: 10, color: T.text3, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 }}>Laufzeit</Text>
+        <Text style={{ fontSize: 10, color: T.text3, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 }}>{t('training_run_time')}</Text>
         <Text style={{ fontSize: 60, fontWeight: '300', color: T.text1, letterSpacing: -2 }}>{formatTime(runTimer.seconds)}</Text>
       </Animated.View>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
@@ -1432,9 +1441,9 @@ function RunScreen({ onStop }: { onStop: () => void }) {
         ))}
       </View>
       <View style={{ backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: T.border }}>
-        <Text style={{ fontSize: 10, color: T.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 12 }}>Daten</Text>
+        <Text style={{ fontSize: 10, color: T.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 12 }}>{t('training_data')}</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          {[{ lbl: 'Distanz (km)', val: dist, set: setDist, kb: 'decimal-pad' as const, ph: '0.00' }, { lbl: 'Herzfreq.', val: hr, set: setHr, kb: 'numeric' as const, ph: 'bpm' }, { lbl: 'Kalorien', val: cal, set: setCal, kb: 'numeric' as const, ph: 'kcal' }].map(f => (
+          {[{ lbl: t('training_run_distance'), val: dist, set: setDist, kb: 'decimal-pad' as const, ph: '0.00' }, { lbl: t('training_heartrate'), val: hr, set: setHr, kb: 'numeric' as const, ph: 'bpm' }, { lbl: t('nutrition_kcal'), val: cal, set: setCal, kb: 'numeric' as const, ph: 'kcal' }].map(f => (
             <View key={f.lbl} style={{ flex: 1 }}>
               <Text style={{ fontSize: 10, color: T.text3, marginBottom: 6 }}>{f.lbl}</Text>
               <TextInput style={{ backgroundColor: T.cardAlt, borderRadius: 10, padding: 11, color: T.text1, fontSize: 15, borderWidth: 1, borderColor: T.border }} value={f.val} onChangeText={f.set} keyboardType={f.kb} placeholder={f.ph} placeholderTextColor={T.text4} />
@@ -1442,7 +1451,7 @@ function RunScreen({ onStop }: { onStop: () => void }) {
           ))}
         </View>
       </View>
-      <TouchableOpacity style={[btn.primary, { backgroundColor: T.green }]} onPress={finish}><Text style={btn.primaryText}>Lauf beenden</Text></TouchableOpacity>
+      <TouchableOpacity style={[btn.primary, { backgroundColor: T.green }]} onPress={finish}><Text style={btn.primaryText}>{t('training_run_end')}</Text></TouchableOpacity>
       <View style={{ height: 100 }} />
     </ScrollView>
   );
@@ -1452,6 +1461,7 @@ function RunScreen({ onStop }: { onStop: () => void }) {
 function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => void }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
+  const { t } = useLanguage();
   const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border } };
   const tabSt = { btn: { flex: 1, borderRadius: 12, padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: T.border, alignItems: 'center' as const }, btnActive: { backgroundColor: T.orangeAlpha, borderColor: T.orangeBorder }, text: { fontSize: 12, fontWeight: '600' as const, color: T.text4 }, textActive: { color: T.orange } };
   const [view, setView] = useState<'front' | 'back'>('front');
@@ -1462,8 +1472,8 @@ function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => vo
       <View style={{ flex: 1, backgroundColor: T.bg }}>
         <View style={screen.header}>
           <View style={{ flex: 1 }}>
-            <Text style={screen.eyebrow}>Körper</Text>
-            <Text style={screen.title}>Muskel Recovery</Text>
+            <Text style={screen.eyebrow}>{t('body_title')}</Text>
+            <Text style={screen.title}>{t('body_muscle_recovery')}</Text>
           </View>
           <TouchableOpacity style={screen.closeBtn} onPress={onClose}><IconClose /></TouchableOpacity>
         </View>
@@ -1471,7 +1481,7 @@ function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => vo
           <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
             {(['front', 'back'] as const).map(v => (
               <TouchableOpacity key={v} style={[tabSt.btn, view === v && tabSt.btnActive]} onPress={() => setView(v)}>
-                <Text style={[tabSt.text, view === v && tabSt.textActive]}>{v === 'front' ? 'Vorderseite' : 'Rückseite'}</Text>
+                <Text style={[tabSt.text, view === v && tabSt.textActive]}>{v === 'front' ? t('training_body_front') : t('training_body_back')}</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -1480,7 +1490,7 @@ function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => vo
               {view === 'front' ? <BodyFront muscles={muscles} /> : <BodyBack muscles={muscles} />}
             </View>
             <View style={{ gap: 8, paddingTop: 12 }}>
-              {[{ c: T.green, l: 'Erholt' }, { c: T.blue, l: 'Fast' }, { c: T.yellow, l: 'Mittel' }, { c: T.orange, l: 'Niedrig' }, { c: T.red, l: 'Schonen' }].map(item => (
+              {[{ c: T.green, l: t('training_legend_recovered') }, { c: T.blue, l: t('training_legend_almost') }, { c: T.yellow, l: t('training_legend_medium') }, { c: T.orange, l: t('training_legend_low') }, { c: T.red, l: t('training_legend_caution') }].map(item => (
                 <View key={item.l} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.c }} />
                   <Text style={{ fontSize: 12, color: T.text2 }}>{item.l}</Text>
@@ -1488,8 +1498,8 @@ function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => vo
               ))}
             </View>
           </View>
-          {warn.length > 0 && <View style={{ backgroundColor: T.redAlpha, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: T.redBorder }}><Text style={{ color: T.red, fontWeight: '700', marginBottom: 4 }}>Heute schonen</Text><Text style={{ color: T.red, opacity: 0.8, fontSize: 12 }}>{warn.join(', ')}</Text></View>}
-          {ready.length > 0 && <View style={{ backgroundColor: T.greenAlpha, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: T.greenBorder }}><Text style={{ color: T.green, fontWeight: '700', marginBottom: 4 }}>Bereit</Text><Text style={{ color: T.green, opacity: 0.8, fontSize: 12 }}>{ready.join(', ')}</Text></View>}
+          {warn.length > 0 && <View style={{ backgroundColor: T.redAlpha, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: T.redBorder }}><Text style={{ color: T.red, fontWeight: '700', marginBottom: 4 }}>{t('training_rest_today')}</Text><Text style={{ color: T.red, opacity: 0.8, fontSize: 12 }}>{warn.join(', ')}</Text></View>}
+          {ready.length > 0 && <View style={{ backgroundColor: T.greenAlpha, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: T.greenBorder }}><Text style={{ color: T.green, fontWeight: '700', marginBottom: 4 }}>{t('training_ready')}</Text><Text style={{ color: T.green, opacity: 0.8, fontSize: 12 }}>{ready.join(', ')}</Text></View>}
           {MUSCLE_GROUPS.map(m => {
             const lvl = muscles[m]?.level ?? 100;
             const color = getMuscleRecoveryColor(lvl);
@@ -1511,8 +1521,17 @@ function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => vo
 }
 // ─── Progress Card (Mini) ─────────────────────────────────────
 function ProgressCard({ prHistory, workouts, T, onPress }: { prHistory: PRHistory; workouts: Workout[]; T: any; onPress: () => void }) {
+  const { t, lang } = useLanguage();
   const [period, setPeriod] = useState<'1M' | '6M' | '1J' | '2J' | 'Gesamt'>('1M');
   const periods = ['1M', '6M', '1J', '2J', 'Gesamt'] as const;
+  const getPeriodLabel = (p: string) => {
+    if (lang === 'en') {
+      if (p === '1J') return '1Y';
+      if (p === '2J') return '2Y';
+      if (p === 'Gesamt') return 'All';
+    }
+    return p;
+  };
 
   const chartData = computeProgressData(prHistory, period);
   const avgImprovement = chartData.length >= 2
@@ -1540,21 +1559,21 @@ function ProgressCard({ prHistory, workouts, T, onPress }: { prHistory: PRHistor
       <View style={{ backgroundColor: T.card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: T.border }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
           <View>
-            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 3 }}>Kraftentwicklung</Text>
-            <Text style={{ fontSize: 14, fontWeight: '800', color: T.text1 }}>Ø aller Muskelgruppen</Text>
+            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 3 }}>{t('training_strength_dev')}</Text>
+            <Text style={{ fontSize: 14, fontWeight: '800', color: T.text1 }}>{t('training_avg_all_mg')}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={{ fontSize: 22, fontWeight: '800', color: avgImprovement >= 0 ? T.green : T.red, letterSpacing: -0.5 }}>
               {avgImprovement >= 0 ? '+' : ''}{avgImprovement}%
             </Text>
-            <Text style={{ fontSize: 9, color: T.text4 }}>{period === 'Gesamt' ? 'gesamt' : period === '1M' ? 'diesen Monat' : period === '6M' ? 'in 6 Monaten' : period === '1J' ? 'dieses Jahr' : 'in 2 Jahren'}</Text>
+            <Text style={{ fontSize: 9, color: T.text4 }}>{period === 'Gesamt' ? t('training_total') : period === '1M' ? t('training_this_month') : period === '6M' ? t('training_in_6months') : period === '1J' ? t('training_this_year') : t('training_in_2years')}</Text>
           </View>
         </View>
 
         <View style={{ flexDirection: 'row', gap: 5, marginBottom: 12 }}>
           {periods.map(p => (
             <TouchableOpacity key={p} onPress={() => setPeriod(p)} style={{ flex: 1, paddingVertical: 5, borderRadius: 7, alignItems: 'center', backgroundColor: period === p ? T.orangeAlpha : T.cardAlt, borderWidth: 1, borderColor: period === p ? T.orangeBorder : T.border }}>
-              <Text style={{ fontSize: 10, fontWeight: '600', color: period === p ? T.orange : T.text4 }}>{p}</Text>
+              <Text style={{ fontSize: 10, fontWeight: '600', color: period === p ? T.orange : T.text4 }}>{getPeriodLabel(p)}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -1567,17 +1586,19 @@ function ProgressCard({ prHistory, workouts, T, onPress }: { prHistory: PRHistor
           </Svg>
         ) : (
   <View style={{ height: H, alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-    <Text style={{ fontSize: 13, fontWeight: '700', color: T.text2 }}>Noch nicht genug Daten</Text>
+    <Text style={{ fontSize: 13, fontWeight: '700', color: T.text2 }}>{t('training_no_data')}</Text>
     <Text style={{ fontSize: 11, color: T.text4, textAlign: 'center' }}>
       {workouts.length < 5
-        ? `Noch ${5 - workouts.length} Training${5 - workouts.length === 1 ? 'seinheit' : 'seinheiten'} bis zur Auswertung`
-        : 'Nicht genug PR-Daten'}
+        ? (lang === 'de'
+            ? `Noch ${5 - workouts.length} Trainingseinheit${5 - workouts.length === 1 ? '' : 'en'} bis zur Auswertung`
+            : `${5 - workouts.length} more workout${5 - workouts.length === 1 ? '' : 's'} until analysis`)
+        : t('training_no_pr_data')}
     </Text>
   </View>
 )}
 
         <TouchableOpacity onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: T.orangeAlpha, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: T.orangeBorder, marginTop: 10 }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: T.orange }}>Detailansicht → Muskelgruppen</Text>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: T.orange }}>{t('training_detail_view')}</Text>
           <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: T.orange, alignItems: 'center', justifyContent: 'center' }}>
             <IconChevronRight color="#fff" size={12} />
           </View>
@@ -1589,8 +1610,17 @@ function ProgressCard({ prHistory, workouts, T, onPress }: { prHistory: PRHistor
 
 // ─── Progress Detail Modal ────────────────────────────────────
 function ProgressDetailModal({ prHistory, T, onClose }: { prHistory: PRHistory; T: any; onClose: () => void }) {
+  const { t, lang } = useLanguage();
   const [period, setPeriod] = useState<'1M' | '6M' | '1J' | '2J' | 'Gesamt'>('1M');
   const periods = ['1M', '6M', '1J', '2J', 'Gesamt'] as const;
+  const getPeriodLabel = (p: string) => {
+    if (lang === 'en') {
+      if (p === '1J') return '1Y';
+      if (p === '2J') return '2Y';
+      if (p === 'Gesamt') return 'All';
+    }
+    return p;
+  };
   const MG_COLORS: Record<string, string> = {
     Brust: '#E8572A', Rücken: '#3A7AC0', Bizeps: '#4A8C5C',
     Schultern: '#8B6914', Trizeps: '#7B4A2D', Quadrizeps: '#A03C78',
@@ -1780,6 +1810,7 @@ function WorkoutCompleteModal({ data, T, onClose }: {
   T: any;
   onClose: () => void;
 }) {
+  const { lang } = useLanguage();
   const streakNum = useRef(new Animated.Value(0)).current;
   const ring1 = useRef(new Animated.Value(0)).current;
   const ring2 = useRef(new Animated.Value(0)).current;
@@ -1888,9 +1919,9 @@ function WorkoutCompleteModal({ data, T, onClose }: {
           </View>
 
           <View style={{ alignItems: 'center', marginTop: 16 }}>
-            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 3, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>Training abgeschlossen</Text>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 3, textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>{lang === 'en' ? 'Workout Complete' : 'Training abgeschlossen'}</Text>
             <Text style={{ fontSize: 26, fontWeight: '800', color: '#fff', letterSpacing: -0.8 }}>{data.name}</Text>
-            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>{data.streak} Tage Streak</Text>
+            <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>{data.streak} {lang === 'en' ? 'Days Streak' : 'Tage Streak'}</Text>
           </View>
         </View>
 
@@ -1935,7 +1966,7 @@ function WorkoutCompleteModal({ data, T, onClose }: {
 
           {/* Week */}
           <Animated.View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 0.5, borderColor: 'rgba(60,30,10,0.08)', opacity: contentOpacity, transform: [{ translateY: contentY }] }}>
-            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: '#B0A89E', marginBottom: 12 }}>Diese Woche</Text>
+            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: '#B0A89E', marginBottom: 12 }}>{lang === 'en' ? 'This Week' : 'Diese Woche'}</Text>
             <View style={{ flexDirection: 'row', gap: 3 }}>
               {DAY_LBLS.map((lbl, idx) => {
                 const done = data.weekDays[idx];
@@ -1956,7 +1987,7 @@ function WorkoutCompleteModal({ data, T, onClose }: {
           {/* Button */}
           <Animated.View style={{ opacity: contentOpacity, transform: [{ translateY: contentY }] }}>
             <TouchableOpacity style={{ backgroundColor: '#7B4A2D', borderRadius: 18, padding: 18, alignItems: 'center' }} onPress={onClose} activeOpacity={0.85}>
-              <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff', letterSpacing: -0.3 }}>Weiter →</Text>
+              <Text style={{ fontSize: 15, fontWeight: '800', color: '#fff', letterSpacing: -0.3 }}>{lang === 'en' ? 'Continue →' : 'Weiter →'}</Text>
             </TouchableOpacity>
           </Animated.View>
 
@@ -1970,6 +2001,7 @@ function WorkoutCompleteModal({ data, T, onClose }: {
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 export default function TrainingScreen() {
   const { colors } = useAppTheme();
+  const { lang } = useLanguage();
 const T = {
   bg:           colors.bg,
   card:         colors.card,
@@ -2077,7 +2109,11 @@ const [completedWorkoutData, setCompletedWorkoutData] = useState<{
   const readyCount = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80).length;
   const warnCount = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) < 40).length;
   const greetHour = new Date().getHours();
-  const greeting = greetHour < 12 ? 'Guten Morgen' : greetHour < 18 ? 'Guten Tag' : 'Guten Abend';
+  const greeting = greetHour < 12
+    ? (lang === 'en' ? 'Good Morning' : 'Guten Morgen')
+    : greetHour < 18
+      ? (lang === 'en' ? 'Good Day' : 'Guten Tag')
+      : (lang === 'en' ? 'Good Evening' : 'Guten Abend');
 
   async function startFree() {
     const w: Workout = { id: Date.now().toString(), date: new Date().toISOString(), name: 'Freies Training', exercises: [], duration: 0, intensity: 3, type: 'gym' };
@@ -2378,7 +2414,7 @@ await loadAll();
 
           {/* HEUTE EMPFOHLEN */}
           <View style={{ paddingHorizontal: 20, marginBottom: 22 }}>
-            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 10 }}>Heute empfohlen</Text>
+            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 10 }}>{lang === 'en' ? 'Today\'s Recommendation' : 'Heute empfohlen'}</Text>
             <View style={{ backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: 22, padding: 18, borderWidth: 1, borderColor: 'rgba(0,0,0,0.08)' }}>
               {(() => {
                 const readyMuscles = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80);
@@ -2402,18 +2438,18 @@ await loadAll();
                         <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
                           <IconPlay size={10} color="#fff" />
                         </View>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>Jetzt starten</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>{lang === 'en' ? 'Start Now' : 'Jetzt starten'}</Text>
                       </View>
                       <IconChevronRight color="rgba(255,255,255,0.3)" size={12} />
                     </TouchableOpacity>
                     <View style={{ flexDirection: 'row', gap: 8 }}>
                       <TouchableOpacity onPress={() => setScreen('routines')} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: 12, padding: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         <IconList size={13} color={T.text2} />
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: T.text2 }}>Routinen</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: T.text2 }}>{lang === 'en' ? 'Routines' : 'Routinen'}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={startFree} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: 12, padding: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         <IconPlus size={13} color={T.text2} />
-                        <Text style={{ fontSize: 12, fontWeight: '700', color: T.text2 }}>Frei</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: T.text2 }}>{lang === 'en' ? 'Free' : 'Frei'}</Text>
                       </TouchableOpacity>
                     </View>
                   </>
@@ -2423,7 +2459,7 @@ await loadAll();
           </View>
           {/* MUSKELREGENERATION */}
           <View style={{ paddingHorizontal: 20, marginBottom: 22 }}>
-            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 10 }}>Muskelregeneration</Text>
+            <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 10 }}>{lang === 'en' ? 'Muscle Recovery' : 'Muskelregeneration'}</Text>
             <View style={{ backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: 22, padding: 18, borderWidth: 1, borderColor: 'rgba(0,0,0,0.08)', flexDirection: 'row', gap: 14, alignItems: 'center' }}>
               <Svg width={76} height={76} viewBox="0 0 76 76">
                 <Circle cx={38} cy={38} r={30} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth={9} />
@@ -2437,9 +2473,9 @@ await loadAll();
               </Svg>
               <View style={{ flex: 1 }}>
                 {[
-                  { label: `${MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80).length} bereit`, color: T.green },
-                  { label: `${MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) < 40).length} schonen`, color: T.red },
-                  { label: `${MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 40 && (muscles[m]?.level ?? 100) < 80).length} mittel`, color: T.text4 },
+                  { label: `${MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80).length} ${lang === 'en' ? 'ready' : 'bereit'}`, color: T.green },
+                  { label: `${MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) < 40).length} ${lang === 'en' ? 'caution' : 'schonen'}`, color: T.red },
+                  { label: `${MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 40 && (muscles[m]?.level ?? 100) < 80).length} ${lang === 'en' ? 'medium' : 'mittel'}`, color: T.text4 },
                 ].map(item => (
                   <View key={item.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 6 }}>
                     <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: item.color }} />
@@ -2447,7 +2483,7 @@ await loadAll();
                   </View>
                 ))}
                 <TouchableOpacity onPress={() => setShowBodyModal(true)} style={{ backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: 10, padding: 7, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: 4 }}>
-                  <Text style={{ fontSize: 10, fontWeight: '700', color: T.text2 }}>Details ansehen</Text>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: T.text2 }}>{lang === 'en' ? 'View Details' : 'Details ansehen'}</Text>
                   <IconChevronRight size={10} color={T.text2} />
                 </TouchableOpacity>
               </View>
@@ -2465,7 +2501,7 @@ await loadAll();
                 </Svg>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: T.text1 }}>Persönliche Rekorde</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: T.text1 }}>{lang === 'en' ? 'Personal Records' : 'Persönliche Rekorde'}</Text>
                 <Text style={{ fontSize: 9, color: T.text4, marginTop: 1 }}>{Object.keys(prHistory).length} Rekorde gespeichert</Text>
               </View>
               <IconChevronRight color="#C8C0B8" size={12} />
@@ -2479,7 +2515,7 @@ await loadAll();
                 </Svg>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: T.text1 }}>Trainingsverlauf</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: T.text1 }}>{lang === 'en' ? 'Training History' : 'Trainingsverlauf'}</Text>
                 <Text style={{ fontSize: 9, color: T.text4, marginTop: 1 }}>{workouts.length} Einheiten</Text>
               </View>
               <IconChevronRight color="#C8C0B8" size={12} />
@@ -2490,7 +2526,7 @@ await loadAll();
                 <IconHistory size={16} color={T.text1} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, fontWeight: '700', color: T.text1 }}>Kraftentwicklung</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: T.text1 }}>{lang === 'en' ? 'Strength Development' : 'Kraftentwicklung'}</Text>
                 <Text style={{ fontSize: 9, color: T.text4, marginTop: 1 }}>diesen Monat</Text>
               </View>
               {(() => {

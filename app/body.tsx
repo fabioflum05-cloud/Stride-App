@@ -1,5 +1,6 @@
 import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useLanguage } from '../constants/LanguageContext';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -322,6 +323,7 @@ function BodyBack({ muscles }: { muscles: MuscleMap }) {
 }
 
 export default function BodyScreen() {
+  const { t, lang } = useLanguage();
   const [muscles, setMuscles] = useState<MuscleMap>({});
   const [view, setView] = useState<'front' | 'back'>('front');
 
@@ -379,8 +381,8 @@ export default function BodyScreen() {
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
         <BackButton />
-        <Text style={styles.headerLabel}>Körper</Text>
-        <Text style={styles.title}>Muskel{'\n'}Recovery</Text>
+        <Text style={styles.headerLabel}>{t('body_title')}</Text>
+        <Text style={styles.title}>{t('body_recovery')}</Text>
 
         <View style={styles.viewToggle}>
           {(['front', 'back'] as const).map(v => (
@@ -391,7 +393,7 @@ export default function BodyScreen() {
               activeOpacity={0.7}
             >
               <Text style={[styles.toggleText, view === v && styles.toggleTextActive]}>
-                {v === 'front' ? '▶ Vorderseite' : '◀ Rückseite'}
+                {v === 'front' ? t('body_front') : t('body_back')}
               </Text>
             </TouchableOpacity>
           ))}
@@ -402,13 +404,13 @@ export default function BodyScreen() {
             {view === 'front' ? <BodyFront muscles={muscles} /> : <BodyBack muscles={muscles} />}
           </View>
           <View style={styles.legend}>
-            <Text style={styles.legendTitle}>Recovery</Text>
+            <Text style={styles.legendTitle}>{t('body_legend')}</Text>
             {[
-              { color: theme.green, label: '80–100%', note: 'Bereit' },
-              { color: theme.blue, label: '60–79%', note: 'Fast' },
-              { color: theme.orange, label: '40–59%', note: 'Mittel' },
-              { color: theme.pink, label: '20–39%', note: 'Niedrig' },
-              { color: theme.red, label: '0–19%', note: 'Schonen' },
+              { color: theme.green, label: '80–100%', note: t('training_legend_recovered') },
+              { color: theme.blue, label: '60–79%', note: t('training_legend_almost') },
+              { color: theme.orange, label: '40–59%', note: t('training_legend_medium') },
+              { color: theme.pink, label: '20–39%', note: t('training_legend_low') },
+              { color: theme.red, label: '0–19%', note: t('training_legend_caution') },
             ].map(item => (
               <View key={item.label} style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: item.color }]} />
@@ -423,19 +425,19 @@ export default function BodyScreen() {
 
         {warnings.length > 0 && (
           <View style={styles.warningCard}>
-            <Text style={styles.warningTitle}>⚠ Noch nicht erholt</Text>
-            <Text style={styles.warningText}>{warnings.join(', ')} – heute schonen.</Text>
+            <Text style={styles.warningTitle}>{t('body_warning')}</Text>
+            <Text style={styles.warningText}>{warnings.join(', ')} – {t('body_warning_msg')}</Text>
           </View>
         )}
 
         {ready.length > 0 && (
           <View style={styles.readyCard}>
-            <Text style={styles.readyTitle}>✓ Bereit</Text>
+            <Text style={styles.readyTitle}>{t('body_ready')}</Text>
             <Text style={styles.readyText}>{ready.join(', ')}</Text>
           </View>
         )}
 
-        <Text style={styles.sectionTitle}>Alle Muskelgruppen</Text>
+        <Text style={styles.sectionTitle}>{t('body_all')}</Text>
         {MUSCLES.map(m => {
           const muscle = muscles[m];
           if (!muscle) return null;
@@ -448,7 +450,7 @@ export default function BodyScreen() {
               <View style={styles.muscleLeft}>
                 <Text style={styles.muscleName}>{m}</Text>
                 <Text style={styles.muscleTime}>
-                  {muscle.lastTrained ? hoursLeft > 0 ? `noch ${Math.round(hoursLeft)}h` : 'Erholt ✓' : 'Nie trainiert'}
+                  {muscle.lastTrained ? hoursLeft > 0 ? (lang === 'en' ? `${Math.round(hoursLeft)}h left` : `noch ${Math.round(hoursLeft)}h`) : t('body_recovered') : t('body_never')}
                 </Text>
               </View>
               <View style={styles.muscleBarWrap}>

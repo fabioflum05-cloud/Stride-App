@@ -9,6 +9,7 @@ import {
   TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle, Line, Polyline } from 'react-native-svg';
+import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -53,17 +54,18 @@ function dayKey(iso: string): string {
 }
 
 // ─── Mini Line Chart ──────────────────────────────────────────────────────────
-function MiniChart({ data, color, isDark }: {
+function MiniChart({ data, color, isDark, lang }: {
   data: (number | null)[];
   color: string;
   isDark: boolean;
+  lang: string;
 }) {
   const W = 280; const H = 56; const PAD = 6;
   const valid = data.filter(v => v !== null) as number[];
   if (valid.length < 2) return (
     <View style={{ height: H, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', fontSize: 12 }}>
-        Noch zu wenig Daten
+        {lang === 'en' ? 'Not enough data' : 'Noch zu wenig Daten'}
       </Text>
     </View>
   );
@@ -101,6 +103,18 @@ function MiniChart({ data, color, isDark }: {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function HistoryScreen() {
   const { colors } = useAppTheme();
+  const { t, lang } = useLanguage();
+  const metricLabel: Record<MetricKey, { de: string; en: string }> = {
+    perfScore:    { de: 'Performance',  en: 'Performance' },
+    workoutScore: { de: 'Training',     en: 'Training' },
+    sleepScore:   { de: 'Schlaf Score', en: 'Sleep Score' },
+    sleepHours:   { de: 'Schlafdauer',  en: 'Sleep Duration' },
+    hrv:          { de: 'HRV',          en: 'HRV' },
+    restingHR:    { de: 'Ruhepuls',     en: 'Resting HR' },
+    battLevel:    { de: 'Energie',      en: 'Energy' },
+    recovery:     { de: 'Erholung',     en: 'Recovery' },
+  };
+  const ml = (key: MetricKey) => lang === 'en' ? metricLabel[key].en : metricLabel[key].de;
   const [days,     setDays]    = useState<DayData[]>([]);
   const [selected, setSelected]= useState<MetricKey[]>(['perfScore', 'sleepScore', 'hrv']);
   const [range,    setRange]   = useState<Range>(14);
@@ -189,9 +203,12 @@ export default function HistoryScreen() {
   }
 
   async function clearHistory() {
-    Alert.alert('Verlauf löschen?', 'Kann nicht rückgängig gemacht werden.', [
-      { text: 'Abbrechen', style: 'cancel' },
-      { text: 'Löschen', style: 'destructive', onPress: async () => {
+    Alert.alert(
+      lang === 'en' ? 'Delete history?' : 'Verlauf löschen?',
+      lang === 'en' ? 'This cannot be undone.' : 'Kann nicht rückgängig gemacht werden.',
+      [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('delete'), style: 'destructive', onPress: async () => {
         await AsyncStorage.multiRemove(['checkinHistory','sleepHistory','workoutHistory','batteryHistory']);
         setDays([]);
       }},
@@ -219,7 +236,7 @@ export default function HistoryScreen() {
 
   if (!loaded) return (
     <View style={{ flex: 1, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
-      <Text style={{ color: textMuted }}>Lade…</Text>
+      <Text style={{ color: textMuted }}>{t('loading')}</Text>
     </View>
   );
 
@@ -231,18 +248,18 @@ export default function HistoryScreen() {
           {/* ── Header ── */}
           <View style={{ marginBottom: 24 }}>
             <Text style={{ fontSize: 11, color: textDim, fontWeight: '600', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 }}>
-              {new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {new Date().toLocaleDateString(lang === 'en' ? 'en-US' : 'de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}
             </Text>
-            <Text style={{ fontSize: 30, fontWeight: '800', color: text, letterSpacing: -0.8 }}>Verlauf</Text>
+            <Text style={{ fontSize: 30, fontWeight: '800', color: text, letterSpacing: -0.8 }}>{lang === 'en' ? 'History' : 'Verlauf'}</Text>
           </View>
 
           {/* ── Summary ── */}
           <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
             {[
-              { label: 'Trainings',   value: totalWorkouts.toString(), color: colors.accent },
-              { label: 'Ø Performance',value: avgPerf ? `${avgPerf}` : '—', color: '#818CF8' },
-              { label: 'Ø Schlaf',    value: avgSleep ? `${avgSleep}h` : '—', color: '#60A5FA' },
-              { label: 'Ø HRV',       value: avgHRV ? `${avgHRV}ms` : '—', color: '#4ADE80' },
+              { label: lang === 'en' ? 'Workouts' : 'Trainings', value: totalWorkouts.toString(), color: colors.accent },
+              { label: lang === 'en' ? 'Avg Performance' : 'Ø Performance', value: avgPerf ? `${avgPerf}` : '—', color: '#818CF8' },
+              { label: lang === 'en' ? 'Avg Sleep' : 'Ø Schlaf', value: avgSleep ? `${avgSleep}h` : '—', color: '#60A5FA' },
+              { label: 'Ø HRV', value: avgHRV ? `${avgHRV}ms` : '—', color: '#4ADE80' },
             ].map(s => (
               <View key={s.label} style={{ flex: 1, backgroundColor: card, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: border, alignItems: 'center' }}>
                 <Text style={{ fontSize: 18, fontWeight: '800', color: s.color, letterSpacing: -0.5 }}>{s.value}</Text>
@@ -259,7 +276,7 @@ export default function HistoryScreen() {
                   backgroundColor: range === r ? colors.accent : card,
                   borderWidth: 1, borderColor: range === r ? colors.accent : border }}>
                 <Text style={{ fontSize: 12, fontWeight: '700', color: range === r ? '#fff' : textMuted }}>
-                  {r}T
+                  {r}{lang === 'en' ? 'D' : 'T'}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -267,7 +284,7 @@ export default function HistoryScreen() {
 
           {/* ── Metric Selector ── */}
           <View style={cardStyle}>
-            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 12 }}>Metriken</Text>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 12 }}>{lang === 'en' ? 'Metrics' : 'Metriken'}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
               {METRICS.map(m => {
                 const active = selected.includes(m.key);
@@ -278,7 +295,7 @@ export default function HistoryScreen() {
                       backgroundColor: active ? m.color + '20' : cardAlt,
                       borderWidth: 1, borderColor: active ? m.color : border }}>
                     <Text style={{ fontSize: 12 }}>{m.emoji}</Text>
-                    <Text style={{ fontSize: 12, fontWeight: '600', color: active ? m.color : textMuted }}>{m.label}</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: active ? m.color : textMuted }}>{ml(m.key)}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -302,7 +319,7 @@ export default function HistoryScreen() {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                   <View>
                     <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: m.color, marginBottom: 4 }}>
-                      {m.emoji} {m.label}
+                      {m.emoji} {ml(m.key)}
                     </Text>
                     {latest !== null && (
                       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
@@ -323,11 +340,11 @@ export default function HistoryScreen() {
                   </View>
                 </View>
 
-                <MiniChart data={vals} color={m.color} isDark={isDark} />
+                <MiniChart data={vals} color={m.color} isDark={isDark} lang={lang} />
 
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
                   <Text style={{ fontSize: 10, color: textDim }}>{ranged[0]?.label ?? ''}</Text>
-                  <Text style={{ fontSize: 10, color: textDim }}>Heute</Text>
+                  <Text style={{ fontSize: 10, color: textDim }}>{t('today')}</Text>
                 </View>
               </View>
             );
@@ -337,7 +354,7 @@ export default function HistoryScreen() {
           {ranged.length > 0 && (
             <View style={cardStyle}>
               <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 14 }}>
-                Tagesübersicht
+                {lang === 'en' ? 'Daily Overview' : 'Tagesübersicht'}
               </Text>
               {[...ranged].reverse().map((day, i) => (
                 <View key={day.date} style={{ paddingVertical: 12,
@@ -359,12 +376,12 @@ export default function HistoryScreen() {
                     </View>
                   </View>
                   <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
-                    {day.sleepHours && <StatCell label="Schlaf" value={`${day.sleepHours}h`} color="#60A5FA" />}
+                    {day.sleepHours && <StatCell label={lang === 'en' ? 'Sleep' : 'Schlaf'} value={`${day.sleepHours}h`} color="#60A5FA" />}
                     {day.hrv && <StatCell label="HRV" value={`${day.hrv}ms`} color="#4ADE80" />}
                     {day.restingHR && <StatCell label="RHR" value={`${day.restingHR}bpm`} color="#F87171" />}
-                    {day.battLevel && <StatCell label="Energie" value={`${day.battLevel}%`} color="#FBBF24" />}
-                    {day.recovery && <StatCell label="Erholung" value={`${day.recovery}`} color="#34D399" />}
-                    {day.workouts && <StatCell label="Training" value={`${day.workouts}×`} color={colors.accent} />}
+                    {day.battLevel && <StatCell label={lang === 'en' ? 'Energy' : 'Energie'} value={`${day.battLevel}%`} color="#FBBF24" />}
+                    {day.recovery && <StatCell label={lang === 'en' ? 'Recovery' : 'Erholung'} value={`${day.recovery}`} color="#34D399" />}
+                    {day.workouts && <StatCell label={lang === 'en' ? 'Workout' : 'Training'} value={`${day.workouts}×`} color={colors.accent} />}
                   </View>
                 </View>
               ))}
@@ -374,9 +391,9 @@ export default function HistoryScreen() {
           {days.length === 0 && (
             <View style={[cardStyle, { alignItems: 'center', paddingVertical: 48 }]}>
               <Text style={{ fontSize: 40, marginBottom: 12 }}>📊</Text>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: text, marginBottom: 6 }}>Noch keine Daten</Text>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: text, marginBottom: 6 }}>{lang === 'en' ? 'No data yet' : 'Noch keine Daten'}</Text>
               <Text style={{ fontSize: 13, color: textMuted, textAlign: 'center' }}>
-                Trage Schlaf, Check-in und Training ein um hier deinen Verlauf zu sehen.
+                {lang === 'en' ? 'Log sleep, check-ins and workouts to see your history here.' : 'Trage Schlaf, Check-in und Training ein um hier deinen Verlauf zu sehen.'}
               </Text>
             </View>
           )}
@@ -388,7 +405,7 @@ export default function HistoryScreen() {
                 backgroundColor: isDark ? 'rgba(248,113,113,0.1)' : '#FFF0F0',
                 borderWidth: 1, borderColor: isDark ? 'rgba(248,113,113,0.2)' : '#FECACA',
                 marginBottom: 8 }}>
-              <Text style={{ color: '#F87171', fontSize: 13, fontWeight: '600' }}>Verlauf löschen</Text>
+              <Text style={{ color: '#F87171', fontSize: 13, fontWeight: '600' }}>{lang === 'en' ? 'Delete History' : 'Verlauf löschen'}</Text>
             </TouchableOpacity>
           )}
 

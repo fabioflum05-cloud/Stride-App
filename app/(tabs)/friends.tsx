@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { auth, db } from '../../constants/firebase';
+import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -61,9 +62,16 @@ function calcStreak(workouts: any[]): number {
   return streak;
 }
 
-function timeAgo(iso: string): string {
+function timeAgo(iso: string, lang: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const h = Math.floor(diff / 3600000);
+  if (lang === 'en') {
+    if (h < 1)  return 'Just now';
+    if (h < 24) return `${h}h ago`;
+    const d = Math.floor(h / 24);
+    if (d < 7)  return `${d}d ago`;
+    return `${Math.floor(d/7)}w ago`;
+  }
   if (h < 1)  return 'Gerade eben';
   if (h < 24) return `vor ${h}h`;
   const d = Math.floor(h / 24);
@@ -81,6 +89,7 @@ function scoreColor(s: number): string {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function FriendsScreen() {
   const { colors } = useAppTheme();
+  const { t, lang } = useLanguage();
   const isDark    = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
   const bg        = colors.bg;
   const card      = colors.card;
@@ -186,14 +195,14 @@ export default function FriendsScreen() {
   // ── Add friend by code ──────────────────────────────────────────────────────
   async function addFriend() {
     const code = inputCode.trim().toUpperCase();
-    if (code.length !== 6) { Alert.alert('Ungültiger Code', 'Bitte 6-stelligen Code eingeben.'); return; }
-    if (code === myCode)   { Alert.alert('Das bist du 😄', 'Du kannst dich nicht selbst hinzufügen.'); return; }
+    if (code.length !== 6) { Alert.alert(lang === 'en' ? 'Invalid code' : 'Ungültiger Code', lang === 'en' ? 'Please enter a 6-digit code.' : 'Bitte 6-stelligen Code eingeben.'); return; }
+    if (code === myCode)   { Alert.alert(lang === 'en' ? 'That\'s you 😄' : 'Das bist du 😄', lang === 'en' ? 'You can\'t add yourself.' : 'Du kannst dich nicht selbst hinzufügen.'); return; }
     setAddLoading(true);
     try {
       // Search by friendCode
       const q = query(collection(db, 'users'), where('friendCode', '==', code));
       const snap = await getDocs(q);
-      if (snap.empty) { Alert.alert('Nicht gefunden', 'Kein Nutzer mit diesem Code gefunden.'); setAddLoading(false); return; }
+      if (snap.empty) { Alert.alert(lang === 'en' ? 'Not found' : 'Nicht gefunden', lang === 'en' ? 'No user found with this code.' : 'Kein Nutzer mit diesem Code gefunden.'); setAddLoading(false); return; }
 
       const friendDoc = snap.docs[0];
       const friendData = friendDoc.data() as FriendData;
@@ -202,7 +211,7 @@ export default function FriendsScreen() {
       const raw  = await AsyncStorage.getItem('friend_uids');
       const uids: string[] = raw ? JSON.parse(raw) : [];
       if (uids.includes(friendData.uid)) {
-        Alert.alert('Bereits hinzugefügt', `${friendData.name} ist schon in deiner Liste.`);
+        Alert.alert(lang === 'en' ? 'Already added' : 'Bereits hinzugefügt', lang === 'en' ? `${friendData.name} is already in your list.` : `${friendData.name} ist schon in deiner Liste.`);
         setAddLoading(false);
         return;
       }
@@ -212,17 +221,17 @@ export default function FriendsScreen() {
       setFriends(prev => [...prev, friendData].sort((a,b) => b.streak - a.streak));
       setAddVisible(false);
       setInputCode('');
-      Alert.alert('Freund hinzugefügt! 🎉', `${friendData.name} wurde hinzugefügt.`);
+      Alert.alert(lang === 'en' ? 'Friend added! 🎉' : 'Freund hinzugefügt! 🎉', lang === 'en' ? `${friendData.name} has been added.` : `${friendData.name} wurde hinzugefügt.`);
     } catch (e) {
-      Alert.alert('Fehler', 'Verbindungsfehler. Bitte nochmal versuchen.');
+      Alert.alert(t('error'), lang === 'en' ? 'Connection error. Please try again.' : 'Verbindungsfehler. Bitte nochmal versuchen.');
     }
     setAddLoading(false);
   }
 
   async function removeFriend(uid: string, name: string) {
-    Alert.alert(`${name} entfernen?`, '', [
-      { text: 'Abbrechen', style: 'cancel' },
-      { text: 'Entfernen', style: 'destructive', onPress: async () => {
+    Alert.alert(lang === 'en' ? `Remove ${name}?` : `${name} entfernen?`, '', [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('friends_remove'), style: 'destructive', onPress: async () => {
         const raw  = await AsyncStorage.getItem('friend_uids');
         const uids: string[] = raw ? JSON.parse(raw) : [];
         const updated = uids.filter(u => u !== uid);
@@ -234,7 +243,9 @@ export default function FriendsScreen() {
 
   async function shareCode() {
     await Share.share({
-      message: `Tritt meiner Stride-Freundesliste bei! Mein Code: ${myCode}\n\nStride – Performance Tracking App`,
+      message: lang === 'en'
+        ? `Join my Stride friends list! My code: ${myCode}\n\nStride – Performance Tracking App`
+        : `Tritt meiner Stride-Freundesliste bei! Mein Code: ${myCode}\n\nStride – Performance Tracking App`,
     });
   }
 
@@ -255,7 +266,7 @@ export default function FriendsScreen() {
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
             <View>
               <Text style={{ fontSize: 11, color: textDim, fontWeight: '600', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 }}>Social</Text>
-              <Text style={{ fontSize: 30, fontWeight: '800', color: text, letterSpacing: -0.8 }}>Freunde</Text>
+              <Text style={{ fontSize: 30, fontWeight: '800', color: text, letterSpacing: -0.8 }}>{t('friends_title')}</Text>
             </View>
             <TouchableOpacity onPress={() => setAddVisible(true)}
               style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
@@ -266,7 +277,7 @@ export default function FriendsScreen() {
           {/* ── Mein Code ── */}
           <View style={[cardStyle, { borderColor: colors.accent + '40' }]}>
             <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 10 }}>
-              Mein Friend-Code
+              {t('friends_code')}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 }}>
               {/* Big code display */}
@@ -281,7 +292,7 @@ export default function FriendsScreen() {
               </TouchableOpacity>
             </View>
             <Text style={{ fontSize: 12, color: textMuted, textAlign: 'center', lineHeight: 18 }}>
-              Teile diesen Code mit Freunden damit sie dich hinzufügen können.
+              {lang === 'en' ? 'Share this code with friends so they can add you.' : 'Teile diesen Code mit Freunden damit sie dich hinzufügen können.'}
             </Text>
           </View>
 
@@ -289,7 +300,7 @@ export default function FriendsScreen() {
           {myData && (
             <View style={cardStyle}>
               <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 14 }}>
-                Deine Stats
+                {t('friends_stats')}
               </Text>
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <StatBox label="Streak" value={`${myData.streak}🔥`} color={myData.streak >= 7 ? '#F97316' : myData.streak >= 3 ? '#FBBF24' : textMuted} isDark={isDark} card={cardAlt} border={border} text={text} dim={textDim} />
@@ -304,7 +315,7 @@ export default function FriendsScreen() {
           {leaderboard.length > 0 && (
             <View style={cardStyle}>
               <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 14 }}>
-                Rangliste · Streak
+                {t('friends_ranking')}
               </Text>
               {leaderboard.map((f, i) => {
                 const medals = ['🥇', '🥈', '🥉'];
@@ -342,7 +353,7 @@ export default function FriendsScreen() {
                         )}
                       </View>
                       <Text style={{ fontSize: 11, color: textDim, marginTop: 2 }}>
-                        {f.sport} · {timeAgo(f.lastActive)}
+                        {f.sport} · {timeAgo(f.lastActive, lang)}
                       </Text>
                     </View>
 
@@ -359,7 +370,7 @@ export default function FriendsScreen() {
                 );
               })}
               <Text style={{ color: textDim, fontSize: 11, textAlign: 'center', marginTop: 12 }}>
-                Lang drücken um Freund zu entfernen
+                {lang === 'en' ? 'Long press to remove a friend' : 'Lang drücken um Freund zu entfernen'}
               </Text>
             </View>
           )}
@@ -368,13 +379,13 @@ export default function FriendsScreen() {
           {friends.length === 0 && !loading && (
             <View style={[cardStyle, { alignItems: 'center', paddingVertical: 40, borderStyle: 'dashed' }]}>
               <Text style={{ fontSize: 36, marginBottom: 12 }}>👥</Text>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: text, marginBottom: 6 }}>Noch keine Freunde</Text>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: text, marginBottom: 6 }}>{t('friends_empty')}</Text>
               <Text style={{ fontSize: 13, color: textMuted, textAlign: 'center', marginBottom: 20 }}>
-                Teile deinen Code oder gib den Code eines Freundes ein.
+                {lang === 'en' ? 'Share your code or enter a friend\'s code.' : 'Teile deinen Code oder gib den Code eines Freundes ein.'}
               </Text>
               <TouchableOpacity onPress={() => setAddVisible(true)}
                 style={{ backgroundColor: colors.accent, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 14 }}>
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Freund hinzufügen</Text>
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>{t('friends_add')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -385,7 +396,7 @@ export default function FriendsScreen() {
               style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14,
                 backgroundColor: cardAlt, borderRadius: 16, borderWidth: 1, borderColor: border }}>
               <Text style={{ fontSize: 14 }}>🔄</Text>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: textMuted }}>Aktualisieren</Text>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: textMuted }}>{t('friends_refresh')}</Text>
             </TouchableOpacity>
           )}
 
@@ -397,15 +408,15 @@ export default function FriendsScreen() {
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 48 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-              <Text style={{ fontSize: 22, fontWeight: '800', color: text }}>Freund hinzufügen</Text>
+              <Text style={{ fontSize: 22, fontWeight: '800', color: text }}>{t('friends_add')}</Text>
               <TouchableOpacity onPress={() => { setAddVisible(false); setInputCode(''); }}
                 style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: cardAlt }}>
-                <Text style={{ color: textMuted, fontSize: 13, fontWeight: '600' }}>Abbrechen</Text>
+                <Text style={{ color: textMuted, fontSize: 13, fontWeight: '600' }}>{t('cancel')}</Text>
               </TouchableOpacity>
             </View>
 
             <Text style={{ fontSize: 11, color: textDim, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
-              6-stelligen Code eingeben
+              {lang === 'en' ? 'Enter 6-digit code' : '6-stelligen Code eingeben'}
             </Text>
             <TextInput
               style={{ backgroundColor: cardAlt, borderRadius: 16, padding: 18, color: text,
@@ -424,20 +435,20 @@ export default function FriendsScreen() {
               style={{ backgroundColor: inputCode.length === 6 ? colors.accent : cardAlt,
                 borderRadius: 16, paddingVertical: 16, alignItems: 'center' }}>
               <Text style={{ color: inputCode.length === 6 ? '#fff' : textDim, fontWeight: '800', fontSize: 16 }}>
-                {addLoading ? 'Suche…' : 'Hinzufügen'}
+                {addLoading ? (lang === 'en' ? 'Searching…' : 'Suche…') : t('friends_add')}
               </Text>
             </TouchableOpacity>
 
             <View style={{ marginTop: 24, paddingTop: 20, borderTopWidth: 1, borderTopColor: border }}>
               <Text style={{ fontSize: 11, color: textDim, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
-                Oder meinen Code teilen
+                {lang === 'en' ? 'Or share my code' : 'Oder meinen Code teilen'}
               </Text>
               <TouchableOpacity onPress={shareCode}
                 style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
                   backgroundColor: cardAlt, borderRadius: 14, paddingVertical: 14,
                   borderWidth: 1, borderColor: border }}>
                 <Text style={{ fontSize: 20, fontWeight: '800', color: colors.accent, letterSpacing: 4 }}>{myCode}</Text>
-                <Text style={{ fontSize: 13, color: textMuted }}>· Teilen</Text>
+                <Text style={{ fontSize: 13, color: textMuted }}>· {t('friends_share')}</Text>
               </TouchableOpacity>
             </View>
           </View>
