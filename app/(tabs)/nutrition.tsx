@@ -300,7 +300,7 @@ function BarcodeScanner({ onResult, onClose, lang }: { onResult:(f:Partial<FoodE
     ref.current = true; setScanned(true); setLoading(true);
     try {
       const ctrl = new AbortController();
-      const to = setTimeout(() => ctrl.abort(), 10000);
+      const to = setTimeout(() => ctrl.abort(), 15000);
       const r = await fetch(`https://world.openfoodfacts.org/api/v2/product/${data}?fields=product_name,nutriments,brands,ingredients_text`, { headers:{'User-Agent':'StrideApp/1.0'}, signal:ctrl.signal });
       clearTimeout(to);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -323,7 +323,10 @@ function BarcodeScanner({ onResult, onClose, lang }: { onResult:(f:Partial<FoodE
       };
       onResult({ label:name, unit:'g', source:'barcode', macros:{kcal,protein:v('proteins'),carbs:v('carbohydrates'),fat:v('fat')}, micros });
     } catch (e:any) {
-      Alert.alert(lang==='en'?'Error':'Fehler', e?.name==='AbortError'?(lang==='en'?'Timeout.':'Zeitüberschreitung.'):(lang==='en'?'Network error.':'Netzwerkfehler.'),[{text:'OK',onPress:()=>{ref.current=false;setScanned(false);setLoading(false);}}]);
+      Alert.alert(lang==='en'?'Error':'Fehler', e?.name==='AbortError'?(lang==='en'?'Timeout.':'Zeitüberschreitung.'):(lang==='en'?'Network error.':'Netzwerkfehler.'),[
+        {text:lang==='en'?'Cancel':'Abbrechen',style:'cancel',onPress:()=>{ref.current=false;setScanned(false);setLoading(false);}},
+        {text:lang==='en'?'Retry':'Erneut versuchen',onPress:()=>{ref.current=false;setScanned(false);handleBarcode({data});}},
+      ]);
     }
     setLoading(false);
   }

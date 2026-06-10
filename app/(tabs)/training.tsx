@@ -321,6 +321,26 @@ const COMMUNITY_ROUTINES: Routine[] = [
 
 const MAX_SETS_FOR_FULL_FATIGUE = 6;
 
+// Maps ALL_EXERCISES categories (and other muscleGroup labels) to the
+// canonical MUSCLE_GROUPS used for recovery tracking.
+const MUSCLE_GROUP_ALIASES: Record<string, string> = {
+  'Rücken (Breite)': 'Rücken',
+  'Rücken (Dicke)': 'Rücken',
+  'Rücken (Unterer)': 'Rücken',
+  'Trapez': 'Rücken',
+  'Gesäß': 'Gluteus',
+  'Bauch': 'Core',
+  'Obliques': 'Core',
+  'Adduktoren': 'Quadrizeps',
+  'Abduktoren': 'Gluteus',
+  'Olympic Lifts': 'Quadrizeps',
+};
+function resolveMuscleGroup(mg: string | undefined): string | null {
+  if (!mg) return null;
+  if (MUSCLE_GROUPS.includes(mg)) return mg;
+  return MUSCLE_GROUP_ALIASES[mg] ?? null;
+}
+
 function calculateMuscleRecovery(workouts: Workout[]): MuscleMap {
   const cutoff = Date.now() - 7 * 24 * 3600000;
   const hitMap: Record<string, { date: string; fatigue: number }[]> = {};
@@ -329,22 +349,32 @@ function calculateMuscleRecovery(workouts: Workout[]): MuscleMap {
     .filter(w => new Date(w.date).getTime() > cutoff)
     .forEach(w => {
       w.exercises?.forEach(ex => {
-        const exData = EXERCISE_DB.find(e => e.name === ex.name);
-        if (!exData) return;
-
         const setCount = ex.sets.filter(
           s => parseFloat(s.reps || '0') > 0 && parseFloat(s.weight || '0') > 0
         ).length || ex.sets.length;
 
         const primaryFatigue = Math.min(1.0, setCount / MAX_SETS_FOR_FULL_FATIGUE);
-        if (!hitMap[exData.muscleGroup]) hitMap[exData.muscleGroup] = [];
-        hitMap[exData.muscleGroup].push({ date: w.date, fatigue: primaryFatigue });
 
-        exData.secondary.forEach(sec => {
-          const secFatigue = Math.min(1.0, (setCount / MAX_SETS_FOR_FULL_FATIGUE) * sec.weight);
-          if (!hitMap[sec.muscle]) hitMap[sec.muscle] = [];
-          hitMap[sec.muscle].push({ date: w.date, fatigue: secFatigue });
-        });
+        const exData = EXERCISE_DB.find(e => e.name === ex.name);
+        if (exData) {
+          if (!hitMap[exData.muscleGroup]) hitMap[exData.muscleGroup] = [];
+          hitMap[exData.muscleGroup].push({ date: w.date, fatigue: primaryFatigue });
+
+          exData.secondary.forEach(sec => {
+            const secFatigue = Math.min(1.0, (setCount / MAX_SETS_FOR_FULL_FATIGUE) * sec.weight);
+            if (!hitMap[sec.muscle]) hitMap[sec.muscle] = [];
+            hitMap[sec.muscle].push({ date: w.date, fatigue: secFatigue });
+          });
+          return;
+        }
+
+        // Exercise picked from ALL_EXERCISES (not in EXERCISE_DB) — fall back
+        // to the muscleGroup/category stored on the exercise itself.
+        const mg = resolveMuscleGroup(ex.muscleGroup);
+        if (mg) {
+          if (!hitMap[mg]) hitMap[mg] = [];
+          hitMap[mg].push({ date: w.date, fatigue: primaryFatigue });
+        }
       });
     });
 
@@ -963,9 +993,10 @@ function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: 
 function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (id: string) => void }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [runs, setRuns] = useState<RunData[]>([]);
+  const [detailItem, setDetailItem] = useState<Item | null>(null);
   useEffect(() => {
     AsyncStorage.getItem('workouts').then(r => r && setWorkouts(JSON.parse(r)));
     AsyncStorage.getItem('runs').then(r => r && setRuns(JSON.parse(r)));
@@ -1047,7 +1078,7 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
             const isHero = i === 0 && !isRun;
 
             if (isHero) return (
-              <View key={i} style={{ backgroundColor: '#1A1209', borderRadius: 22, padding: 16, marginBottom: 10 }}>
+              <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setDetailItem(item)} style={{ backgroundColor: '#1A1209', borderRadius: 22, padding: 16, marginBottom: 10 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
                   <View>
                     <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginBottom: 4 }}>
@@ -1080,11 +1111,11 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
                     <Text style={{ fontSize: 8, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 }}>{t('training_volume')}</Text>
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
 
             return (
-              <View key={i} style={{ backgroundColor: T.card, borderRadius: 18, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }}>
+              <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setDetailItem(item)} style={{ backgroundColor: T.card, borderRadius: 18, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: isRun ? T.greenAlpha : T.orangeAlpha, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     {isRun ? <IconRun size={17} color={T.green} /> : <IconDumbbell size={17} color={T.orange} />}
@@ -1109,11 +1140,106 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
                     <IconTrash size={13} />
                   </TouchableOpacity>
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })}
 
           <View style={{ height: 60 }} />
+        </ScrollView>
+      </View>
+      {detailItem && <WorkoutDetailModal item={detailItem} T={T} t={t} lang={lang} onClose={() => setDetailItem(null)} />}
+    </Modal>
+  );
+}
+
+function WorkoutDetailModal({ item, T, t, lang, onClose }: {
+  item: { _kind: 'workout'; data: Workout } | { _kind: 'run'; data: RunData };
+  T: any; t: (key: any) => string; lang: string; onClose: () => void;
+}) {
+  const isRun = item._kind === 'run';
+  const w = !isRun ? item.data as Workout : null;
+  const r = isRun ? item.data as RunData : null;
+  const vol = w?.exercises?.reduce((sum, ex) => sum + ex.sets.reduce((s, set) =>
+    s + parseFloat(set.reps || '0') * parseFloat(set.weight || '0'), 0), 0) ?? 0;
+
+  return (
+    <Modal visible animationType="slide">
+      <View style={{ flex: 1, backgroundColor: T.bg }}>
+        <View style={{ paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 4 }}>
+              {formatDateLabel(item.data.date, t('today'))}
+            </Text>
+            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }} numberOfLines={1}>
+              {isRun ? t('training_run_session') : w?.name}
+            </Text>
+          </View>
+          <TouchableOpacity onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border }}>
+            <IconClose />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
+          {isRun && r ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+              {[
+                { v: `${r.distance.toFixed(2)} km`, l: lang === 'en' ? 'Distance' : 'Distanz' },
+                { v: `${r.pace} /km`, l: lang === 'en' ? 'Pace' : 'Tempo' },
+                { v: `${r.duration}'`, l: t('training_duration') },
+                { v: `${r.calories} kcal`, l: 'Kcal' },
+                { v: `${r.heartRate} bpm`, l: lang === 'en' ? 'Heart Rate' : 'Herzfrequenz' },
+              ].map((s, i) => (
+                <View key={i} style={{ width: '31%', backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: T.text1 }}>{s.v}</Text>
+                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2, textAlign: 'center' }}>{s.l}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+                <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{w?.duration}'</Text>
+                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{t('training_duration')}</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{w?.exercises?.length ?? 0}</Text>
+                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{t('training_exercises')}</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{(vol / 1000).toFixed(1)}t</Text>
+                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{t('training_volume')}</Text>
+                </View>
+                {w?.score != null && (
+                  <View style={{ flex: 1, backgroundColor: T.greenAlpha, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.greenBorder }}>
+                    <Text style={{ fontSize: 18, fontWeight: '800', color: T.green }}>{w.score}</Text>
+                    <Text style={{ fontSize: 8, color: T.green, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{lang === 'en' ? 'Score' : 'Score'}</Text>
+                  </View>
+                )}
+              </View>
+
+              {w?.exercises?.map(ex => (
+                <View key={ex.id} style={{ backgroundColor: T.card, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: T.border }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <Text style={{ fontSize: 14, fontWeight: '700', color: T.text1, flex: 1 }}>{ex.name}</Text>
+                    {ex.muscleGroup ? (
+                      <View style={{ backgroundColor: (MUSCLE_COLORS[ex.muscleGroup] ?? T.orange) + '22', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: MUSCLE_COLORS[ex.muscleGroup] ?? T.orange }}>{ex.muscleGroup}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  {ex.sets.map((s, i) => (
+                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: T.borderSoft }}>
+                      <Text style={{ fontSize: 12, color: T.text3 }}>{lang === 'en' ? 'Set' : 'Satz'} {i + 1}</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: T.text1 }}>
+                        {s.weight || '–'} kg × {s.reps || '–'}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </>
+          )}
         </ScrollView>
       </View>
     </Modal>
@@ -2348,7 +2474,7 @@ await loadAll();
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: T.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-              <View><Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, color: T.orange, marginBottom: 4 }}>Fertig</Text><Text style={{ fontSize: 24, fontWeight: '800', color: T.text1, letterSpacing: -0.5 }}>Ernährung 🍗</Text></View>
+              <View><Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.5, color: T.orange, marginBottom: 4 }}>{lang === 'en' ? 'Done' : 'Fertig'}</Text><Text style={{ fontSize: 24, fontWeight: '800', color: T.text1, letterSpacing: -0.5 }}>{lang === 'en' ? 'Nutrition' : 'Ernährung'} 🍗</Text></View>
               <View style={{ backgroundColor: T.orangeAlpha, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1, borderColor: T.orangeBorder }}><Text style={{ fontSize: 14, fontWeight: '800', color: T.orange }}>⚡ {lastWorkoutScore}</Text></View>
             </View>
             {nutritionAdvice && <>
@@ -2357,7 +2483,7 @@ await loadAll();
                 <View style={{ flexDirection: 'row', gap: 12 }}>
                   <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.immediate.protein}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Protein</Text></View>
                   <View style={{ width: 1, backgroundColor: T.border }} />
-                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.immediate.carbs}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Kohlenhydrate</Text></View>
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.immediate.carbs}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{lang === 'en' ? 'Carbs' : 'Kohlenhydrate'}</Text></View>
                 </View>
               </View>
               <View style={{ backgroundColor: T.blueAlpha, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: T.blueBorder }}>
@@ -2365,12 +2491,12 @@ await loadAll();
                 <View style={{ flexDirection: 'row', gap: 12 }}>
                   <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.later.protein}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Protein</Text></View>
                   <View style={{ width: 1, backgroundColor: T.border }} />
-                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.later.carbs}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>Kohlenhydrate</Text></View>
+                  <View style={{ flex: 1, alignItems: 'center' }}><Text style={{ fontSize: 32, fontWeight: '800', color: T.text1 }}>{nutritionAdvice.later.carbs}g</Text><Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{lang === 'en' ? 'Carbs' : 'Kohlenhydrate'}</Text></View>
                 </View>
               </View>
             </>}
             <TouchableOpacity style={{ backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center', marginTop: 16 }} onPress={() => setShowNutrition(false)}>
-              <Text style={{ fontSize: 15, fontWeight: '700', color: T.white }}>Verstanden ✓</Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: T.white }}>{lang === 'en' ? 'Got it' : 'Verstanden'} ✓</Text>
             </TouchableOpacity>
           </View>
         </View>

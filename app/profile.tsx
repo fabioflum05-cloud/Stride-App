@@ -4,6 +4,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Alert, Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { theme } from '../constants/theme';
+import { useLanguage } from '../constants/LanguageContext';
 
 type Profile = {
   name: string; username: string; age: string; weight: string;
@@ -14,13 +15,17 @@ type Profile = {
 type Friend = { id: string; name: string; sport: string; score: number; streak: number; };
 
 const GOALS = ['Masse aufbauen', 'Fett verlieren', 'Stärker werden', 'Performance', 'Gesundheit', 'Wettkampf'];
+const GOAL_LABELS_EN: Record<string, string> = {
+  'Masse aufbauen': 'Build muscle', 'Fett verlieren': 'Lose fat', 'Stärker werden': 'Get stronger',
+  'Performance': 'Performance', 'Gesundheit': 'Health', 'Wettkampf': 'Competition',
+};
 const SPORTS = ['Judo', 'BJJ', 'Boxing', 'MMA', 'Gym', 'Running', 'Cycling', 'Swimming', 'Football', 'Other'];
 const TRAINING_TYPES = [
-  { key: 'hypertrophie', label: 'Muskelaufbau', emoji: '💪', desc: '8–12 Wdh., mittleres Gewicht' },
-  { key: 'kraft', label: 'Maximalkraft', emoji: '🏋️', desc: '3–5 Wdh., schweres Gewicht' },
-  { key: 'ausdauer', label: 'Ausdauer/Kondition', emoji: '🏃', desc: '15–20 Wdh., leichtes Gewicht' },
-  { key: 'wettkampf', label: 'Wettkampfvorbereitung', emoji: '🥋', desc: 'Sport-spezifisch' },
-  { key: 'abnehmen', label: 'Abnehmen', emoji: '⚡', desc: 'Kalorien verbrennen' },
+  { key: 'hypertrophie', label: 'Muskelaufbau', labelEn: 'Muscle Building', emoji: '💪', desc: '8–12 Wdh., mittleres Gewicht', descEn: '8–12 reps, medium weight' },
+  { key: 'kraft', label: 'Maximalkraft', labelEn: 'Max Strength', emoji: '🏋️', desc: '3–5 Wdh., schweres Gewicht', descEn: '3–5 reps, heavy weight' },
+  { key: 'ausdauer', label: 'Ausdauer/Kondition', labelEn: 'Endurance/Conditioning', emoji: '🏃', desc: '15–20 Wdh., leichtes Gewicht', descEn: '15–20 reps, light weight' },
+  { key: 'wettkampf', label: 'Wettkampfvorbereitung', labelEn: 'Competition Prep', emoji: '🥋', desc: 'Sport-spezifisch', descEn: 'Sport-specific' },
+  { key: 'abnehmen', label: 'Abnehmen', labelEn: 'Weight Loss', emoji: '⚡', desc: 'Kalorien verbrennen', descEn: 'Burn calories' },
 ];
 const DAYS_OPTIONS = ['2', '3', '4', '5', '6'];
 
@@ -31,6 +36,7 @@ const DEMO_FRIENDS: Friend[] = [
 ];
 
 export default function ProfileScreen() {
+  const { t, lang } = useLanguage();
   const [profile, setProfile] = useState<Profile>({
     name: '', username: '', age: '', weight: '',
     targetWeight: '', height: '', sport: 'Gym', goal: 'Performance',
@@ -110,8 +116,14 @@ export default function ProfileScreen() {
   }
 
   async function handleSave() {
-    if (!profile.name.trim()) { Alert.alert('Name fehlt'); return; }
-    if (!profile.trainingType) { Alert.alert('Trainingstyp fehlt', 'Bitte wähle einen Trainingstyp aus.'); return; }
+    if (!profile.name.trim()) { Alert.alert(lang === 'en' ? 'Name missing' : 'Name fehlt'); return; }
+    if (!profile.trainingType) {
+      Alert.alert(
+        lang === 'en' ? 'Training type missing' : 'Trainingstyp fehlt',
+        lang === 'en' ? 'Please select a training type.' : 'Bitte wähle einen Trainingstyp aus.'
+      );
+      return;
+    }
     await AsyncStorage.setItem('profile', JSON.stringify(profile));
     setSaved(true); setEditing(false);
   }
@@ -126,9 +138,9 @@ export default function ProfileScreen() {
   }
 
   async function removeFriend(id: string) {
-    Alert.alert('Freund entfernen?', '', [
-      { text: 'Abbrechen', style: 'cancel' },
-      { text: 'Entfernen', style: 'destructive', onPress: async () => {
+    Alert.alert(lang === 'en' ? 'Remove friend?' : 'Freund entfernen?', '', [
+      { text: t('cancel'), style: 'cancel' },
+      { text: lang === 'en' ? 'Remove' : 'Entfernen', style: 'destructive', onPress: async () => {
         const updated = friends.filter(f => f.id !== id);
         setFriends(updated); await AsyncStorage.setItem('friends', JSON.stringify(updated));
       }},
@@ -149,9 +161,9 @@ export default function ProfileScreen() {
         {/* Top Nav */}
         <View style={styles.topNav}>
           <BackButton />
-          <Text style={styles.topNavTitle}>Profil</Text>
+          <Text style={styles.topNavTitle}>{lang === 'en' ? 'Profile' : 'Profil'}</Text>
           {saved && !editing
-            ? <TouchableOpacity onPress={() => setEditing(true)}><Text style={styles.topNavEdit}>Bearbeiten</Text></TouchableOpacity>
+            ? <TouchableOpacity onPress={() => setEditing(true)}><Text style={styles.topNavEdit}>{lang === 'en' ? 'Edit' : 'Bearbeiten'}</Text></TouchableOpacity>
             : <View style={{ width: 70 }} />}
         </View>
 
@@ -166,7 +178,10 @@ export default function ProfileScreen() {
               <Text style={styles.heroName}>{profile.name}</Text>
               {profile.username && <Text style={styles.heroUsername}>@{profile.username}</Text>}
               <View style={styles.heroTags}>
-                {[profile.sport, profile.goal, trainingTypeInfo?.emoji + ' ' + trainingTypeInfo?.label, profile.age ? `${profile.age} J.` : null, profile.height ? `${profile.height} cm` : null]
+                {[profile.sport, lang === 'en' ? GOAL_LABELS_EN[profile.goal] ?? profile.goal : profile.goal,
+                  trainingTypeInfo ? trainingTypeInfo.emoji + ' ' + (lang === 'en' ? trainingTypeInfo.labelEn : trainingTypeInfo.label) : null,
+                  profile.age ? (lang === 'en' ? `${profile.age} y` : `${profile.age} J.`) : null,
+                  profile.height ? `${profile.height} cm` : null]
                   .filter(Boolean).map(tag => (
                     <View key={tag} style={styles.heroTag}><Text style={styles.heroTagText}>{tag}</Text></View>
                   ))}
@@ -178,18 +193,20 @@ export default function ProfileScreen() {
               <View style={styles.trainingBanner}>
                 <Text style={styles.trainingBannerEmoji}>{trainingTypeInfo.emoji}</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.trainingBannerTitle}>{trainingTypeInfo.label}</Text>
-                  <Text style={styles.trainingBannerDesc}>{trainingTypeInfo.desc} · {profile.trainingDaysPerWeek}×/Woche</Text>
+                  <Text style={styles.trainingBannerTitle}>{lang === 'en' ? trainingTypeInfo.labelEn : trainingTypeInfo.label}</Text>
+                  <Text style={styles.trainingBannerDesc}>
+                    {lang === 'en' ? trainingTypeInfo.descEn : trainingTypeInfo.desc} · {profile.trainingDaysPerWeek}×/{lang === 'en' ? 'week' : 'Woche'}
+                  </Text>
                 </View>
                 <TouchableOpacity onPress={() => setEditing(true)} style={styles.trainingBannerEdit}>
-                  <Text style={styles.trainingBannerEditText}>Ändern</Text>
+                  <Text style={styles.trainingBannerEditText}>{lang === 'en' ? 'Change' : 'Ändern'}</Text>
                 </TouchableOpacity>
               </View>
             )}
 
             {/* Tab Bar */}
             <View style={styles.tabBar}>
-              {[{ key: 'overview', label: 'Übersicht' }, { key: 'friends', label: `Freunde ${friends.length > 0 ? `(${friends.length})` : ''}` }].map(tab => (
+              {[{ key: 'overview', label: lang === 'en' ? 'Overview' : 'Übersicht' }, { key: 'friends', label: `${lang === 'en' ? 'Friends' : 'Freunde'} ${friends.length > 0 ? `(${friends.length})` : ''}` }].map(tab => (
                 <TouchableOpacity key={tab.key} style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]} onPress={() => setActiveTab(tab.key as any)} activeOpacity={0.7}>
                   <Text style={[styles.tabBtnText, activeTab === tab.key && styles.tabBtnTextActive]}>{tab.label}</Text>
                 </TouchableOpacity>
@@ -200,7 +217,7 @@ export default function ProfileScreen() {
               <>
                 <View style={styles.statsRow}>
                   {[
-                    { val: workoutCount || '—', lbl: 'Trainings', color: theme.blue },
+                    { val: workoutCount || '—', lbl: lang === 'en' ? 'Workouts' : 'Trainings', color: theme.blue },
                     { val: streak > 0 ? `${streak}🔥` : '—', lbl: 'Streak', color: theme.orange },
                     { val: bestScore || '—', lbl: 'Best Score', color: theme.green },
                     { val: bmi || '—', lbl: 'BMI', color: theme.purple },
@@ -215,18 +232,18 @@ export default function ProfileScreen() {
                 {profile.weight && (
                   <View style={styles.card}>
                     <View style={styles.cardHeader}>
-                      <Text style={styles.cardTitle}>Gewicht</Text>
-                      <TouchableOpacity onPress={() => router.push('/weight' as any)}><Text style={styles.cardLink}>Verlauf →</Text></TouchableOpacity>
+                      <Text style={styles.cardTitle}>{lang === 'en' ? 'Weight' : 'Gewicht'}</Text>
+                      <TouchableOpacity onPress={() => router.push('/weight' as any)}><Text style={styles.cardLink}>{lang === 'en' ? 'History →' : 'Verlauf →'}</Text></TouchableOpacity>
                     </View>
                     <View style={styles.weightRow}>
                       <View>
                         <Text style={styles.weightNum}>{profile.weight}<Text style={styles.weightUnit}> kg</Text></Text>
-                        <Text style={styles.weightSub}>Aktuell</Text>
+                        <Text style={styles.weightSub}>{lang === 'en' ? 'Current' : 'Aktuell'}</Text>
                       </View>
                       {profile.targetWeight && (
                         <View style={{ alignItems: 'flex-end' }}>
                           <Text style={styles.weightGoal}>{profile.targetWeight} kg</Text>
-                          <Text style={styles.weightSub}>Ziel</Text>
+                          <Text style={styles.weightSub}>{lang === 'en' ? 'Goal' : 'Ziel'}</Text>
                           {weightDiff && (
                             <View style={[styles.diffBadge, { backgroundColor: parseFloat(weightDiff) > 0 ? theme.blueLight : theme.greenLight }]}>
                               <Text style={[styles.diffText, { color: parseFloat(weightDiff) > 0 ? theme.blue : theme.green }]}>
@@ -240,7 +257,7 @@ export default function ProfileScreen() {
                     {profile.targetWeight && (
                       <View style={styles.progressWrap}>
                         <View style={styles.progressMeta}>
-                          <Text style={styles.progressMetaText}>Fortschritt</Text>
+                          <Text style={styles.progressMetaText}>{lang === 'en' ? 'Progress' : 'Fortschritt'}</Text>
                           <Text style={styles.progressMetaVal}>{progress}%</Text>
                         </View>
                         <View style={styles.progressTrack}>
@@ -254,8 +271,8 @@ export default function ProfileScreen() {
                 {prs.length > 0 && (
                   <View style={styles.card}>
                     <View style={styles.cardHeader}>
-                      <Text style={styles.cardTitle}>Top Bestleistungen</Text>
-                      <TouchableOpacity onPress={() => router.push('/prs' as any)}><Text style={styles.cardLink}>Alle →</Text></TouchableOpacity>
+                      <Text style={styles.cardTitle}>{lang === 'en' ? 'Top PRs' : 'Top Bestleistungen'}</Text>
+                      <TouchableOpacity onPress={() => router.push('/prs' as any)}><Text style={styles.cardLink}>{lang === 'en' ? 'All →' : 'Alle →'}</Text></TouchableOpacity>
                     </View>
                     {prs.map((pr, i) => (
                       <View key={i} style={[styles.prRow, i < prs.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: theme.borderLight }]}>
@@ -276,11 +293,11 @@ export default function ProfileScreen() {
                   <Text style={styles.cardTitle}>Details</Text>
                   {[
                     { key: 'Sport', val: profile.sport },
-                    { key: 'Ziel', val: profile.goal },
-                    { key: 'Trainingstyp', val: trainingTypeInfo ? `${trainingTypeInfo.emoji} ${trainingTypeInfo.label}` : '—' },
-                    { key: 'Training/Woche', val: profile.trainingDaysPerWeek ? `${profile.trainingDaysPerWeek}×` : '—' },
-                    { key: 'Alter', val: profile.age ? `${profile.age} Jahre` : '—' },
-                    { key: 'Grösse', val: profile.height ? `${profile.height} cm` : '—' },
+                    { key: lang === 'en' ? 'Goal' : 'Ziel', val: lang === 'en' ? GOAL_LABELS_EN[profile.goal] ?? profile.goal : profile.goal },
+                    { key: lang === 'en' ? 'Training Type' : 'Trainingstyp', val: trainingTypeInfo ? `${trainingTypeInfo.emoji} ${lang === 'en' ? trainingTypeInfo.labelEn : trainingTypeInfo.label}` : '—' },
+                    { key: lang === 'en' ? 'Workouts/Week' : 'Training/Woche', val: profile.trainingDaysPerWeek ? `${profile.trainingDaysPerWeek}×` : '—' },
+                    { key: lang === 'en' ? 'Age' : 'Alter', val: profile.age ? `${profile.age} ${lang === 'en' ? 'years' : 'Jahre'}` : '—' },
+                    { key: lang === 'en' ? 'Height' : 'Grösse', val: profile.height ? `${profile.height} cm` : '—' },
                   ].map((row, i, arr) => (
                     <View key={row.key} style={[styles.detailRow, i < arr.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: theme.borderLight }]}>
                       <Text style={styles.detailKey}>{row.key}</Text>
@@ -290,16 +307,16 @@ export default function ProfileScreen() {
                 </View>
 
                 <View style={[styles.card, { backgroundColor: theme.blueLight }]}>
-                  <Text style={[styles.cardTitle, { color: theme.blue }]}>Mein Freundescode</Text>
+                  <Text style={[styles.cardTitle, { color: theme.blue }]}>{lang === 'en' ? 'My Friend Code' : 'Mein Freundescode'}</Text>
                   <Text style={styles.myCode}>{myCode}</Text>
-                  <Text style={styles.myCodeSub}>Teile diesen Code mit Freunden damit sie dich adden können</Text>
+                  <Text style={styles.myCodeSub}>{lang === 'en' ? 'Share this code with friends so they can add you' : 'Teile diesen Code mit Freunden damit sie dich adden können'}</Text>
                 </View>
 
                 <View style={styles.proCard}>
                   <View>
                     <Text style={styles.proEyebrow}>STRIDE</Text>
-                    <Text style={styles.proName}>Pro Mitglied</Text>
-                    <Text style={styles.proSub}>KI-Coach · Alle Features</Text>
+                    <Text style={styles.proName}>{lang === 'en' ? 'Pro Member' : 'Pro Mitglied'}</Text>
+                    <Text style={styles.proSub}>{lang === 'en' ? 'AI Coach · All Features' : 'KI-Coach · Alle Features'}</Text>
                   </View>
                   <TouchableOpacity style={styles.proBtn}><Text style={styles.proBtnText}>Upgrade</Text></TouchableOpacity>
                 </View>
@@ -309,15 +326,15 @@ export default function ProfileScreen() {
             {activeTab === 'friends' && (
               <>
                 <View style={styles.card}>
-                  <View style={styles.cardHeader}><Text style={styles.cardTitle}>Freund hinzufügen</Text></View>
+                  <View style={styles.cardHeader}><Text style={styles.cardTitle}>{lang === 'en' ? 'Add Friend' : 'Freund hinzufügen'}</Text></View>
                   <View style={styles.addFriendRow}>
-                    <TextInput style={styles.friendInput} placeholder="Freundescode eingeben..." placeholderTextColor={theme.textTertiary} value={friendCode} onChangeText={setFriendCode} />
-                    <TouchableOpacity style={styles.addFriendBtn} onPress={addFriend}><Text style={styles.addFriendBtnText}>Adden</Text></TouchableOpacity>
+                    <TextInput style={styles.friendInput} placeholder={lang === 'en' ? 'Enter friend code...' : 'Freundescode eingeben...'} placeholderTextColor={theme.textTertiary} value={friendCode} onChangeText={setFriendCode} />
+                    <TouchableOpacity style={styles.addFriendBtn} onPress={addFriend}><Text style={styles.addFriendBtnText}>{lang === 'en' ? 'Add' : 'Adden'}</Text></TouchableOpacity>
                   </View>
                 </View>
                 <View style={styles.card}>
-                  <Text style={styles.cardTitle}>Rangliste</Text>
-                  {[{ id: 'me', name: profile.name || 'Du', sport: profile.sport, score: bestScore || 75, streak }, ...friends]
+                  <Text style={styles.cardTitle}>{lang === 'en' ? 'Leaderboard' : 'Rangliste'}</Text>
+                  {[{ id: 'me', name: profile.name || (lang === 'en' ? 'You' : 'Du'), sport: profile.sport, score: bestScore || 75, streak }, ...friends]
                     .sort((a, b) => b.score - a.score)
                     .map((f, i) => (
                       <View key={f.id} style={[styles.friendRow, i > 0 && { borderTopWidth: 0.5, borderTopColor: theme.borderLight }]}>
@@ -328,7 +345,7 @@ export default function ProfileScreen() {
                           <Text style={[styles.friendAvatarText, { color: f.id === 'me' ? '#fff' : theme.textSecondary }]}>{f.name.charAt(0).toUpperCase()}</Text>
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.friendName}>{f.id === 'me' ? `${f.name} (Du)` : f.name}</Text>
+                          <Text style={styles.friendName}>{f.id === 'me' ? `${f.name} (${lang === 'en' ? 'You' : 'Du'})` : f.name}</Text>
                           <Text style={styles.friendSport}>{f.sport}</Text>
                         </View>
                         <View style={{ alignItems: 'flex-end', gap: 3 }}>
@@ -352,13 +369,13 @@ export default function ProfileScreen() {
         {editing && (
           <View style={styles.form}>
 
-            <Text style={styles.formSection}>Persönlich</Text>
+            <Text style={styles.formSection}>{lang === 'en' ? 'Personal' : 'Persönlich'}</Text>
             <View style={styles.formCard}>
               {[
-                { label: 'Name', value: profile.name, setter: (v: string) => setProfile(p => ({ ...p, name: v })), placeholder: 'Dein Name', kb: 'default' as const },
-                { label: 'Benutzername', value: profile.username, setter: (v: string) => setProfile(p => ({ ...p, username: v })), placeholder: '@deinname', kb: 'default' as const },
-                { label: 'Alter', value: profile.age, setter: (v: string) => setProfile(p => ({ ...p, age: v })), placeholder: '18', kb: 'numeric' as const },
-                { label: 'Grösse (cm)', value: profile.height, setter: (v: string) => setProfile(p => ({ ...p, height: v })), placeholder: '174', kb: 'numeric' as const },
+                { label: 'Name', value: profile.name, setter: (v: string) => setProfile(p => ({ ...p, name: v })), placeholder: lang === 'en' ? 'Your name' : 'Dein Name', kb: 'default' as const },
+                { label: lang === 'en' ? 'Username' : 'Benutzername', value: profile.username, setter: (v: string) => setProfile(p => ({ ...p, username: v })), placeholder: lang === 'en' ? '@yourname' : '@deinname', kb: 'default' as const },
+                { label: lang === 'en' ? 'Age' : 'Alter', value: profile.age, setter: (v: string) => setProfile(p => ({ ...p, age: v })), placeholder: '18', kb: 'numeric' as const },
+                { label: lang === 'en' ? 'Height (cm)' : 'Grösse (cm)', value: profile.height, setter: (v: string) => setProfile(p => ({ ...p, height: v })), placeholder: '174', kb: 'numeric' as const },
               ].map((f, i, arr) => (
                 <View key={f.label} style={[styles.formField, i < arr.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: theme.borderLight }]}>
                   <Text style={styles.formLabel}>{f.label}</Text>
@@ -367,11 +384,11 @@ export default function ProfileScreen() {
               ))}
             </View>
 
-            <Text style={styles.formSection}>Körper</Text>
+            <Text style={styles.formSection}>{lang === 'en' ? 'Body' : 'Körper'}</Text>
             <View style={styles.formCard}>
               {[
-                { label: 'Gewicht (kg)', value: profile.weight, setter: (v: string) => setProfile(p => ({ ...p, weight: v })), placeholder: '81.0' },
-                { label: 'Zielgewicht (kg)', value: profile.targetWeight, setter: (v: string) => setProfile(p => ({ ...p, targetWeight: v })), placeholder: '84.0' },
+                { label: lang === 'en' ? 'Weight (kg)' : 'Gewicht (kg)', value: profile.weight, setter: (v: string) => setProfile(p => ({ ...p, weight: v })), placeholder: '81.0' },
+                { label: lang === 'en' ? 'Target weight (kg)' : 'Zielgewicht (kg)', value: profile.targetWeight, setter: (v: string) => setProfile(p => ({ ...p, targetWeight: v })), placeholder: '84.0' },
               ].map((f, i, arr) => (
                 <View key={f.label} style={[styles.formField, i < arr.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: theme.borderLight }]}>
                   <Text style={styles.formLabel}>{f.label}</Text>
@@ -391,19 +408,19 @@ export default function ProfileScreen() {
               </View>
             </View>
 
-            <Text style={styles.formSection}>Ziel</Text>
+            <Text style={styles.formSection}>{lang === 'en' ? 'Goal' : 'Ziel'}</Text>
             <View style={[styles.formCard, { padding: 14 }]}>
               <View style={styles.chipGrid}>
                 {GOALS.map(g => (
                   <TouchableOpacity key={g} style={[styles.chip, profile.goal === g && styles.chipActive]} onPress={() => setProfile(p => ({ ...p, goal: g }))}>
-                    <Text style={[styles.chipText, profile.goal === g && styles.chipTextActive]}>{g}</Text>
+                    <Text style={[styles.chipText, profile.goal === g && styles.chipTextActive]}>{lang === 'en' ? GOAL_LABELS_EN[g] : g}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             </View>
 
             {/* Trainingstyp – Pflichtfeld */}
-            <Text style={styles.formSection}>Trainingstyp <Text style={{ color: theme.orange }}>*</Text></Text>
+            <Text style={styles.formSection}>{lang === 'en' ? 'Training Type' : 'Trainingstyp'} <Text style={{ color: theme.orange }}>*</Text></Text>
             <View style={{ gap: 8, marginBottom: 4 }}>
               {TRAINING_TYPES.map(t => (
                 <TouchableOpacity key={t.key}
@@ -412,8 +429,8 @@ export default function ProfileScreen() {
                   activeOpacity={0.85}>
                   <Text style={styles.trainingTypeEmoji}>{t.emoji}</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.trainingTypeLabel, profile.trainingType === t.key && { color: theme.orange }]}>{t.label}</Text>
-                    <Text style={styles.trainingTypeDesc}>{t.desc}</Text>
+                    <Text style={[styles.trainingTypeLabel, profile.trainingType === t.key && { color: theme.orange }]}>{lang === 'en' ? t.labelEn : t.label}</Text>
+                    <Text style={styles.trainingTypeDesc}>{lang === 'en' ? t.descEn : t.desc}</Text>
                   </View>
                   <View style={[styles.trainingTypeCheck, profile.trainingType === t.key && { backgroundColor: theme.orange, borderColor: theme.orange }]}>
                     {profile.trainingType === t.key && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>}
@@ -422,7 +439,7 @@ export default function ProfileScreen() {
               ))}
             </View>
 
-            <Text style={styles.formSection}>Trainingseinheiten pro Woche</Text>
+            <Text style={styles.formSection}>{lang === 'en' ? 'Training sessions per week' : 'Trainingseinheiten pro Woche'}</Text>
             <View style={[styles.formCard, { padding: 14 }]}>
               <View style={styles.chipGrid}>
                 {DAYS_OPTIONS.map(d => (
@@ -434,7 +451,7 @@ export default function ProfileScreen() {
             </View>
 
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
-              <Text style={styles.saveBtnText}>Profil speichern</Text>
+              <Text style={styles.saveBtnText}>{lang === 'en' ? 'Save profile' : 'Profil speichern'}</Text>
             </TouchableOpacity>
           </View>
         )}

@@ -5,44 +5,50 @@ import { useCallback, useRef, useState } from 'react';
 import { Animated, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { theme } from '../constants/theme';
+import { useLanguage } from '../constants/LanguageContext';
 
 const SW = Dimensions.get('window').width;
 
 type Badge = {
-  id: string; title: string; desc: string;
+  id: string; title: string; titleEn: string; desc: string; descEn: string;
   color: string; bg: string; xp: number;
   unlocked: boolean; progress?: number; total?: number;
   category: string; tier: 'bronze' | 'silver' | 'gold' | 'diamond';
-  unlockedAt?: string;
+  unlockedAt?: string; unlockedAtEn?: string;
 };
 
 type DailyQuest = {
-  id: string; title: string; desc: string;
+  id: string; title: string; titleEn: string; desc: string; descEn: string;
   xp: number; completed: boolean; color: string; bg: string;
   progress: number; total: number;
 };
 
 type SeasonChallenge = {
-  id: string; title: string; desc: string;
+  id: string; title: string; titleEn: string; desc: string; descEn: string;
   color: string; bg: string; xp: number;
   progress: number; total: number; daysLeft: number;
 };
 
 const LEVELS = [
-  { name: 'Rookie', minXP: 0, color: '#8E8E93' },
-  { name: 'Amateur', minXP: 150, color: theme.blue },
-  { name: 'Athlet', minXP: 400, color: theme.green },
-  { name: 'Pro', minXP: 800, color: theme.orange },
-  { name: 'Elite', minXP: 1500, color: theme.purple },
-  { name: 'Champion', minXP: 2500, color: '#FF2D55' },
-  { name: 'Legend', minXP: 5000, color: '#FFD700' },
+  { name: 'Rookie', nameEn: 'Rookie', minXP: 0, color: '#8E8E93' },
+  { name: 'Amateur', nameEn: 'Amateur', minXP: 150, color: theme.blue },
+  { name: 'Athlet', nameEn: 'Athlete', minXP: 400, color: theme.green },
+  { name: 'Pro', nameEn: 'Pro', minXP: 800, color: theme.orange },
+  { name: 'Elite', nameEn: 'Elite', minXP: 1500, color: theme.purple },
+  { name: 'Champion', nameEn: 'Champion', minXP: 2500, color: '#FF2D55' },
+  { name: 'Legend', nameEn: 'Legend', minXP: 5000, color: '#FFD700' },
 ];
 
 const TIER_COLORS = {
-  bronze: { bg: '#FDF0E6', border: '#CD7F32', text: '#7D4E1E', label: 'Bronze' },
-  silver: { bg: '#F5F5F5', border: '#9E9E9E', text: '#616161', label: 'Silber' },
-  gold: { bg: '#FFFBEB', border: '#F59E0B', text: '#92400E', label: 'Gold' },
-  diamond: { bg: '#EFF6FF', border: '#3B82F6', text: '#1E40AF', label: 'Diamant' },
+  bronze: { bg: '#FDF0E6', border: '#CD7F32', text: '#7D4E1E', label: 'Bronze', labelEn: 'Bronze' },
+  silver: { bg: '#F5F5F5', border: '#9E9E9E', text: '#616161', label: 'Silber', labelEn: 'Silver' },
+  gold: { bg: '#FFFBEB', border: '#F59E0B', text: '#92400E', label: 'Gold', labelEn: 'Gold' },
+  diamond: { bg: '#EFF6FF', border: '#3B82F6', text: '#1E40AF', label: 'Diamant', labelEn: 'Diamond' },
+};
+
+const CATEGORY_LABELS_EN: Record<string, string> = {
+  'Alle': 'All', 'Streak': 'Streak', 'Training': 'Training', 'Recovery': 'Recovery',
+  'Performance': 'Performance', 'Habits': 'Habits', 'PRs': 'PRs', 'Spezial': 'Special',
 };
 
 function getLevel(xp: number) {
@@ -151,6 +157,7 @@ function LevelRing({ xp, size = 96 }: { xp: number; size?: number }) {
 }
 
 export default function AchievementsScreen() {
+  const { lang } = useLanguage();
   const [badges, setBadges] = useState<Badge[]>([]);
   const [totalXP, setTotalXP] = useState(0);
   const [activeTab, setActiveTab] = useState<'badges' | 'quests' | 'season'>('badges');
@@ -222,85 +229,85 @@ export default function AchievementsScreen() {
     const todayStr = today.toDateString();
     const completedQuests = JSON.parse(await AsyncStorage.getItem('completedQuests') || '{}');
     const quests: DailyQuest[] = [
-      { id: 'q1', title: 'Schlaf loggen', desc: 'Logge deine heutige Nacht', xp: 15, completed: !!completedQuests[`${todayStr}_q1`], color: theme.pink, bg: theme.pinkLight, progress: rawSleep ? 1 : 0, total: 1 },
-      { id: 'q2', title: 'Check-in machen', desc: 'Täglichen Check-in ausfüllen', xp: 15, completed: !!completedQuests[`${todayStr}_q2`], color: theme.purple, bg: theme.purpleLight, progress: checkinList.some((c: any) => new Date(c.date ?? '').toDateString() === todayStr) ? 1 : 0, total: 1 },
-      { id: 'q3', title: 'Alle Habits erledigen', desc: 'Heutige Habits abschliessen', xp: 20, completed: !!completedQuests[`${todayStr}_q3`], color: theme.teal, bg: theme.tealLight, progress: habitList.filter((h: any) => h.completedDates?.some((cd: string) => new Date(cd).toDateString() === todayStr)).length, total: Math.max(1, habitList.length) },
-      { id: 'q4', title: 'Battery tracken', desc: 'Body Battery heute eintragen', xp: 10, completed: !!completedQuests[`${todayStr}_q4`], color: theme.green, bg: theme.greenLight, progress: battery && new Date(battery.date).toDateString() === todayStr ? 1 : 0, total: 1 },
-      { id: 'q5', title: 'Training absolvieren', desc: 'Heute ein Training machen', xp: 25, completed: !!completedQuests[`${todayStr}_q5`], color: theme.blue, bg: theme.blueLight, progress: workoutList.filter((w: any) => new Date(w.date).toDateString() === todayStr).length > 0 ? 1 : 0, total: 1 },
+      { id: 'q1', title: 'Schlaf loggen', titleEn: 'Log Sleep', desc: 'Logge deine heutige Nacht', descEn: "Log tonight's sleep", xp: 15, completed: !!completedQuests[`${todayStr}_q1`], color: theme.pink, bg: theme.pinkLight, progress: rawSleep ? 1 : 0, total: 1 },
+      { id: 'q2', title: 'Check-in machen', titleEn: 'Do Check-in', desc: 'Täglichen Check-in ausfüllen', descEn: 'Fill out your daily check-in', xp: 15, completed: !!completedQuests[`${todayStr}_q2`], color: theme.purple, bg: theme.purpleLight, progress: checkinList.some((c: any) => new Date(c.date ?? '').toDateString() === todayStr) ? 1 : 0, total: 1 },
+      { id: 'q3', title: 'Alle Habits erledigen', titleEn: 'Complete All Habits', desc: 'Heutige Habits abschliessen', descEn: "Finish today's habits", xp: 20, completed: !!completedQuests[`${todayStr}_q3`], color: theme.teal, bg: theme.tealLight, progress: habitList.filter((h: any) => h.completedDates?.some((cd: string) => new Date(cd).toDateString() === todayStr)).length, total: Math.max(1, habitList.length) },
+      { id: 'q4', title: 'Battery tracken', titleEn: 'Track Battery', desc: 'Body Battery heute eintragen', descEn: 'Log your Body Battery today', xp: 10, completed: !!completedQuests[`${todayStr}_q4`], color: theme.green, bg: theme.greenLight, progress: battery && new Date(battery.date).toDateString() === todayStr ? 1 : 0, total: 1 },
+      { id: 'q5', title: 'Training absolvieren', titleEn: 'Complete Workout', desc: 'Heute ein Training machen', descEn: 'Do a workout today', xp: 25, completed: !!completedQuests[`${todayStr}_q5`], color: theme.blue, bg: theme.blueLight, progress: workoutList.filter((w: any) => new Date(w.date).toDateString() === todayStr).length > 0 ? 1 : 0, total: 1 },
     ];
     setDailyQuests(quests);
 
     // Season Challenges – Mai 2026
     const season: SeasonChallenge[] = [
-      { id: 'sc1', title: 'Mai Krieger', desc: '20 Trainings im Mai', color: theme.blue, bg: theme.blueLight, xp: 300, progress: workoutList.filter((w: any) => new Date(w.date).getMonth() === 4 && new Date(w.date).getFullYear() === 2026).length, total: 20, daysLeft: 27 },
-      { id: 'sc2', title: 'Sleep Champion', desc: '25 Nächte im Mai loggen', color: theme.pink, bg: theme.pinkLight, xp: 250, progress: rawSleep ? JSON.parse(rawSleep).filter((s: any) => new Date(s.date).getMonth() === 4).length : 0, total: 25, daysLeft: 27 },
-      { id: 'sc3', title: 'Habit Streak', desc: '21 Tage Streak im Mai', color: theme.orange, bg: theme.orangeLight, xp: 400, progress: Math.min(streak, 21), total: 21, daysLeft: 27 },
-      { id: 'sc4', title: 'Score 80+', desc: '10x Score über 80 erreichen', color: theme.green, bg: theme.greenLight, xp: 350, progress: checkinList.filter((c: any) => c.score >= 80 && new Date(c.date ?? '').getMonth() === 4).length, total: 10, daysLeft: 27 },
-      { id: 'sc5', title: 'PR Monat', desc: '3 neue PRs im Mai setzen', color: theme.purple, bg: theme.purpleLight, xp: 200, progress: Math.min(prCount, 3), total: 3, daysLeft: 27 },
+      { id: 'sc1', title: 'Mai Krieger', titleEn: 'May Warrior', desc: '20 Trainings im Mai', descEn: '20 workouts in May', color: theme.blue, bg: theme.blueLight, xp: 300, progress: workoutList.filter((w: any) => new Date(w.date).getMonth() === 4 && new Date(w.date).getFullYear() === 2026).length, total: 20, daysLeft: 27 },
+      { id: 'sc2', title: 'Sleep Champion', titleEn: 'Sleep Champion', desc: '25 Nächte im Mai loggen', descEn: 'Log 25 nights in May', color: theme.pink, bg: theme.pinkLight, xp: 250, progress: rawSleep ? JSON.parse(rawSleep).filter((s: any) => new Date(s.date).getMonth() === 4).length : 0, total: 25, daysLeft: 27 },
+      { id: 'sc3', title: 'Habit Streak', titleEn: 'Habit Streak', desc: '21 Tage Streak im Mai', descEn: '21 day streak in May', color: theme.orange, bg: theme.orangeLight, xp: 400, progress: Math.min(streak, 21), total: 21, daysLeft: 27 },
+      { id: 'sc4', title: 'Score 80+', titleEn: 'Score 80+', desc: '10x Score über 80 erreichen', descEn: 'Reach a score over 80, 10x', color: theme.green, bg: theme.greenLight, xp: 350, progress: checkinList.filter((c: any) => c.score >= 80 && new Date(c.date ?? '').getMonth() === 4).length, total: 10, daysLeft: 27 },
+      { id: 'sc5', title: 'PR Monat', titleEn: 'PR Month', desc: '3 neue PRs im Mai setzen', descEn: 'Set 3 new PRs in May', color: theme.purple, bg: theme.purpleLight, xp: 200, progress: Math.min(prCount, 3), total: 3, daysLeft: 27 },
     ];
     setSeasonChallenges(season);
 
     // All Badges
     const allBadges: Badge[] = [
       // STREAK
-      { id: 's1', title: 'Erster Schritt', desc: '3 Tage Streak', color: '#FF6B35', bg: '#FFF3EE', xp: 25, category: 'Streak', tier: 'bronze', unlocked: streak >= 3, progress: Math.min(streak, 3), total: 3 },
-      { id: 's2', title: 'Momentum', desc: '7 Tage Streak', color: '#FF6B35', bg: '#FFF3EE', xp: 50, category: 'Streak', tier: 'bronze', unlocked: streak >= 7, progress: Math.min(streak, 7), total: 7 },
-      { id: 's3', title: 'Gewohnheit', desc: '14 Tage Streak', color: '#FF4500', bg: '#FFF0EB', xp: 100, category: 'Streak', tier: 'silver', unlocked: streak >= 14, progress: Math.min(streak, 14), total: 14 },
-      { id: 's4', title: 'Unaufhaltsam', desc: '21 Tage Streak', color: '#E63900', bg: '#FFF0EB', xp: 150, category: 'Streak', tier: 'silver', unlocked: streak >= 21, progress: Math.min(streak, 21), total: 21 },
-      { id: 's5', title: 'Legende', desc: '30 Tage Streak', color: '#CC0000', bg: '#FFE8E8', xp: 250, category: 'Streak', tier: 'gold', unlocked: streak >= 30, progress: Math.min(streak, 30), total: 30 },
-      { id: 's6', title: 'Titan', desc: '60 Tage Streak', color: '#9B0000', bg: '#FFE0E0', xp: 400, category: 'Streak', tier: 'gold', unlocked: streak >= 60, progress: Math.min(streak, 60), total: 60 },
-      { id: 's7', title: 'Unsterblich', desc: '90 Tage Streak', color: '#7C3AED', bg: '#F3E8FF', xp: 600, category: 'Streak', tier: 'diamond', unlocked: streak >= 90, progress: Math.min(streak, 90), total: 90 },
-      { id: 's8', title: 'Halbes Jahr', desc: '180 Tage Streak', color: '#5B21B6', bg: '#EDE9FE', xp: 1000, category: 'Streak', tier: 'diamond', unlocked: streak >= 180, progress: Math.min(streak, 180), total: 180 },
-      { id: 's9', title: 'Ein Jahr', desc: '365 Tage Streak', color: '#B8860B', bg: '#FFFBEB', xp: 2000, category: 'Streak', tier: 'diamond', unlocked: streak >= 365, progress: Math.min(streak, 365), total: 365 },
+      { id: 's1', title: 'Erster Schritt', titleEn: 'First Step', desc: '3 Tage Streak', descEn: '3 day streak', color: '#FF6B35', bg: '#FFF3EE', xp: 25, category: 'Streak', tier: 'bronze', unlocked: streak >= 3, progress: Math.min(streak, 3), total: 3 },
+      { id: 's2', title: 'Momentum', titleEn: 'Momentum', desc: '7 Tage Streak', descEn: '7 day streak', color: '#FF6B35', bg: '#FFF3EE', xp: 50, category: 'Streak', tier: 'bronze', unlocked: streak >= 7, progress: Math.min(streak, 7), total: 7 },
+      { id: 's3', title: 'Gewohnheit', titleEn: 'Habit', desc: '14 Tage Streak', descEn: '14 day streak', color: '#FF4500', bg: '#FFF0EB', xp: 100, category: 'Streak', tier: 'silver', unlocked: streak >= 14, progress: Math.min(streak, 14), total: 14 },
+      { id: 's4', title: 'Unaufhaltsam', titleEn: 'Unstoppable', desc: '21 Tage Streak', descEn: '21 day streak', color: '#E63900', bg: '#FFF0EB', xp: 150, category: 'Streak', tier: 'silver', unlocked: streak >= 21, progress: Math.min(streak, 21), total: 21 },
+      { id: 's5', title: 'Legende', titleEn: 'Legend', desc: '30 Tage Streak', descEn: '30 day streak', color: '#CC0000', bg: '#FFE8E8', xp: 250, category: 'Streak', tier: 'gold', unlocked: streak >= 30, progress: Math.min(streak, 30), total: 30 },
+      { id: 's6', title: 'Titan', titleEn: 'Titan', desc: '60 Tage Streak', descEn: '60 day streak', color: '#9B0000', bg: '#FFE0E0', xp: 400, category: 'Streak', tier: 'gold', unlocked: streak >= 60, progress: Math.min(streak, 60), total: 60 },
+      { id: 's7', title: 'Unsterblich', titleEn: 'Immortal', desc: '90 Tage Streak', descEn: '90 day streak', color: '#7C3AED', bg: '#F3E8FF', xp: 600, category: 'Streak', tier: 'diamond', unlocked: streak >= 90, progress: Math.min(streak, 90), total: 90 },
+      { id: 's8', title: 'Halbes Jahr', titleEn: 'Half Year', desc: '180 Tage Streak', descEn: '180 day streak', color: '#5B21B6', bg: '#EDE9FE', xp: 1000, category: 'Streak', tier: 'diamond', unlocked: streak >= 180, progress: Math.min(streak, 180), total: 180 },
+      { id: 's9', title: 'Ein Jahr', titleEn: 'One Year', desc: '365 Tage Streak', descEn: '365 day streak', color: '#B8860B', bg: '#FFFBEB', xp: 2000, category: 'Streak', tier: 'diamond', unlocked: streak >= 365, progress: Math.min(streak, 365), total: 365 },
 
       // TRAINING
-      { id: 't1', title: 'Erster Schweiss', desc: '1 Training', color: theme.blue, bg: theme.blueLight, xp: 20, category: 'Training', tier: 'bronze', unlocked: workoutCount >= 1, progress: Math.min(workoutCount, 1), total: 1 },
-      { id: 't2', title: 'Anfänger', desc: '5 Trainings', color: theme.blue, bg: theme.blueLight, xp: 40, category: 'Training', tier: 'bronze', unlocked: workoutCount >= 5, progress: Math.min(workoutCount, 5), total: 5 },
-      { id: 't3', title: 'Regelmässig', desc: '10 Trainings', color: '#1565C0', bg: '#E3F2FD', xp: 75, category: 'Training', tier: 'bronze', unlocked: workoutCount >= 10, progress: Math.min(workoutCount, 10), total: 10 },
-      { id: 't4', title: 'Dedicated', desc: '25 Trainings', color: '#0D47A1', bg: '#E1F5FE', xp: 150, category: 'Training', tier: 'silver', unlocked: workoutCount >= 25, progress: Math.min(workoutCount, 25), total: 25 },
-      { id: 't5', title: 'Veteran', desc: '50 Trainings', color: '#01579B', bg: '#E0F7FA', xp: 300, category: 'Training', tier: 'silver', unlocked: workoutCount >= 50, progress: Math.min(workoutCount, 50), total: 50 },
-      { id: 't6', title: 'Iron 100', desc: '100 Trainings', color: '#1A237E', bg: '#E8EAF6', xp: 500, category: 'Training', tier: 'gold', unlocked: workoutCount >= 100, progress: Math.min(workoutCount, 100), total: 100 },
-      { id: 't7', title: 'Maschine', desc: '200 Trainings', color: '#0D1B7A', bg: '#E8EAF6', xp: 800, category: 'Training', tier: 'gold', unlocked: workoutCount >= 200, progress: Math.min(workoutCount, 200), total: 200 },
-      { id: 't8', title: 'Iron 500', desc: '500 Trainings', color: '#7C3AED', bg: '#F3E8FF', xp: 1500, category: 'Training', tier: 'diamond', unlocked: workoutCount >= 500, progress: Math.min(workoutCount, 500), total: 500 },
+      { id: 't1', title: 'Erster Schweiss', titleEn: 'First Sweat', desc: '1 Training', descEn: '1 workout', color: theme.blue, bg: theme.blueLight, xp: 20, category: 'Training', tier: 'bronze', unlocked: workoutCount >= 1, progress: Math.min(workoutCount, 1), total: 1 },
+      { id: 't2', title: 'Anfänger', titleEn: 'Beginner', desc: '5 Trainings', descEn: '5 workouts', color: theme.blue, bg: theme.blueLight, xp: 40, category: 'Training', tier: 'bronze', unlocked: workoutCount >= 5, progress: Math.min(workoutCount, 5), total: 5 },
+      { id: 't3', title: 'Regelmässig', titleEn: 'Regular', desc: '10 Trainings', descEn: '10 workouts', color: '#1565C0', bg: '#E3F2FD', xp: 75, category: 'Training', tier: 'bronze', unlocked: workoutCount >= 10, progress: Math.min(workoutCount, 10), total: 10 },
+      { id: 't4', title: 'Dedicated', titleEn: 'Dedicated', desc: '25 Trainings', descEn: '25 workouts', color: '#0D47A1', bg: '#E1F5FE', xp: 150, category: 'Training', tier: 'silver', unlocked: workoutCount >= 25, progress: Math.min(workoutCount, 25), total: 25 },
+      { id: 't5', title: 'Veteran', titleEn: 'Veteran', desc: '50 Trainings', descEn: '50 workouts', color: '#01579B', bg: '#E0F7FA', xp: 300, category: 'Training', tier: 'silver', unlocked: workoutCount >= 50, progress: Math.min(workoutCount, 50), total: 50 },
+      { id: 't6', title: 'Iron 100', titleEn: 'Iron 100', desc: '100 Trainings', descEn: '100 workouts', color: '#1A237E', bg: '#E8EAF6', xp: 500, category: 'Training', tier: 'gold', unlocked: workoutCount >= 100, progress: Math.min(workoutCount, 100), total: 100 },
+      { id: 't7', title: 'Maschine', titleEn: 'Machine', desc: '200 Trainings', descEn: '200 workouts', color: '#0D1B7A', bg: '#E8EAF6', xp: 800, category: 'Training', tier: 'gold', unlocked: workoutCount >= 200, progress: Math.min(workoutCount, 200), total: 200 },
+      { id: 't8', title: 'Iron 500', titleEn: 'Iron 500', desc: '500 Trainings', descEn: '500 workouts', color: '#7C3AED', bg: '#F3E8FF', xp: 1500, category: 'Training', tier: 'diamond', unlocked: workoutCount >= 500, progress: Math.min(workoutCount, 500), total: 500 },
 
       // RECOVERY
-      { id: 'r1', title: 'Erste Nacht', desc: '1 Nacht geloggt', color: theme.pink, bg: theme.pinkLight, xp: 10, category: 'Recovery', tier: 'bronze', unlocked: sleepDays >= 1, progress: Math.min(sleepDays, 1), total: 1 },
-      { id: 'r2', title: 'Guter Schläfer', desc: '7 Nächte geloggt', color: '#DB2777', bg: theme.pinkLight, xp: 30, category: 'Recovery', tier: 'bronze', unlocked: sleepDays >= 7, progress: Math.min(sleepDays, 7), total: 7 },
-      { id: 'r3', title: 'Sleep Routine', desc: '14 Nächte geloggt', color: '#BE185D', bg: '#FDF2F8', xp: 60, category: 'Recovery', tier: 'silver', unlocked: sleepDays >= 14, progress: Math.min(sleepDays, 14), total: 14 },
-      { id: 'r4', title: 'Sleep Master', desc: '30 Nächte geloggt', color: '#9D174D', bg: '#FDF2F8', xp: 100, category: 'Recovery', tier: 'silver', unlocked: sleepDays >= 30, progress: Math.min(sleepDays, 30), total: 30 },
-      { id: 'r5', title: 'Recovery Pro', desc: '60 Nächte geloggt', color: '#831843', bg: theme.pinkLight, xp: 200, category: 'Recovery', tier: 'gold', unlocked: sleepDays >= 60, progress: Math.min(sleepDays, 60), total: 60 },
-      { id: 'r6', title: 'Traumschlaf', desc: 'Sleep Score 90+', color: theme.purple, bg: theme.purpleLight, xp: 150, category: 'Recovery', tier: 'gold', unlocked: bestScore >= 90, progress: Math.min(Math.max(0, bestScore - 60), 30), total: 30 },
+      { id: 'r1', title: 'Erste Nacht', titleEn: 'First Night', desc: '1 Nacht geloggt', descEn: '1 night logged', color: theme.pink, bg: theme.pinkLight, xp: 10, category: 'Recovery', tier: 'bronze', unlocked: sleepDays >= 1, progress: Math.min(sleepDays, 1), total: 1 },
+      { id: 'r2', title: 'Guter Schläfer', titleEn: 'Good Sleeper', desc: '7 Nächte geloggt', descEn: '7 nights logged', color: '#DB2777', bg: theme.pinkLight, xp: 30, category: 'Recovery', tier: 'bronze', unlocked: sleepDays >= 7, progress: Math.min(sleepDays, 7), total: 7 },
+      { id: 'r3', title: 'Sleep Routine', titleEn: 'Sleep Routine', desc: '14 Nächte geloggt', descEn: '14 nights logged', color: '#BE185D', bg: '#FDF2F8', xp: 60, category: 'Recovery', tier: 'silver', unlocked: sleepDays >= 14, progress: Math.min(sleepDays, 14), total: 14 },
+      { id: 'r4', title: 'Sleep Master', titleEn: 'Sleep Master', desc: '30 Nächte geloggt', descEn: '30 nights logged', color: '#9D174D', bg: '#FDF2F8', xp: 100, category: 'Recovery', tier: 'silver', unlocked: sleepDays >= 30, progress: Math.min(sleepDays, 30), total: 30 },
+      { id: 'r5', title: 'Recovery Pro', titleEn: 'Recovery Pro', desc: '60 Nächte geloggt', descEn: '60 nights logged', color: '#831843', bg: theme.pinkLight, xp: 200, category: 'Recovery', tier: 'gold', unlocked: sleepDays >= 60, progress: Math.min(sleepDays, 60), total: 60 },
+      { id: 'r6', title: 'Traumschlaf', titleEn: 'Dream Sleep', desc: 'Sleep Score 90+', descEn: 'Sleep Score 90+', color: theme.purple, bg: theme.purpleLight, xp: 150, category: 'Recovery', tier: 'gold', unlocked: bestScore >= 90, progress: Math.min(Math.max(0, bestScore - 60), 30), total: 30 },
 
       // PERFORMANCE
-      { id: 'p1', title: 'Erster Score', desc: 'Check-in gemacht', color: theme.green, bg: theme.greenLight, xp: 15, category: 'Performance', tier: 'bronze', unlocked: bestScore > 0, progress: bestScore > 0 ? 1 : 0, total: 1 },
-      { id: 'p2', title: 'Aufsteiger', desc: 'Score 60+', color: '#2E7D32', bg: theme.greenLight, xp: 40, category: 'Performance', tier: 'bronze', unlocked: bestScore >= 60, progress: Math.min(bestScore, 60), total: 60 },
-      { id: 'p3', title: 'Solide Form', desc: 'Score 70+', color: '#1B5E20', bg: '#E8F5E9', xp: 75, category: 'Performance', tier: 'silver', unlocked: bestScore >= 70, progress: Math.min(bestScore, 70), total: 70 },
-      { id: 'p4', title: 'Top Athlet', desc: 'Score 80+', color: '#00695C', bg: '#E0F2F1', xp: 150, category: 'Performance', tier: 'silver', unlocked: bestScore >= 80, progress: Math.min(bestScore, 80), total: 80 },
-      { id: 'p5', title: 'Hochleistung', desc: 'Score 90+', color: '#004D40', bg: '#E0F2F1', xp: 250, category: 'Performance', tier: 'gold', unlocked: bestScore >= 90, progress: Math.min(bestScore, 90), total: 90 },
-      { id: 'p6', title: 'Perfekter Tag', desc: 'Score 95+', color: '#FF9500', bg: theme.orangeLight, xp: 400, category: 'Performance', tier: 'gold', unlocked: bestScore >= 95, progress: Math.min(bestScore, 95), total: 95 },
-      { id: 'p7', title: 'Maximum', desc: 'Score 100', color: '#7C3AED', bg: theme.purpleLight, xp: 1000, category: 'Performance', tier: 'diamond', unlocked: bestScore >= 100, progress: Math.min(bestScore, 100), total: 100 },
+      { id: 'p1', title: 'Erster Score', titleEn: 'First Score', desc: 'Check-in gemacht', descEn: 'Check-in done', color: theme.green, bg: theme.greenLight, xp: 15, category: 'Performance', tier: 'bronze', unlocked: bestScore > 0, progress: bestScore > 0 ? 1 : 0, total: 1 },
+      { id: 'p2', title: 'Aufsteiger', titleEn: 'Riser', desc: 'Score 60+', descEn: 'Score 60+', color: '#2E7D32', bg: theme.greenLight, xp: 40, category: 'Performance', tier: 'bronze', unlocked: bestScore >= 60, progress: Math.min(bestScore, 60), total: 60 },
+      { id: 'p3', title: 'Solide Form', titleEn: 'Solid Form', desc: 'Score 70+', descEn: 'Score 70+', color: '#1B5E20', bg: '#E8F5E9', xp: 75, category: 'Performance', tier: 'silver', unlocked: bestScore >= 70, progress: Math.min(bestScore, 70), total: 70 },
+      { id: 'p4', title: 'Top Athlet', titleEn: 'Top Athlete', desc: 'Score 80+', descEn: 'Score 80+', color: '#00695C', bg: '#E0F2F1', xp: 150, category: 'Performance', tier: 'silver', unlocked: bestScore >= 80, progress: Math.min(bestScore, 80), total: 80 },
+      { id: 'p5', title: 'Hochleistung', titleEn: 'High Performance', desc: 'Score 90+', descEn: 'Score 90+', color: '#004D40', bg: '#E0F2F1', xp: 250, category: 'Performance', tier: 'gold', unlocked: bestScore >= 90, progress: Math.min(bestScore, 90), total: 90 },
+      { id: 'p6', title: 'Perfekter Tag', titleEn: 'Perfect Day', desc: 'Score 95+', descEn: 'Score 95+', color: '#FF9500', bg: theme.orangeLight, xp: 400, category: 'Performance', tier: 'gold', unlocked: bestScore >= 95, progress: Math.min(bestScore, 95), total: 95 },
+      { id: 'p7', title: 'Maximum', titleEn: 'Maximum', desc: 'Score 100', descEn: 'Score 100', color: '#7C3AED', bg: theme.purpleLight, xp: 1000, category: 'Performance', tier: 'diamond', unlocked: bestScore >= 100, progress: Math.min(bestScore, 100), total: 100 },
 
       // HABITS
-      { id: 'h1', title: 'Erste Gewohnheit', desc: '1 Habit aktiv', color: theme.teal, bg: theme.tealLight, xp: 10, category: 'Habits', tier: 'bronze', unlocked: habitDays >= 1, progress: Math.min(habitDays, 1), total: 1 },
-      { id: 'h2', title: 'Aufgebaut', desc: '3 Habits aktiv', color: '#0097A7', bg: theme.tealLight, xp: 30, category: 'Habits', tier: 'bronze', unlocked: habitDays >= 3, progress: Math.min(habitDays, 3), total: 3 },
-      { id: 'h3', title: 'Routine', desc: '5 Habits aktiv', color: '#00838F', bg: theme.tealLight, xp: 60, category: 'Habits', tier: 'silver', unlocked: habitDays >= 5, progress: Math.min(habitDays, 5), total: 5 },
-      { id: 'h4', title: 'Habit Master', desc: '10 Habits aktiv', color: '#006064', bg: theme.tealLight, xp: 100, category: 'Habits', tier: 'silver', unlocked: habitDays >= 10, progress: Math.min(habitDays, 10), total: 10 },
-      { id: 'h5', title: 'Lebensweise', desc: '20 Habits aktiv', color: '#37474F', bg: '#ECEFF1', xp: 200, category: 'Habits', tier: 'gold', unlocked: habitDays >= 20, progress: Math.min(habitDays, 20), total: 20 },
+      { id: 'h1', title: 'Erste Gewohnheit', titleEn: 'First Habit', desc: '1 Habit aktiv', descEn: '1 habit active', color: theme.teal, bg: theme.tealLight, xp: 10, category: 'Habits', tier: 'bronze', unlocked: habitDays >= 1, progress: Math.min(habitDays, 1), total: 1 },
+      { id: 'h2', title: 'Aufgebaut', titleEn: 'Built Up', desc: '3 Habits aktiv', descEn: '3 habits active', color: '#0097A7', bg: theme.tealLight, xp: 30, category: 'Habits', tier: 'bronze', unlocked: habitDays >= 3, progress: Math.min(habitDays, 3), total: 3 },
+      { id: 'h3', title: 'Routine', titleEn: 'Routine', desc: '5 Habits aktiv', descEn: '5 habits active', color: '#00838F', bg: theme.tealLight, xp: 60, category: 'Habits', tier: 'silver', unlocked: habitDays >= 5, progress: Math.min(habitDays, 5), total: 5 },
+      { id: 'h4', title: 'Habit Master', titleEn: 'Habit Master', desc: '10 Habits aktiv', descEn: '10 habits active', color: '#006064', bg: theme.tealLight, xp: 100, category: 'Habits', tier: 'silver', unlocked: habitDays >= 10, progress: Math.min(habitDays, 10), total: 10 },
+      { id: 'h5', title: 'Lebensweise', titleEn: 'Lifestyle', desc: '20 Habits aktiv', descEn: '20 habits active', color: '#37474F', bg: '#ECEFF1', xp: 200, category: 'Habits', tier: 'gold', unlocked: habitDays >= 20, progress: Math.min(habitDays, 20), total: 20 },
 
       // PRs
-      { id: 'pr1', title: 'Erster PR', desc: '1 Personal Record', color: theme.orange, bg: theme.orangeLight, xp: 25, category: 'PRs', tier: 'bronze', unlocked: prCount >= 1, progress: Math.min(prCount, 1), total: 1 },
-      { id: 'pr2', title: 'Stärker', desc: '3 PRs gesetzt', color: '#F57C00', bg: theme.orangeLight, xp: 60, category: 'PRs', tier: 'bronze', unlocked: prCount >= 3, progress: Math.min(prCount, 3), total: 3 },
-      { id: 'pr3', title: 'PR Jäger', desc: '5 PRs gesetzt', color: '#E65100', bg: '#FBE9E7', xp: 100, category: 'PRs', tier: 'silver', unlocked: prCount >= 5, progress: Math.min(prCount, 5), total: 5 },
-      { id: 'pr4', title: 'Rekordbrecher', desc: '10 PRs gesetzt', color: '#BF360C', bg: '#FBE9E7', xp: 200, category: 'PRs', tier: 'gold', unlocked: prCount >= 10, progress: Math.min(prCount, 10), total: 10 },
-      { id: 'pr5', title: 'PR Maschine', desc: '20 PRs gesetzt', color: '#7C3AED', bg: theme.purpleLight, xp: 400, category: 'PRs', tier: 'diamond', unlocked: prCount >= 20, progress: Math.min(prCount, 20), total: 20 },
+      { id: 'pr1', title: 'Erster PR', titleEn: 'First PR', desc: '1 Personal Record', descEn: '1 personal record', color: theme.orange, bg: theme.orangeLight, xp: 25, category: 'PRs', tier: 'bronze', unlocked: prCount >= 1, progress: Math.min(prCount, 1), total: 1 },
+      { id: 'pr2', title: 'Stärker', titleEn: 'Stronger', desc: '3 PRs gesetzt', descEn: '3 PRs set', color: '#F57C00', bg: theme.orangeLight, xp: 60, category: 'PRs', tier: 'bronze', unlocked: prCount >= 3, progress: Math.min(prCount, 3), total: 3 },
+      { id: 'pr3', title: 'PR Jäger', titleEn: 'PR Hunter', desc: '5 PRs gesetzt', descEn: '5 PRs set', color: '#E65100', bg: '#FBE9E7', xp: 100, category: 'PRs', tier: 'silver', unlocked: prCount >= 5, progress: Math.min(prCount, 5), total: 5 },
+      { id: 'pr4', title: 'Rekordbrecher', titleEn: 'Record Breaker', desc: '10 PRs gesetzt', descEn: '10 PRs set', color: '#BF360C', bg: '#FBE9E7', xp: 200, category: 'PRs', tier: 'gold', unlocked: prCount >= 10, progress: Math.min(prCount, 10), total: 10 },
+      { id: 'pr5', title: 'PR Maschine', titleEn: 'PR Machine', desc: '20 PRs gesetzt', descEn: '20 PRs set', color: '#7C3AED', bg: theme.purpleLight, xp: 400, category: 'PRs', tier: 'diamond', unlocked: prCount >= 20, progress: Math.min(prCount, 20), total: 20 },
 
       // SPEZIAL
-      { id: 'sp1', title: 'Vollständig', desc: 'Profil zu 100% ausgefüllt', color: '#7C3AED', bg: theme.purpleLight, xp: 50, category: 'Spezial', tier: 'silver', unlocked: false },
-      { id: 'sp2', title: 'Early Adopter', desc: 'App in der Beta genutzt', color: '#FF2D55', bg: '#FFF0F3', xp: 100, category: 'Spezial', tier: 'gold', unlocked: true, unlockedAt: 'Mai 2026' },
-      { id: 'sp3', title: 'Perfekte Woche', desc: '7 Tage + 3 Trainings + alle Habits', color: '#B8860B', bg: '#FFFBEB', xp: 200, category: 'Spezial', tier: 'gold', unlocked: streak >= 7 && workoutCount >= 3 && habitDays >= 3 },
-      { id: 'sp4', title: 'Allrounder', desc: 'Alle 5 Bereiche geloggt', color: '#0D7377', bg: '#E0FAFA', xp: 150, category: 'Spezial', tier: 'silver', unlocked: workoutCount >= 1 && sleepDays >= 1 && habitDays >= 1 && bestScore > 0 },
-      { id: 'sp5', title: 'Freundeskreis', desc: 'Ersten Freund geaddet', color: '#C2185B', bg: '#FCE4EC', xp: 50, category: 'Spezial', tier: 'bronze', unlocked: false },
-      { id: 'sp6', title: 'Morgenmensch', desc: '7x vor 8 Uhr Check-in', color: '#F57F17', bg: '#FFFDE7', xp: 100, category: 'Spezial', tier: 'silver', unlocked: false },
+      { id: 'sp1', title: 'Vollständig', titleEn: 'Complete', desc: 'Profil zu 100% ausgefüllt', descEn: 'Profile 100% filled out', color: '#7C3AED', bg: theme.purpleLight, xp: 50, category: 'Spezial', tier: 'silver', unlocked: false },
+      { id: 'sp2', title: 'Early Adopter', titleEn: 'Early Adopter', desc: 'App in der Beta genutzt', descEn: 'Used the app during beta', color: '#FF2D55', bg: '#FFF0F3', xp: 100, category: 'Spezial', tier: 'gold', unlocked: true, unlockedAt: 'Mai 2026', unlockedAtEn: 'May 2026' },
+      { id: 'sp3', title: 'Perfekte Woche', titleEn: 'Perfect Week', desc: '7 Tage + 3 Trainings + alle Habits', descEn: '7 days + 3 workouts + all habits', color: '#B8860B', bg: '#FFFBEB', xp: 200, category: 'Spezial', tier: 'gold', unlocked: streak >= 7 && workoutCount >= 3 && habitDays >= 3 },
+      { id: 'sp4', title: 'Allrounder', titleEn: 'All-Rounder', desc: 'Alle 5 Bereiche geloggt', descEn: 'All 5 areas logged', color: '#0D7377', bg: '#E0FAFA', xp: 150, category: 'Spezial', tier: 'silver', unlocked: workoutCount >= 1 && sleepDays >= 1 && habitDays >= 1 && bestScore > 0 },
+      { id: 'sp5', title: 'Freundeskreis', titleEn: 'Circle of Friends', desc: 'Ersten Freund geaddet', descEn: 'Added your first friend', color: '#C2185B', bg: '#FCE4EC', xp: 50, category: 'Spezial', tier: 'bronze', unlocked: false },
+      { id: 'sp6', title: 'Morgenmensch', titleEn: 'Early Bird', desc: '7x vor 8 Uhr Check-in', descEn: '7x check-in before 8am', color: '#F57F17', bg: '#FFFDE7', xp: 100, category: 'Spezial', tier: 'silver', unlocked: false },
     ];
 
     const xp = allBadges.filter(b => b.unlocked).reduce((sum, b) => sum + b.xp, 0);
@@ -323,7 +330,7 @@ export default function AchievementsScreen() {
         {/* Header */}
         <View style={styles.header}>
           <BackButton />
-          <Text style={styles.headerTitle}>Erfolge</Text>
+          <Text style={styles.headerTitle}>{lang === 'en' ? 'Achievements' : 'Erfolge'}</Text>
           <View style={{ width: 70 }} />
         </View>
 
@@ -332,12 +339,12 @@ export default function AchievementsScreen() {
           <LevelRing xp={totalXP} size={96} />
           <View style={styles.levelInfo}>
             <View style={[styles.levelPill, { backgroundColor: level.color }]}>
-              <Text style={styles.levelPillText}>{level.name}</Text>
+              <Text style={styles.levelPillText}>{lang === 'en' ? level.nameEn : level.name}</Text>
             </View>
             <Text style={styles.levelXP}>{totalXP} XP</Text>
             {nextLevel ? (
               <>
-                <Text style={styles.levelNextText}>Noch {nextLevel.minXP - totalXP} XP bis {nextLevel.name}</Text>
+                <Text style={styles.levelNextText}>{lang === 'en' ? `${nextLevel.minXP - totalXP} XP until ${nextLevel.nameEn}` : `Noch ${nextLevel.minXP - totalXP} XP bis ${nextLevel.name}`}</Text>
                 <View style={styles.levelProgressBar}>
                   <View style={[styles.levelProgressFill, {
                     width: `${Math.round(((totalXP - level.minXP) / (nextLevel.minXP - level.minXP)) * 100)}%` as any,
@@ -346,7 +353,7 @@ export default function AchievementsScreen() {
                 </View>
               </>
             ) : (
-              <Text style={[styles.levelNextText, { color: '#B8860B', fontWeight: '600' }]}>Maximum erreicht!</Text>
+              <Text style={[styles.levelNextText, { color: '#B8860B', fontWeight: '600' }]}>{lang === 'en' ? 'Maximum reached!' : 'Maximum erreicht!'}</Text>
             )}
             <View style={styles.levelMeta}>
               <View style={styles.levelMetaItem}>
@@ -359,7 +366,7 @@ export default function AchievementsScreen() {
               </View>
               <View style={[styles.levelMetaItem, styles.levelMetaBorder]}>
                 <Text style={[styles.levelMetaVal, { color: theme.green }]}>{Math.round((unlocked / Math.max(badges.length, 1)) * 100)}%</Text>
-                <Text style={styles.levelMetaLbl}>Fertig</Text>
+                <Text style={styles.levelMetaLbl}>{lang === 'en' ? 'Done' : 'Fertig'}</Text>
               </View>
             </View>
           </View>
@@ -369,7 +376,7 @@ export default function AchievementsScreen() {
         <View style={styles.tabBar}>
           {[
             { key: 'badges', label: 'Badges' },
-            { key: 'quests', label: `Tagesquests${dailyQuests.filter(q => !q.completed && q.progress > 0).length > 0 ? ' •' : ''}` },
+            { key: 'quests', label: `${lang === 'en' ? 'Daily Quests' : 'Tagesquests'}${dailyQuests.filter(q => !q.completed && q.progress > 0).length > 0 ? ' •' : ''}` },
             { key: 'season', label: 'Season' },
           ].map(tab => (
             <TouchableOpacity
@@ -396,13 +403,13 @@ export default function AchievementsScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                      <Text style={styles.nextLabel}>Nächstes Ziel</Text>
+                      <Text style={styles.nextLabel}>{lang === 'en' ? 'Next Goal' : 'Nächstes Ziel'}</Text>
                       <View style={[styles.tierPill, { backgroundColor: tier.bg, borderColor: tier.border }]}>
-                        <Text style={[styles.tierPillText, { color: tier.text }]}>{tier.label}</Text>
+                        <Text style={[styles.tierPillText, { color: tier.text }]}>{lang === 'en' ? tier.labelEn : tier.label}</Text>
                       </View>
                     </View>
-                    <Text style={styles.nextTitle}>{next.title}</Text>
-                    <Text style={styles.nextDesc}>{next.desc}</Text>
+                    <Text style={styles.nextTitle}>{lang === 'en' ? next.titleEn : next.title}</Text>
+                    <Text style={styles.nextDesc}>{lang === 'en' ? next.descEn : next.desc}</Text>
                     {next.progress !== undefined && next.total && (
                       <View style={styles.nextProgressWrap}>
                         <View style={styles.nextProgressTrack}>
@@ -428,7 +435,7 @@ export default function AchievementsScreen() {
                   onPress={() => setActiveCategory(cat)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.catChipText, activeCategory === cat && styles.catChipTextActive]}>{cat}</Text>
+                  <Text style={[styles.catChipText, activeCategory === cat && styles.catChipTextActive]}>{lang === 'en' ? (CATEGORY_LABELS_EN[cat] ?? cat) : cat}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -441,7 +448,7 @@ export default function AchievementsScreen() {
                   <View key={badge.id} style={[styles.badgeCard, !badge.unlocked && styles.badgeCardLocked]}>
                     {badge.unlocked && (
                       <View style={[styles.tierTag, { backgroundColor: tier.bg, borderColor: tier.border }]}>
-                        <Text style={[styles.tierTagText, { color: tier.text }]}>{tier.label}</Text>
+                        <Text style={[styles.tierTagText, { color: tier.text }]}>{lang === 'en' ? tier.labelEn : tier.label}</Text>
                       </View>
                     )}
                     <View style={[styles.badgeIconWrap, {
@@ -455,8 +462,8 @@ export default function AchievementsScreen() {
                         </View>
                       )}
                     </View>
-                    <Text style={[styles.badgeTitle, !badge.unlocked && { color: '#8E8E93' }]}>{badge.title}</Text>
-                    <Text style={styles.badgeDesc}>{badge.desc}</Text>
+                    <Text style={[styles.badgeTitle, !badge.unlocked && { color: '#8E8E93' }]}>{lang === 'en' ? badge.titleEn : badge.title}</Text>
+                    <Text style={styles.badgeDesc}>{lang === 'en' ? badge.descEn : badge.desc}</Text>
                     {!badge.unlocked && badge.progress !== undefined && badge.total && (
                       <View style={{ width: '100%', gap: 2 }}>
                         <View style={styles.badgeProgressTrack}>
@@ -466,7 +473,7 @@ export default function AchievementsScreen() {
                       </View>
                     )}
                     {badge.unlocked && badge.unlockedAt && (
-                      <Text style={styles.unlockedAt}>{badge.unlockedAt}</Text>
+                      <Text style={styles.unlockedAt}>{lang === 'en' ? badge.unlockedAtEn : badge.unlockedAt}</Text>
                     )}
                     <View style={[styles.xpChip, { backgroundColor: badge.unlocked ? badge.bg : '#F2F2F7' }]}>
                       <Text style={[styles.xpChipText, { color: badge.unlocked ? badge.color : '#C7C7CC' }]}>+{badge.xp} XP</Text>
@@ -482,12 +489,12 @@ export default function AchievementsScreen() {
         {activeTab === 'quests' && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Heutige Quests</Text>
+              <Text style={styles.sectionTitle}>{lang === 'en' ? "Today's Quests" : 'Heutige Quests'}</Text>
               <View style={[styles.xpPill, { backgroundColor: theme.greenLight }]}>
-                <Text style={[styles.xpPillText, { color: theme.green }]}>+{dailyXP} XP heute</Text>
+                <Text style={[styles.xpPillText, { color: theme.green }]}>+{dailyXP} XP {lang === 'en' ? 'today' : 'heute'}</Text>
               </View>
             </View>
-            <Text style={styles.sectionSub}>Täglich neue Quests – jeden Tag eine neue Chance XP zu sammeln</Text>
+            <Text style={styles.sectionSub}>{lang === 'en' ? 'New quests every day – a fresh chance to earn XP each day' : 'Täglich neue Quests – jeden Tag eine neue Chance XP zu sammeln'}</Text>
 
             {dailyQuests.map(quest => (
               <View key={quest.id} style={[styles.questCard, quest.completed && { borderLeftColor: quest.color, borderLeftWidth: 3 }]}>
@@ -498,8 +505,8 @@ export default function AchievementsScreen() {
                   }
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.questTitle, quest.completed && { color: quest.color }]}>{quest.title}</Text>
-                  <Text style={styles.questDesc}>{quest.desc}</Text>
+                  <Text style={[styles.questTitle, quest.completed && { color: quest.color }]}>{lang === 'en' ? quest.titleEn : quest.title}</Text>
+                  <Text style={styles.questDesc}>{lang === 'en' ? quest.descEn : quest.desc}</Text>
                   {!quest.completed && (
                     <View style={styles.questProgressWrap}>
                       <View style={styles.questProgressTrack}>
@@ -516,8 +523,8 @@ export default function AchievementsScreen() {
             ))}
 
             <View style={styles.questInfoCard}>
-              <Text style={styles.questInfoTitle}>Wie Quests funktionieren</Text>
-              <Text style={styles.questInfoText}>Täglich neue Quests erscheinen um Mitternacht. Schliesse sie ab um XP zu sammeln und schneller Level aufzusteigen.</Text>
+              <Text style={styles.questInfoTitle}>{lang === 'en' ? 'How quests work' : 'Wie Quests funktionieren'}</Text>
+              <Text style={styles.questInfoText}>{lang === 'en' ? 'New quests appear at midnight every day. Complete them to earn XP and level up faster.' : 'Täglich neue Quests erscheinen um Mitternacht. Schliesse sie ab um XP zu sammeln und schneller Level aufzusteigen.'}</Text>
             </View>
           </View>
         )}
@@ -526,11 +533,11 @@ export default function AchievementsScreen() {
         {activeTab === 'season' && (
           <View style={styles.section}>
             <View style={styles.seasonHero}>
-              <Text style={styles.seasonMonth}>Mai 2026</Text>
+              <Text style={styles.seasonMonth}>{lang === 'en' ? 'May 2026' : 'Mai 2026'}</Text>
               <Text style={styles.seasonTitle}>Season Challenge</Text>
-              <Text style={styles.seasonSub}>27 Tage verbleibend</Text>
+              <Text style={styles.seasonSub}>{lang === 'en' ? '27 days left' : '27 Tage verbleibend'}</Text>
               <View style={[styles.xpPill, { backgroundColor: theme.purpleLight, marginTop: 8 }]}>
-                <Text style={[styles.xpPillText, { color: theme.purple }]}>+{seasonChallenges.reduce((s, c) => s + c.xp, 0)} XP total verfügbar</Text>
+                <Text style={[styles.xpPillText, { color: theme.purple }]}>+{seasonChallenges.reduce((s, c) => s + c.xp, 0)} XP {lang === 'en' ? 'total available' : 'total verfügbar'}</Text>
               </View>
             </View>
 
@@ -545,14 +552,14 @@ export default function AchievementsScreen() {
                     </View>
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Text style={[styles.seasonCardTitle, done && { color: challenge.color }]}>{challenge.title}</Text>
+                        <Text style={[styles.seasonCardTitle, done && { color: challenge.color }]}>{lang === 'en' ? challenge.titleEn : challenge.title}</Text>
                         {done && (
                           <View style={[styles.doneBadge, { backgroundColor: challenge.bg }]}>
-                            <Text style={[styles.doneBadgeText, { color: challenge.color }]}>Fertig</Text>
+                            <Text style={[styles.doneBadgeText, { color: challenge.color }]}>{lang === 'en' ? 'Done' : 'Fertig'}</Text>
                           </View>
                         )}
                       </View>
-                      <Text style={styles.seasonCardDesc}>{challenge.desc}</Text>
+                      <Text style={styles.seasonCardDesc}>{lang === 'en' ? challenge.descEn : challenge.desc}</Text>
                     </View>
                     <View style={[styles.xpPill, { backgroundColor: done ? challenge.bg : '#F2F2F7' }]}>
                       <Text style={[styles.xpPillText, { color: done ? challenge.color : '#C7C7CC' }]}>+{challenge.xp}</Text>

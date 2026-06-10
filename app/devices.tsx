@@ -9,6 +9,7 @@ import {
   ActivityIndicator, Alert, ScrollView, StyleSheet,
   Text, TouchableOpacity, View
 } from 'react-native';
+import BackButton from '@/components/BackButton';
 import { theme } from '../constants/theme';
 import { fetchAndImportHealthData } from '../utils/applehealth';
 
@@ -277,6 +278,7 @@ export default function DevicesScreen() {
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <BackButton />
       <Text style={styles.headerLabel}>Geräte</Text>
       <Text style={styles.title}>Verknüpfungen</Text>
 

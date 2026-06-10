@@ -729,7 +729,7 @@ export default function HomeScreen() {
                     <View key={j} style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: c, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.1)' }} />
                   ))}
                 </View>
-                <Text style={{ flex: 1, fontSize: 15, fontWeight: '600', color: textPrimary }}>{th.name}</Text>
+                <Text style={{ flex: 1, fontSize: 15, fontWeight: '600', color: textPrimary }}>{lang === 'en' ? th.nameEn : th.name}</Text>
                 {themeIndex === i && (
                   <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: th.accent, alignItems: 'center', justifyContent: 'center' }}>
                     <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>

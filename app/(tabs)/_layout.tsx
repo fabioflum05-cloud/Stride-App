@@ -5,6 +5,7 @@ import { Animated, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOp
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
 import { useAppTheme } from '../../constants/ThemeContext';
+import { useLanguage } from '../../constants/LanguageContext';
 
 function HomeIcon({ color }: { color: string }) {
   return (
@@ -106,6 +107,7 @@ const TRAINING_TABS = [
 
 function MainTabBar({ pathname }: { pathname: string }) {
   const { colors } = useAppTheme();
+  const { lang } = useLanguage();
 
   function getIndex() {
     if (pathname === '/') return 0;
@@ -129,7 +131,7 @@ function MainTabBar({ pathname }: { pathname: string }) {
       }]}>
         {MAIN_TABS.map(({ route, label, Icon }, index) => {
           const active = index === currentIndex;
-          const isTrainingTab = index === 1;
+          const displayLabel = label === 'Übersicht' ? (lang === 'en' ? 'Overview' : 'Übersicht') : label;
           return (
             <TouchableOpacity
               key={route}
@@ -140,19 +142,9 @@ function MainTabBar({ pathname }: { pathname: string }) {
               <View style={styles.dotWrap}>
                 {active && <View style={[styles.dotActive, { backgroundColor: colors.accent }]} />}
               </View>
-              {isTrainingTab ? (
-                <View style={{
-                  backgroundColor: active ? colors.accent : colors.cardSecondary,
-                  borderRadius: 14, width: 48, height: 36,
-                  alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <Icon color={active ? '#fff' : colors.accent} />
-                </View>
-              ) : (
-                <Icon color={active ? colors.accent : '#C7C7CC'} />
-              )}
+              <Icon color={active ? colors.accent : '#C7C7CC'} />
               <Text style={[styles.label, active && { color: colors.accent, fontWeight: '500' }]}>
-                {label}
+                {displayLabel}
               </Text>
             </TouchableOpacity>
           );

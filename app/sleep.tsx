@@ -4,6 +4,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Animated, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { theme } from '../constants/theme';
+import { useLanguage } from '../constants/LanguageContext';
 
 function calculateSleepScore(data: {
   schlafMin: number; tiefZeit: number; remZeit: number;
@@ -21,6 +22,7 @@ function calculateSleepScore(data: {
 }
 
 export default function SleepScreen() {
+  const { lang } = useLanguage();
   const [bedHour, setBedHour] = useState('22');
   const [bedMinute, setBedMinute] = useState('30');
   const [wakeHour, setWakeHour] = useState('06');
@@ -137,17 +139,17 @@ export default function SleepScreen() {
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
           <BackButton />
-          <Text style={styles.headerLabel}>Schlaf Log</Text>
-          <Text style={styles.title}>Wie hast du{'\n'}geschlafen?</Text>
+          <Text style={styles.headerLabel}>{lang === 'en' ? 'Sleep Log' : 'Schlaf Log'}</Text>
+          <Text style={styles.title}>{lang === 'en' ? 'How did you' : 'Wie hast du'}{'\n'}{lang === 'en' ? 'sleep?' : 'geschlafen?'}</Text>
 
           {saved && lastScore !== null && (
             <View style={styles.savedCard}>
               <Text style={styles.savedEmoji}>✓</Text>
-              <Text style={styles.savedTitle}>Heute bereits geloggt</Text>
+              <Text style={styles.savedTitle}>{lang === 'en' ? 'Already logged today' : 'Heute bereits geloggt'}</Text>
               <Text style={styles.savedScore}>{lastScore}</Text>
               <Text style={styles.savedScoreLabel}>Sleep Score</Text>
               <TouchableOpacity onPress={() => setSaved(false)} style={styles.editBtn}>
-                <Text style={styles.editBtnText}>Bearbeiten</Text>
+                <Text style={styles.editBtnText}>{lang === 'en' ? 'Edit' : 'Bearbeiten'}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -155,10 +157,10 @@ export default function SleepScreen() {
           {!saved && (
             <>
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Schlafzeiten</Text>
+                <Text style={styles.cardTitle}>{lang === 'en' ? 'Sleep Times' : 'Schlafzeiten'}</Text>
                 <View style={styles.timeRow}>
                   <View style={styles.timeGroup}>
-                    <Text style={styles.timeLabel}>Eingeschlafen</Text>
+                    <Text style={styles.timeLabel}>{lang === 'en' ? 'Fell asleep' : 'Eingeschlafen'}</Text>
                     <View style={styles.timeInputs}>
                       <TextInput style={styles.timeInput} value={bedHour} onChangeText={setBedHour} keyboardType="numeric" maxLength={2} placeholder="22" placeholderTextColor={theme.textTertiary} />
                       <Text style={styles.timeSep}>:</Text>
@@ -166,7 +168,7 @@ export default function SleepScreen() {
                     </View>
                   </View>
                   <View style={[styles.timeGroup, { alignItems: 'flex-end' }]}>
-                    <Text style={styles.timeLabel}>Aufgestanden</Text>
+                    <Text style={styles.timeLabel}>{lang === 'en' ? 'Woke up' : 'Aufgestanden'}</Text>
                     <View style={styles.timeInputs}>
                       <TextInput style={styles.timeInput} value={wakeHour} onChangeText={setWakeHour} keyboardType="numeric" maxLength={2} placeholder="06" placeholderTextColor={theme.textTertiary} />
                       <Text style={styles.timeSep}>:</Text>
@@ -177,12 +179,12 @@ export default function SleepScreen() {
               </View>
 
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Herzfrequenz & HRV</Text>
-                <Text style={styles.cardSub}>Von deiner Smartwatch / Polar</Text>
+                <Text style={styles.cardTitle}>{lang === 'en' ? 'Heart Rate & HRV' : 'Herzfrequenz & HRV'}</Text>
+                <Text style={styles.cardSub}>{lang === 'en' ? 'From your smartwatch / Polar' : 'Von deiner Smartwatch / Polar'}</Text>
                 <View style={styles.inputGrid}>
                   {[
-                    { label: 'Tiefster Puls', value: tiefsterPuls, setter: setTiefsterPuls, placeholder: '48' },
-                    { label: 'Ø Puls', value: avgPuls, setter: setAvgPuls, placeholder: '55' },
+                    { label: lang === 'en' ? 'Lowest Pulse' : 'Tiefster Puls', value: tiefsterPuls, setter: setTiefsterPuls, placeholder: '48' },
+                    { label: lang === 'en' ? 'Avg. Pulse' : 'Ø Puls', value: avgPuls, setter: setAvgPuls, placeholder: '55' },
                     { label: 'HRV (ms)', value: hrv, setter: setHrv, placeholder: '65' },
                   ].map(f => (
                     <View key={f.label} style={styles.inputItem}>
@@ -195,11 +197,11 @@ export default function SleepScreen() {
               </View>
 
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Schlafphasen</Text>
-                <Text style={styles.cardSub}>In Minuten – optional, von Smartwatch</Text>
+                <Text style={styles.cardTitle}>{lang === 'en' ? 'Sleep Phases' : 'Schlafphasen'}</Text>
+                <Text style={styles.cardSub}>{lang === 'en' ? 'In minutes – optional, from smartwatch' : 'In Minuten – optional, von Smartwatch'}</Text>
                 <View style={styles.inputGrid}>
                   {[
-                    { label: 'Tiefschlaf (min)', value: deepZeit, setter: setDeepZeit, placeholder: '90' },
+                    { label: lang === 'en' ? 'Deep sleep (min)' : 'Tiefschlaf (min)', value: deepZeit, setter: setDeepZeit, placeholder: '90' },
                     { label: 'REM (min)', value: remZeit, setter: setRemZeit, placeholder: '120' },
                   ].map(f => (
                     <View key={f.label} style={styles.inputItem}>
@@ -212,12 +214,12 @@ export default function SleepScreen() {
               </View>
 
               <View style={styles.infoCard}>
-                <Text style={styles.infoTitle}>Score Formel</Text>
-                <Text style={styles.infoText}>Tiefschlaf 30% · Dauer 25% · REM 20% · HRV 15% · Puls 10%</Text>
+                <Text style={styles.infoTitle}>{lang === 'en' ? 'Score Formula' : 'Score Formel'}</Text>
+                <Text style={styles.infoText}>{lang === 'en' ? 'Deep sleep 30% · Duration 25% · REM 20% · HRV 15% · Pulse 10%' : 'Tiefschlaf 30% · Dauer 25% · REM 20% · HRV 15% · Puls 10%'}</Text>
               </View>
 
               <TouchableOpacity style={styles.saveBtn} onPress={save} activeOpacity={0.85}>
-                <Text style={styles.saveBtnText}>Schlaf speichern & Score anzeigen</Text>
+                <Text style={styles.saveBtnText}>{lang === 'en' ? 'Save sleep & show score' : 'Schlaf speichern & Score anzeigen'}</Text>
               </TouchableOpacity>
             </>
           )}

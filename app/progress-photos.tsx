@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useAppTheme } from '../constants/ThemeContext';
+import { useLanguage } from '../constants/LanguageContext';
 
 const W = Dimensions.get('window').width;
 const STORAGE_KEY = 'progress_photos';
@@ -29,21 +30,27 @@ type PhotoEntry = {
 
 const ANGLES: PhotoAngle[] = ['Vorne', 'Seite', 'Rücken'];
 const ANGLE_ICONS: Record<PhotoAngle, string> = { 'Vorne': '⬆️', 'Seite': '➡️', 'Rücken': '⬇️' };
+const ANGLE_LABELS: Record<PhotoAngle, { de: string; en: string }> = {
+  'Vorne': { de: 'Vorne', en: 'Front' },
+  'Seite': { de: 'Seite', en: 'Side' },
+  'Rücken': { de: 'Rücken', en: 'Back' },
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function monthKey(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
-function monthLabel(key: string): string {
+function monthLabel(key: string, lang: string): string {
   const [year, month] = key.split('-');
   const d = new Date(parseInt(year), parseInt(month)-1, 1);
-  return d.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+  return d.toLocaleDateString(lang === 'en' ? 'en-US' : 'de-DE', { month: 'long', year: 'numeric' });
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function ProgressPhotosScreen() {
   const { colors } = useAppTheme();
+  const { t, lang } = useLanguage();
   const isDark     = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
   const bg         = colors.bg;
   const card       = colors.card;
@@ -81,14 +88,20 @@ export default function ProgressPhotosScreen() {
       // try camera
       const { status: camStatus } = await ImagePicker.requestCameraPermissionsAsync();
       if (camStatus !== 'granted') {
-        Alert.alert('Zugriff benötigt', 'Bitte erlaube Kamera- oder Foto-Zugriff.');
+        Alert.alert(
+          lang === 'en' ? 'Access required' : 'Zugriff benötigt',
+          lang === 'en' ? 'Please allow camera or photo access.' : 'Bitte erlaube Kamera- oder Foto-Zugriff.'
+        );
         return;
       }
     }
 
-    Alert.alert('Foto hinzufügen', `${angle} — Woher?`, [
+    Alert.alert(
+      lang === 'en' ? 'Add photo' : 'Foto hinzufügen',
+      `${ANGLE_LABELS[angle][lang === 'en' ? 'en' : 'de']} — ${lang === 'en' ? 'From where?' : 'Woher?'}`,
+      [
       {
-        text: 'Kamera', onPress: async () => {
+        text: lang === 'en' ? 'Camera' : 'Kamera', onPress: async () => {
           const result = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: true, aspect: [3,4] });
           if (!result.canceled && result.assets[0]) {
             const entry: PhotoEntry = {
@@ -102,7 +115,7 @@ export default function ProgressPhotosScreen() {
         }
       },
       {
-        text: 'Galerie', onPress: async () => {
+        text: lang === 'en' ? 'Gallery' : 'Galerie', onPress: async () => {
           const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'] as any, quality: 0.8, allowsEditing: true, aspect: [3,4],
           });
@@ -117,14 +130,14 @@ export default function ProgressPhotosScreen() {
           }
         }
       },
-      { text: 'Abbrechen', style: 'cancel' },
+      { text: t('cancel'), style: 'cancel' },
     ]);
   }
 
   async function deletePhoto(id: string) {
-    Alert.alert('Foto löschen?', '', [
-      { text: 'Abbrechen', style: 'cancel' },
-      { text: 'Löschen', style: 'destructive', onPress: async () => {
+    Alert.alert(lang === 'en' ? 'Delete photo?' : 'Foto löschen?', '', [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('delete'), style: 'destructive', onPress: async () => {
         await save(photos.filter(p => p.id !== id));
         setViewPhoto(null);
       }},
@@ -168,10 +181,10 @@ export default function ProgressPhotosScreen() {
                 </Svg>
               </TouchableOpacity>
               <Text style={{ fontSize: 11, color: textDim, fontWeight: '600', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 6 }}>
-                Körper
+                {lang === 'en' ? 'Body' : 'Körper'}
               </Text>
               <Text style={{ fontSize: 30, fontWeight: '800', color: text, letterSpacing: -0.8 }}>
-                Fortschrittsfotos
+                {lang === 'en' ? 'Progress Photos' : 'Fortschrittsfotos'}
               </Text>
             </View>
             <TouchableOpacity onPress={() => setComparing(!comparing)}
@@ -179,7 +192,7 @@ export default function ProgressPhotosScreen() {
                 backgroundColor: comparing ? colors.accent : cardAlt,
                 borderWidth: 1, borderColor: comparing ? colors.accent : border, marginTop: 28 }}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: comparing ? '#fff' : textMuted }}>
-                Vergleich
+                {lang === 'en' ? 'Compare' : 'Vergleich'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -188,7 +201,7 @@ export default function ProgressPhotosScreen() {
           {!comparing && (
             <View style={[cardStyle, { marginBottom: 16 }]}>
               <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 14 }}>
-                Aktuell
+                {lang === 'en' ? 'Current' : 'Aktuell'}
               </Text>
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 {ANGLES.map(angle => {
@@ -207,10 +220,10 @@ export default function ProgressPhotosScreen() {
                           backgroundColor: cardAlt, borderWidth: 1.5, borderColor: border, borderStyle: 'dashed',
                           alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                           <Text style={{ fontSize: 24 }}>📷</Text>
-                          <Text style={{ fontSize: 10, color: textDim, fontWeight: '600' }}>Hinzufügen</Text>
+                          <Text style={{ fontSize: 10, color: textDim, fontWeight: '600' }}>{lang === 'en' ? 'Add' : 'Hinzufügen'}</Text>
                         </View>
                       )}
-                      <Text style={{ fontSize: 11, fontWeight: '600', color: textMuted }}>{angle}</Text>
+                      <Text style={{ fontSize: 11, fontWeight: '600', color: textMuted }}>{ANGLE_LABELS[angle][lang === 'en' ? 'en' : 'de']}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -222,15 +235,15 @@ export default function ProgressPhotosScreen() {
           {comparing && (
             <View style={[cardStyle, { marginBottom: 16 }]}>
               <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 14 }}>
-                Vorher / Nachher
+                {lang === 'en' ? 'Before / After' : 'Vorher / Nachher'}
               </Text>
               {comparePhotos.map(({ angle, latest, older }) => (
                 <View key={angle} style={{ marginBottom: 20 }}>
                   <Text style={{ fontSize: 12, fontWeight: '700', color: textMuted, marginBottom: 10 }}>
-                    {ANGLE_ICONS[angle]} {angle}
+                    {ANGLE_ICONS[angle]} {ANGLE_LABELS[angle][lang === 'en' ? 'en' : 'de']}
                   </Text>
                   <View style={{ flexDirection: 'row', gap: 10 }}>
-                    {[{ label: 'Vorher', photo: older }, { label: 'Jetzt', photo: latest }].map(({ label, photo }) => (
+                    {[{ label: lang === 'en' ? 'Before' : 'Vorher', photo: older }, { label: lang === 'en' ? 'Now' : 'Jetzt', photo: latest }].map(({ label, photo }) => (
                       <View key={label} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
                         {photo ? (
                           <TouchableOpacity onPress={() => setViewPhoto(photo)}>
@@ -242,11 +255,11 @@ export default function ProgressPhotosScreen() {
                           <View style={{ width: '100%', aspectRatio: 0.75, borderRadius: 12,
                             backgroundColor: cardAlt, borderWidth: 1, borderColor: border,
                             alignItems: 'center', justifyContent: 'center' }}>
-                            <Text style={{ color: textDim, fontSize: 12 }}>Kein Foto</Text>
+                            <Text style={{ color: textDim, fontSize: 12 }}>{lang === 'en' ? 'No photo' : 'Kein Foto'}</Text>
                           </View>
                         )}
                         <Text style={{ fontSize: 11, color: textDim }}>
-                          {label}{photo ? ` · ${new Date(photo.date).toLocaleDateString('de-DE', { day:'numeric', month:'short' })}` : ''}
+                          {label}{photo ? ` · ${new Date(photo.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'de-DE', { day:'numeric', month:'short' })}` : ''}
                         </Text>
                       </View>
                     ))}
@@ -264,7 +277,7 @@ export default function ProgressPhotosScreen() {
                   backgroundColor: selAngle === angle ? colors.accent : card,
                   borderWidth: 1, borderColor: selAngle === angle ? colors.accent : border }}>
                 <Text style={{ fontSize: 12, fontWeight: '700', color: selAngle === angle ? '#fff' : textMuted }}>
-                  {ANGLE_ICONS[angle]} {angle}
+                  {ANGLE_ICONS[angle]} {ANGLE_LABELS[angle][lang === 'en' ? 'en' : 'de']}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -275,16 +288,20 @@ export default function ProgressPhotosScreen() {
             style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
               backgroundColor: colors.accent, borderRadius: 16, paddingVertical: 14, marginBottom: 16 }}>
             <Text style={{ fontSize: 20 }}>📷</Text>
-            <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>{selAngle} Foto hinzufügen</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>
+              {lang === 'en'
+                ? `Add ${ANGLE_LABELS[selAngle].en} Photo`
+                : `${ANGLE_LABELS[selAngle].de} Foto hinzufügen`}
+            </Text>
           </TouchableOpacity>
 
           {/* Photos by Month */}
           {months.length === 0 && (
             <View style={[cardStyle, { alignItems: 'center', paddingVertical: 48, borderStyle: 'dashed' }]}>
               <Text style={{ fontSize: 40, marginBottom: 12 }}>📸</Text>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: text, marginBottom: 6 }}>Noch keine Fotos</Text>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: text, marginBottom: 6 }}>{lang === 'en' ? 'No photos yet' : 'Noch keine Fotos'}</Text>
               <Text style={{ fontSize: 13, color: textMuted, textAlign: 'center' }}>
-                Füge dein erstes Fortschrittsfoto hinzu.
+                {lang === 'en' ? 'Add your first progress photo.' : 'Füge dein erstes Fortschrittsfoto hinzu.'}
               </Text>
             </View>
           )}
@@ -294,7 +311,7 @@ export default function ProgressPhotosScreen() {
             return (
               <View key={month} style={{ marginBottom: 20 }}>
                 <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase',
-                  color: textDim, marginBottom: 12 }}>{monthLabel(month)}</Text>
+                  color: textDim, marginBottom: 12 }}>{monthLabel(month, lang)}</Text>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {monthPhotos.map(photo => (
                     <TouchableOpacity key={photo.id} onPress={() => setViewPhoto(photo)} activeOpacity={0.85}>
@@ -302,7 +319,7 @@ export default function ProgressPhotosScreen() {
                         style={{ width: (W - 56) / 3, height: (W - 56) / 3 * 1.3, borderRadius: 12 }}
                         resizeMode="cover" />
                       <Text style={{ fontSize: 9, color: textDim, textAlign: 'center', marginTop: 4 }}>
-                        {new Date(photo.date).toLocaleDateString('de-DE', { day:'numeric', month:'short' })}
+                        {new Date(photo.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'de-DE', { day:'numeric', month:'short' })}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -325,10 +342,10 @@ export default function ProgressPhotosScreen() {
             <View style={{ position: 'absolute', bottom: 60, left: 20, right: 20,
               backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 16, padding: 16 }}>
               <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
-                {viewPhoto.angle}
+                {ANGLE_LABELS[viewPhoto.angle][lang === 'en' ? 'en' : 'de']}
               </Text>
               <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>
-                {new Date(viewPhoto.date).toLocaleDateString('de-DE', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
+                {new Date(viewPhoto.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'de-DE', { weekday:'long', day:'numeric', month:'long', year:'numeric' })}
               </Text>
             </View>
 

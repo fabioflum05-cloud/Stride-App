@@ -7,6 +7,7 @@ import {
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import { theme } from '../constants/theme';
+import { useLanguage } from '../constants/LanguageContext';
 
 type PREntry = { date: string; weight: number; reps: number; estimated1RM: number; };
 type PRHistory = Record<string, PREntry[]>;
@@ -28,6 +29,7 @@ function getMuscleColor(mg: string): string {
 }
 
 export default function PRScreen() {
+  const { t, lang } = useLanguage();
   const [prHistory, setPRHistory] = useState<PRHistory>({});
   const [userMaxes, setUserMaxes] = useState<UserMaxes>({});
   const [exerciseMuscles, setExerciseMuscles] = useState<Record<string, string>>({});
@@ -116,7 +118,7 @@ export default function PRScreen() {
   async function saveEdit() {
     if (!editingEntry) return;
     const w = parseFloat(editWeight), r = parseFloat(editReps);
-    if (w <= 0 || r <= 0) { Alert.alert('Ungültige Werte'); return; }
+    if (w <= 0 || r <= 0) { Alert.alert(lang === 'en' ? 'Invalid values' : 'Ungültige Werte'); return; }
     const est1RM = calculate1RM(w, r);
     const updated = { ...prHistory };
     updated[editingEntry.exName] = updated[editingEntry.exName].map((e, i) =>
@@ -127,10 +129,10 @@ export default function PRScreen() {
   }
 
   async function deleteEntry(exName: string, idx: number) {
-    Alert.alert('Eintrag löschen?', '', [
-      { text: 'Abbrechen', style: 'cancel' },
+    Alert.alert(lang === 'en' ? 'Delete entry?' : 'Eintrag löschen?', '', [
+      { text: t('cancel'), style: 'cancel' },
       {
-        text: 'Löschen', style: 'destructive', onPress: async () => {
+        text: t('delete'), style: 'destructive', onPress: async () => {
           const updated = { ...prHistory };
           updated[exName] = updated[exName].filter((_, i) => i !== idx);
           if (updated[exName].length === 0) delete updated[exName];
@@ -143,7 +145,7 @@ export default function PRScreen() {
   async function addEntry() {
     if (!showAddModal) return;
     const w = parseFloat(addWeight), r = parseFloat(addReps);
-    if (w <= 0 || r <= 0) { Alert.alert('Ungültige Werte'); return; }
+    if (w <= 0 || r <= 0) { Alert.alert(lang === 'en' ? 'Invalid values' : 'Ungültige Werte'); return; }
     const est1RM = calculate1RM(w, r);
     const updated = { ...prHistory };
     updated[showAddModal] = [...(updated[showAddModal] || []), {
@@ -166,7 +168,7 @@ export default function PRScreen() {
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
         <BackButton />
         <Text style={styles.headerLabel}>Personal Records</Text>
-        <Text style={styles.title}>Deine{'\n'}Bestleistungen</Text>
+        <Text style={styles.title}>{lang === 'en' ? 'Your\nPersonal Bests' : 'Deine\nBestleistungen'}</Text>
 
         {/* Search */}
         <View style={styles.searchBar}>
@@ -175,7 +177,7 @@ export default function PRScreen() {
             style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
-            placeholder="Übung suchen..."
+            placeholder={lang === 'en' ? 'Search exercise...' : 'Übung suchen...'}
             placeholderTextColor={theme.textTertiary}
           />
           {searchQuery.length > 0 && (
@@ -188,9 +190,15 @@ export default function PRScreen() {
         {exercises.length === 0 ? (
           <View style={styles.empty}>
             <Text style={styles.emptyEmoji}>⭐</Text>
-            <Text style={styles.emptyTitle}>{searchQuery ? 'Keine Treffer' : 'Noch keine PRs'}</Text>
+            <Text style={styles.emptyTitle}>
+              {searchQuery
+                ? (lang === 'en' ? 'No matches' : 'Keine Treffer')
+                : (lang === 'en' ? 'No PRs yet' : 'Noch keine PRs')}
+            </Text>
             <Text style={styles.emptySub}>
-              {searchQuery ? 'Andere Schreibweise versuchen' : 'Starte ein Training um deine ersten PRs zu setzen!'}
+              {searchQuery
+                ? (lang === 'en' ? 'Try a different spelling' : 'Andere Schreibweise versuchen')
+                : (lang === 'en' ? 'Start a workout to set your first PRs!' : 'Starte ein Training um deine ersten PRs zu setzen!')}
             </Text>
           </View>
         ) : (
@@ -231,7 +239,7 @@ export default function PRScreen() {
                     <View style={styles.compactRow}>
                       <Text style={styles.compactStat}>
                         <Text style={{ color: theme.green, fontWeight: '600' }}>{latest?.weight}kg</Text>
-                        {' × '}{latest?.reps} Wdh.
+                        {' × '}{latest?.reps} {lang === 'en' ? 'reps' : 'Wdh.'}
                       </Text>
                       {trend !== null && (
                         <Text style={[styles.trendBadge, { color: trend >= 0 ? theme.green : theme.red }]}>
@@ -239,7 +247,7 @@ export default function PRScreen() {
                         </Text>
                       )}
                       <Text style={styles.compactDate}>
-                        {new Date(latest?.date || '').toLocaleDateString('de', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                        {new Date(latest?.date || '').toLocaleDateString(lang === 'en' ? 'en' : 'de', { day: '2-digit', month: '2-digit', year: '2-digit' })}
                       </Text>
                     </View>
                   )}
@@ -262,7 +270,7 @@ export default function PRScreen() {
                               </Text>
                               <View style={{ width: '75%', height: h, backgroundColor: isLatest ? mgColor : mgColor + '40', borderRadius: 3 }} />
                               <Text style={{ color: theme.textTertiary, fontSize: 7 }}>
-                                {new Date(e.date).toLocaleDateString('de', { day: '2-digit', month: '2-digit' })}
+                                {new Date(e.date).toLocaleDateString(lang === 'en' ? 'en' : 'de', { day: '2-digit', month: '2-digit' })}
                               </Text>
                             </View>
                           );
@@ -276,11 +284,11 @@ export default function PRScreen() {
                         <View style={[styles.entryDot, { backgroundColor: idx === entries.length - 1 ? mgColor : theme.textTertiary }]} />
                         <View style={{ flex: 1 }}>
                           <Text style={styles.entryMain}>
-                            {e.weight}kg × {e.reps} Wdh.
+                            {e.weight}kg × {e.reps} {lang === 'en' ? 'reps' : 'Wdh.'}
                             <Text style={{ color: mgColor, fontWeight: '600' }}> → {e.estimated1RM}kg 1RM</Text>
                           </Text>
                           <Text style={styles.entryDate}>
-                            {new Date(e.date).toLocaleDateString('de', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' })}
+                            {new Date(e.date).toLocaleDateString(lang === 'en' ? 'en' : 'de', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' })}
                           </Text>
                         </View>
                         <TouchableOpacity
@@ -303,7 +311,7 @@ export default function PRScreen() {
                     <TouchableOpacity
                       style={[styles.addEntryBtn, { borderColor: mgColor }]}
                       onPress={() => { setShowAddModal(exName); setAddWeight(''); setAddReps(''); }}>
-                      <Text style={[styles.addEntryText, { color: mgColor }]}>+ Neuen PR eintragen</Text>
+                      <Text style={[styles.addEntryText, { color: mgColor }]}>{lang === 'en' ? '+ Log new PR' : '+ Neuen PR eintragen'}</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -319,29 +327,29 @@ export default function PRScreen() {
       <Modal visible={!!editingEntry} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Eintrag bearbeiten</Text>
-            <Text style={styles.inputLabel}>Gewicht (kg)</Text>
+            <Text style={styles.modalTitle}>{lang === 'en' ? 'Edit entry' : 'Eintrag bearbeiten'}</Text>
+            <Text style={styles.inputLabel}>{lang === 'en' ? 'Weight (kg)' : 'Gewicht (kg)'}</Text>
             <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight}
               keyboardType="decimal-pad" placeholder="85" placeholderTextColor={theme.textTertiary} />
-            <Text style={styles.inputLabel}>Wiederholungen</Text>
+            <Text style={styles.inputLabel}>{lang === 'en' ? 'Reps' : 'Wiederholungen'}</Text>
             <TextInput style={styles.input} value={editReps} onChangeText={setEditReps}
               keyboardType="numeric" placeholder="3" placeholderTextColor={theme.textTertiary} />
-            <Text style={styles.inputLabel}>Datum (JJJJ-MM-TT)</Text>
+            <Text style={styles.inputLabel}>{lang === 'en' ? 'Date (YYYY-MM-DD)' : 'Datum (JJJJ-MM-TT)'}</Text>
             <TextInput style={styles.input} value={editDate} onChangeText={setEditDate}
               placeholder="2025-01-15" placeholderTextColor={theme.textTertiary} />
             {editWeight && editReps && parseFloat(editWeight) > 0 && parseFloat(editReps) > 0 && (
               <View style={styles.estimate}>
-                <Text style={styles.estimateLabel}>Neuer Est. 1RM</Text>
+                <Text style={styles.estimateLabel}>{lang === 'en' ? 'New Est. 1RM' : 'Neuer Est. 1RM'}</Text>
                 <Text style={styles.estimateVal}>
                   {calculate1RM(parseFloat(editWeight), parseFloat(editReps))} kg
                 </Text>
               </View>
             )}
             <TouchableOpacity style={styles.saveBtn} onPress={saveEdit}>
-              <Text style={styles.saveBtnText}>Speichern ✓</Text>
+              <Text style={styles.saveBtnText}>{lang === 'en' ? 'Save' : 'Speichern'} ✓</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditingEntry(null)}>
-              <Text style={styles.cancelBtnText}>Abbrechen</Text>
+              <Text style={styles.cancelBtnText}>{t('cancel')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -352,10 +360,10 @@ export default function PRScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{showAddModal}</Text>
-            <Text style={styles.inputLabel}>Gewicht (kg)</Text>
+            <Text style={styles.inputLabel}>{lang === 'en' ? 'Weight (kg)' : 'Gewicht (kg)'}</Text>
             <TextInput style={styles.input} value={addWeight} onChangeText={setAddWeight}
               keyboardType="decimal-pad" placeholder="85" placeholderTextColor={theme.textTertiary} />
-            <Text style={styles.inputLabel}>Wiederholungen</Text>
+            <Text style={styles.inputLabel}>{lang === 'en' ? 'Reps' : 'Wiederholungen'}</Text>
             <TextInput style={styles.input} value={addReps} onChangeText={setAddReps}
               keyboardType="numeric" placeholder="3" placeholderTextColor={theme.textTertiary} />
             {addWeight && addReps && parseFloat(addWeight) > 0 && parseFloat(addReps) > 0 && (
@@ -365,16 +373,16 @@ export default function PRScreen() {
                   {calculate1RM(parseFloat(addWeight), parseFloat(addReps))} kg
                 </Text>
                 <Text style={[styles.estimateLabel, { marginTop: 4 }]}>
-                  = {Math.round(calculate1RM(parseFloat(addWeight), parseFloat(addReps)) * 0.85)}kg für 5 Wdh.
-                  · {Math.round(calculate1RM(parseFloat(addWeight), parseFloat(addReps)) * 0.75)}kg für 10 Wdh.
+                  = {Math.round(calculate1RM(parseFloat(addWeight), parseFloat(addReps)) * 0.85)}kg {lang === 'en' ? 'for 5 reps' : 'für 5 Wdh.'}
+                  · {Math.round(calculate1RM(parseFloat(addWeight), parseFloat(addReps)) * 0.75)}kg {lang === 'en' ? 'for 10 reps' : 'für 10 Wdh.'}
                 </Text>
               </View>
             )}
             <TouchableOpacity style={styles.saveBtn} onPress={addEntry}>
-              <Text style={styles.saveBtnText}>Hinzufügen ✓</Text>
+              <Text style={styles.saveBtnText}>{lang === 'en' ? 'Add' : 'Hinzufügen'} ✓</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowAddModal(null)}>
-              <Text style={styles.cancelBtnText}>Abbrechen</Text>
+              <Text style={styles.cancelBtnText}>{t('cancel')}</Text>
             </TouchableOpacity>
           </View>
         </View>

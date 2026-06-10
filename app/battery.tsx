@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Svg, { ClipPath, Defs, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg';
 import { theme } from '../constants/theme';
+import { useLanguage } from '../constants/LanguageContext';
 
 type CalorieEntry = { id: string; time: string; kcal: number; label: string; };
 type BatteryData = { level: number; calorieEntries: CalorieEntry[]; date: string; };
@@ -17,9 +18,14 @@ function isToday(dateString: string) {
     date.getFullYear() === today.getFullYear();
 }
 
-function BatteryVisual({ level }: { level: number }) {
+function BatteryVisual({ level, lang }: { level: number; lang: string }) {
   const color = level >= 70 ? theme.green : level >= 40 ? theme.orange : theme.red;
   const translateY = (1 - level / 100) * 154;
+  const status = level >= 70
+    ? (lang === 'en' ? 'Well charged' : 'Gut geladen')
+    : level >= 40
+      ? (lang === 'en' ? 'Moderate' : 'Moderat')
+      : (lang === 'en' ? 'Critical' : 'Kritisch');
   return (
     <View style={{ alignItems: 'center' }}>
       <Svg width={120} height={220} viewBox="0 0 120 220">
@@ -44,15 +50,14 @@ function BatteryVisual({ level }: { level: number }) {
         )}
       </Svg>
       <View style={[styles.statusBadge, { backgroundColor: color + '20' }]}>
-        <Text style={[styles.statusText, { color }]}>
-          {level >= 70 ? 'Gut geladen' : level >= 40 ? 'Moderat' : 'Kritisch'}
-        </Text>
+        <Text style={[styles.statusText, { color }]}>{status}</Text>
       </View>
     </View>
   );
 }
 
 export default function BatteryScreen() {
+  const { t, lang } = useLanguage();
   const [batteryData, setBatteryData] = useState<BatteryData | null>(null);
   const [sleepScore, setSleepScore] = useState(0);
   const [stress, setStress] = useState(3);
@@ -91,10 +96,10 @@ export default function BatteryScreen() {
 
   async function addCalories() {
     const kcal = parseInt(kcalInput);
-    if (isNaN(kcal) || kcal <= 0) { Alert.alert('Ungültige Eingabe'); return; }
+    if (isNaN(kcal) || kcal <= 0) { Alert.alert(lang === 'en' ? 'Invalid input' : 'Ungültige Eingabe'); return; }
     const now = new Date();
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const entry: CalorieEntry = { id: Date.now().toString(), time: timeStr, kcal, label: labelInput.trim() || 'Aktivität' };
+    const entry: CalorieEntry = { id: Date.now().toString(), time: timeStr, kcal, label: labelInput.trim() || (lang === 'en' ? 'Activity' : 'Aktivität') };
     const newEntries = [...(batteryData?.calorieEntries ?? []), entry];
     const newLevel = calculateLevel(newEntries, sleepScore, stress);
     const newData: BatteryData = { level: newLevel, calorieEntries: newEntries, date: new Date().toISOString() };
@@ -124,16 +129,16 @@ export default function BatteryScreen() {
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <BackButton />
         <Text style={styles.headerLabel}>Body Battery</Text>
-        <Text style={styles.title}>Deine{'\n'}Energie</Text>
+        <Text style={styles.title}>{lang === 'en' ? 'Your\nEnergy' : 'Deine\nEnergie'}</Text>
 
         <View style={styles.batteryWrap}>
-          <BatteryVisual level={level} />
+          <BatteryVisual level={level} lang={lang} />
         </View>
 
         <View style={styles.statsRow}>
           {[
             { val: sleepScore || '--', lbl: 'Sleep Score', color: theme.purple },
-            { val: totalKcal, lbl: 'kcal verbrannt', color: theme.red },
+            { val: totalKcal, lbl: lang === 'en' ? 'kcal burned' : 'kcal verbrannt', color: theme.red },
             { val: `${stress}/5`, lbl: 'Stress', color: theme.pink },
           ].map(s => (
             <View key={s.lbl} style={styles.statBox}>
@@ -144,18 +149,18 @@ export default function BatteryScreen() {
         </View>
 
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>Wie wird berechnet?</Text>
-          <Text style={styles.infoText}>Schlaf lädt deine Batterie morgens auf. Kalorien verbrannt und Stress entladen sie über den Tag.</Text>
+          <Text style={styles.infoTitle}>{lang === 'en' ? 'How is it calculated?' : 'Wie wird berechnet?'}</Text>
+          <Text style={styles.infoText}>{lang === 'en' ? 'Sleep recharges your battery in the morning. Calories burned and stress drain it throughout the day.' : 'Schlaf lädt deine Batterie morgens auf. Kalorien verbrannt und Stress entladen sie über den Tag.'}</Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Heutige Events</Text>
+        <Text style={styles.sectionTitle}>{lang === 'en' ? "Today's Events" : 'Heutige Events'}</Text>
 
         {sleepScore > 0 && (
           <View style={styles.eventRow}>
             <View style={[styles.eventDot, { backgroundColor: theme.purple }]} />
             <View style={styles.eventContent}>
-              <Text style={styles.eventName}>Schlaf</Text>
-              <Text style={styles.eventTime}>Heute Nacht</Text>
+              <Text style={styles.eventName}>{lang === 'en' ? 'Sleep' : 'Schlaf'}</Text>
+              <Text style={styles.eventTime}>{lang === 'en' ? 'Last Night' : 'Heute Nacht'}</Text>
             </View>
             <Text style={[styles.eventDelta, { color: theme.green }]}>+{Math.round(sleepScore * 0.85)}</Text>
           </View>
@@ -182,9 +187,9 @@ export default function BatteryScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={[styles.eventDelta, { color: theme.red }]}>-{Math.round(entry.kcal / 100 * 1.5)}</Text>
               <TouchableOpacity
-                onPress={() => Alert.alert('Löschen?', entry.label, [
-                  { text: 'Abbrechen', style: 'cancel' },
-                  { text: 'Löschen', style: 'destructive', onPress: () => deleteEntry(entry.id) }
+                onPress={() => Alert.alert(lang === 'en' ? 'Delete?' : 'Löschen?', entry.label, [
+                  { text: t('cancel'), style: 'cancel' },
+                  { text: t('delete'), style: 'destructive', onPress: () => deleteEntry(entry.id) }
                 ])}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
@@ -196,17 +201,17 @@ export default function BatteryScreen() {
 
         {entries.length === 0 && sleepScore === 0 && (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Füll zuerst den Sleep Log aus um deine Batterie zu starten.</Text>
+            <Text style={styles.emptyText}>{lang === 'en' ? 'Fill out the Sleep Log first to start your battery.' : 'Füll zuerst den Sleep Log aus um deine Batterie zu starten.'}</Text>
           </View>
         )}
 
         <TouchableOpacity style={styles.addBtn} onPress={() => setShowModal(true)} activeOpacity={0.85}>
-          <Text style={styles.addBtnText}>+ Kalorien verbrannt eintragen</Text>
+          <Text style={styles.addBtnText}>{lang === 'en' ? '+ Log calories burned' : '+ Kalorien verbrannt eintragen'}</Text>
         </TouchableOpacity>
 
         <View style={styles.tipCard}>
-          <Text style={styles.tipTitle}>Wann eintragen?</Text>
-          <Text style={styles.tipText}>Morgens, mittags und abends. So siehst du wie deine Energie über den Tag sinkt.</Text>
+          <Text style={styles.tipTitle}>{lang === 'en' ? 'When to log?' : 'Wann eintragen?'}</Text>
+          <Text style={styles.tipText}>{lang === 'en' ? 'Morning, noon and evening. This shows how your energy drops over the day.' : 'Morgens, mittags und abends. So siehst du wie deine Energie über den Tag sinkt.'}</Text>
         </View>
 
         <View style={{ height: 80 }} />
@@ -218,12 +223,12 @@ export default function BatteryScreen() {
           style={{ flex: 1, justifyContent: 'flex-end' }}
         >
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Kalorien verbrannt</Text>
-            <Text style={styles.inputLabel}>Bezeichnung</Text>
-            <TextInput style={styles.input} placeholder="z.B. Morgen, Mittag, Training..."
+            <Text style={styles.modalTitle}>{lang === 'en' ? 'Calories Burned' : 'Kalorien verbrannt'}</Text>
+            <Text style={styles.inputLabel}>{lang === 'en' ? 'Label' : 'Bezeichnung'}</Text>
+            <TextInput style={styles.input} placeholder={lang === 'en' ? 'e.g. Morning, Noon, Workout...' : 'z.B. Morgen, Mittag, Training...'}
               placeholderTextColor={theme.textTertiary} value={labelInput} onChangeText={setLabelInput} />
-            <Text style={styles.inputLabel}>Kalorien (kcal)</Text>
-            <TextInput style={styles.input} placeholder="z.B. 800"
+            <Text style={styles.inputLabel}>{lang === 'en' ? 'Calories (kcal)' : 'Kalorien (kcal)'}</Text>
+            <TextInput style={styles.input} placeholder={lang === 'en' ? 'e.g. 800' : 'z.B. 800'}
               placeholderTextColor={theme.textTertiary} value={kcalInput} onChangeText={setKcalInput} keyboardType="numeric" />
             <View style={styles.quickBtns}>
               {[500, 800, 1200, 2000].map(v => (
@@ -233,10 +238,10 @@ export default function BatteryScreen() {
               ))}
             </View>
             <TouchableOpacity style={styles.saveBtn} onPress={addCalories}>
-              <Text style={styles.saveBtnText}>Eintragen</Text>
+              <Text style={styles.saveBtnText}>{lang === 'en' ? 'Log' : 'Eintragen'}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowModal(false)}>
-              <Text style={styles.cancelBtnText}>Abbrechen</Text>
+              <Text style={styles.cancelBtnText}>{t('cancel')}</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
