@@ -10,6 +10,7 @@ import {
 import Svg, { Circle, Path } from 'react-native-svg';
 import { useLanguage } from '../../constants/LanguageContext';
 import { THEMES, useAppTheme } from '../../constants/ThemeContext';
+import { getTrainingReadiness, TrainingReadiness } from '../../utils/applehealth';
 
 const W = Dimensions.get('window').width;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -207,6 +208,7 @@ export default function HomeScreen() {
   const [journalOpen,  setJournalOpen]  = useState(false);
   const [langPicker,   setLangPicker]   = useState(false);
   const [streak,       setStreak]       = useState(0);
+  const [readiness,    setReadiness]    = useState<TrainingReadiness | null>(null);
 
   const fade     = useRef(new Animated.Value(0)).current;
   const menuX    = useRef(new Animated.Value(W)).current;
@@ -216,7 +218,7 @@ export default function HomeScreen() {
     loadAll();
     fade.setValue(0);
     Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
-  }, []));
+  }, [lang]));
 
   async function loadAll() {
     try {
@@ -256,6 +258,7 @@ export default function HomeScreen() {
         const h = JSON.parse(rh);
         setHabits(h.map((hh: any) => ({ ...hh, completedToday: hh.completedDates?.some(isToday) ?? false })));
       }
+      setReadiness(await getTrainingReadiness(lang));
     } catch {}
   }
 
@@ -304,7 +307,6 @@ export default function HomeScreen() {
   const kcalEaten   = nutrition?.eaten ?? 0;
   const kcalPct     = kcalGoal > 0 ? Math.min(100, Math.round((kcalEaten / kcalGoal) * 100)) : 0;
   const MUSCLES     = ['Brust','Rücken','Schultern','Bizeps','Trizeps','Quadrizeps','Hamstrings','Gluteus','Waden','Core','Abduktoren'];
-  const readyCount  = MUSCLES.filter(m => (muscles[m]?.level ?? 100) >= 80).length;
   const journalMoodColor = journal ? MOOD_COLORS[journal.mood - 1] : colors.accent;
   const journalMoodEmoji = journal ? MOODS[journal.mood - 1] : null;
   const moodLabels = lang === 'en'
@@ -336,6 +338,7 @@ export default function HomeScreen() {
   const menuItems = [
     { label: t('menu_appearance'), icon: '🎨', onPress: () => { closeMenu(); setTimeout(() => setThemePicker(true), 300); }},
     { label: t('menu_profile'),    icon: '👤', onPress: () => { closeMenu(); router.push('/profile' as any); }},
+    { label: t('menu_athlete_profile'), icon: '🥇', onPress: () => { closeMenu(); router.push('/athlete-profile' as any); }},
     { label: t('menu_achievements'), icon: '🏆', onPress: () => { closeMenu(); router.push('/achievements' as any); }},
     { label: t('menu_history'),    icon: '📊', onPress: () => { closeMenu(); router.push('/(tabs)/history' as any); }},
     { label: t('menu_friends'),    icon: '👥', onPress: () => { closeMenu(); router.push('/friends' as any); }},
@@ -531,14 +534,15 @@ export default function HomeScreen() {
           <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
             <SectionLabel label={t('home_readiness')} light={isDark} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <View>
-                <Text style={{ fontSize: 28, fontWeight: '800', color: textPrimary, letterSpacing: -0.5 }}>
-                  {readyCount}<Text style={{ fontSize: 16, color: textMuted, fontWeight: '600' }}>/{MUSCLES.length}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 28, fontWeight: '800', color: readiness?.color ?? textPrimary, letterSpacing: -0.5 }}>
+                  {readiness?.score ?? '—'}
                 </Text>
-                <Text style={{ fontSize: 13, color: textMuted, marginTop: 4 }}>{t('home_muscles_ready')}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '700', color: readiness?.color ?? textMuted, marginTop: 4 }}>{readiness?.label ?? ''}</Text>
+                <Text style={{ fontSize: 12, color: textMuted, marginTop: 2 }}>{readiness?.recommendation ?? ''}</Text>
               </View>
-              <Ring value={(readyCount / MUSCLES.length) * 100} size={72} stroke={6} color="#4ADE80" track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
-                <Text style={{ fontSize: 13, fontWeight: '800', color: textPrimary }}>{Math.round((readyCount / MUSCLES.length) * 100)}%</Text>
+              <Ring value={readiness?.score ?? 0} size={72} stroke={6} color={readiness?.color ?? '#4ADE80'} track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: textPrimary }}>{readiness?.score ?? 0}</Text>
               </Ring>
             </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>

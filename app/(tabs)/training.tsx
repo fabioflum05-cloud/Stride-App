@@ -9,6 +9,7 @@ import Svg, {
 } from 'react-native-svg';
 import { useAppTheme } from '../../constants/ThemeContext';
 import { useLanguage } from '../../constants/LanguageContext';
+import { getTrainingReadiness, syncAppleHealthWorkouts, TrainingReadiness } from '../../utils/applehealth';
 
 function getT(colors: any) {
   const dark = colors.bg < '#888888';
@@ -237,7 +238,7 @@ const ALL_EXERCISES = [
 // ─── Types ────────────────────────────────────────────────────
 type WorkoutSet   = { reps: string; weight: string };
 type Exercise     = { id: string; name: string; muscleGroup: string; equipment?: string; sets: WorkoutSet[] };
-type Workout      = { id: string; date: string; name: string; exercises: Exercise[]; duration: number; intensity: number; type: 'gym' | 'run' | 'manual' | 'judo'; score?: number };
+type Workout      = { id: string; date: string; name: string; exercises: Exercise[]; duration: number; intensity: number; type: 'gym' | 'run' | 'manual' | 'judo' | 'cardio'; source?: 'manual' | 'apple_health'; activityType?: number; calories?: number; distance?: number; score?: number };
 type RunData      = { id: string; distance: number; duration: number; pace: string; calories: number; heartRate: number; date: string };
 type PREntry      = { date: string; weight: number; reps: number; estimated1RM: number };
 type PRHistory    = Record<string, PREntry[]>;
@@ -341,6 +342,45 @@ function resolveMuscleGroup(mg: string | undefined): string | null {
   return MUSCLE_GROUP_ALIASES[mg] ?? null;
 }
 
+// Muskel-Belastung für Workouts ohne Übungsliste (Cardio, Apple Health Imports).
+// Gewichtung wird zusätzlich mit der Trainingsdauer skaliert (45 Min = volle Wirkung).
+const CARDIO_MUSCLE_IMPACT: Record<string, { muscle: string; weight: number }[]> = {
+  run: [
+    { muscle: 'Quadrizeps', weight: 0.50 },
+    { muscle: 'Hamstrings', weight: 0.45 },
+    { muscle: 'Waden', weight: 0.60 },
+    { muscle: 'Gluteus', weight: 0.35 },
+    { muscle: 'Core', weight: 0.20 },
+  ],
+  judo: [
+    { muscle: 'Core', weight: 0.50 },
+    { muscle: 'Schultern', weight: 0.40 },
+    { muscle: 'Rücken', weight: 0.35 },
+    { muscle: 'Bizeps', weight: 0.25 },
+    { muscle: 'Trizeps', weight: 0.25 },
+    { muscle: 'Quadrizeps', weight: 0.30 },
+    { muscle: 'Hamstrings', weight: 0.25 },
+  ],
+  gym: [
+    { muscle: 'Brust', weight: 0.25 },
+    { muscle: 'Rücken', weight: 0.25 },
+    { muscle: 'Schultern', weight: 0.20 },
+    { muscle: 'Quadrizeps', weight: 0.30 },
+    { muscle: 'Hamstrings', weight: 0.25 },
+    { muscle: 'Core', weight: 0.30 },
+  ],
+  cardio: [
+    { muscle: 'Quadrizeps', weight: 0.30 },
+    { muscle: 'Waden', weight: 0.30 },
+    { muscle: 'Core', weight: 0.20 },
+    { muscle: 'Schultern', weight: 0.10 },
+  ],
+  manual: [
+    { muscle: 'Quadrizeps', weight: 0.25 },
+    { muscle: 'Core', weight: 0.20 },
+  ],
+};
+
 function calculateMuscleRecovery(workouts: Workout[]): MuscleMap {
   const cutoff = Date.now() - 7 * 24 * 3600000;
   const hitMap: Record<string, { date: string; fatigue: number }[]> = {};
@@ -348,7 +388,18 @@ function calculateMuscleRecovery(workouts: Workout[]): MuscleMap {
   workouts
     .filter(w => new Date(w.date).getTime() > cutoff)
     .forEach(w => {
-      w.exercises?.forEach(ex => {
+      if (!w.exercises || w.exercises.length === 0) {
+        const durationFactor = Math.min(1, (w.duration || 0) / 45);
+        if (durationFactor <= 0) return;
+        const impacts = CARDIO_MUSCLE_IMPACT[w.type] ?? CARDIO_MUSCLE_IMPACT.cardio;
+        impacts.forEach(({ muscle, weight }) => {
+          if (!hitMap[muscle]) hitMap[muscle] = [];
+          hitMap[muscle].push({ date: w.date, fatigue: Math.min(1, weight * durationFactor) });
+        });
+        return;
+      }
+
+      w.exercises.forEach(ex => {
         const setCount = ex.sets.filter(
           s => parseFloat(s.reps || '0') > 0 && parseFloat(s.weight || '0') > 0
         ).length || ex.sets.length;
@@ -2180,15 +2231,17 @@ const [completedWorkoutData, setCompletedWorkoutData] = useState<{
   const [workouts, setWorkouts] = useState<Workout[]>([]);
   const [muscles, setMuscles] = useState<MuscleMap>({});
   const [bodyView, setBodyView] = useState<'front' | 'back'>('front');
+  const [readiness, setReadiness] = useState<TrainingReadiness | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(useCallback(() => {
     loadAll();
     fadeAnim.setValue(0);
     Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
-  }, []));
+  }, [lang]));
 
   async function loadAll() {
+    await syncAppleHealthWorkouts().catch(() => {});
     const rawW = await AsyncStorage.getItem('workouts');
     if (rawW) {
       const ws: Workout[] = JSON.parse(rawW);
@@ -2196,12 +2249,16 @@ const [completedWorkoutData, setCompletedWorkoutData] = useState<{
       const lastData: Record<string, WorkoutSet[]> = {};
       [...ws].reverse().forEach(w => w.exercises?.forEach(ex => { if (!lastData[ex.name]) lastData[ex.name] = ex.sets; }));
       setLastWorkoutData(lastData);
-      setMuscles(calculateMuscleRecovery(ws));
+      const newMuscles = calculateMuscleRecovery(ws);
+      setMuscles(newMuscles);
+      await AsyncStorage.setItem('muscleRecovery', JSON.stringify(newMuscles));
     } else {
       const def: MuscleMap = {};
       MUSCLE_GROUPS.forEach(m => { def[m] = { level: 100, lastTrained: null }; });
       setMuscles(def);
+      await AsyncStorage.setItem('muscleRecovery', JSON.stringify(def));
     }
+    setReadiness(await getTrainingReadiness(lang));
     const rawActive = await AsyncStorage.getItem('activeWorkout');
     if (rawActive) {
       const w: Workout = JSON.parse(rawActive);
@@ -2517,6 +2574,35 @@ await loadAll();
               <IconHistory size={17} color={T.text3} />
             </TouchableOpacity>
           </View>
+
+          {/* TRAININGSBEREITSCHAFT */}
+          {readiness && (
+            <View style={{ paddingHorizontal: 20, marginTop: 18 }}>
+              <View style={{ backgroundColor: T.cardAlt, borderRadius: 22, padding: 16, borderWidth: 1, borderColor: T.border, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                <View style={{ width: 76, height: 76, alignItems: 'center', justifyContent: 'center' }}>
+                  <Svg width={76} height={76} viewBox="0 0 76 76" style={{ position: 'absolute' }}>
+                    <Circle cx={38} cy={38} r={30} fill="none" stroke={T.borderSoft} strokeWidth={9} />
+                    <Circle
+                      cx={38} cy={38} r={30} fill="none" stroke={readiness.color} strokeWidth={9}
+                      strokeDasharray={`${(readiness.score / 100) * 188.5} 188.5`}
+                      strokeLinecap="round" transform="rotate(-90 38 38)"
+                    />
+                  </Svg>
+                  <Text style={{ fontSize: 22, fontWeight: '800', color: T.text1 }}>{readiness.score}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 5 }}>
+                    {lang === 'en' ? 'Training Readiness' : 'Trainingsbereitschaft'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: readiness.color }} />
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: readiness.color }}>{readiness.label}</Text>
+                  </View>
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: T.text2 }}>{readiness.recommendation}</Text>
+                </View>
+              </View>
+            </View>
+          )}
 
           {/* WEEK DOTS */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, marginTop: 18, marginBottom: 18 }}>

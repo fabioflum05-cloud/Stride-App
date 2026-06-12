@@ -13,6 +13,7 @@ import {
 import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
+import { fetchAndImportHealthData, getLastHealthSync, getStressHistory, isHealthKitAvailable } from '../../utils/applehealth';
 
 // ─── Storage Keys ─────────────────────────────────────────────────────────────
 const HEALTH_KEY = 'stride_health_history';
@@ -93,6 +94,24 @@ function hrvZone(v: number, lang: string) {
   if (v >= 60) return { label: 'Normal',     color: '#818CF8' };
   if (v >= 40) return { label: 'Niedrig',    color: '#FBBF24' };
   return             { label: 'Kritisch',   color: '#F87171' };
+}
+function stressColor(s: number): string {
+  if (s <= 25) return '#4ADE80';
+  if (s <= 50) return '#818CF8';
+  if (s <= 75) return '#FBBF24';
+  return '#F87171';
+}
+function stressLabel(s: number, lang: string): string {
+  if (lang === 'en') {
+    if (s <= 25) return 'Low';
+    if (s <= 50) return 'Moderate';
+    if (s <= 75) return 'Elevated';
+    return 'High';
+  }
+  if (s <= 25) return 'Niedrig';
+  if (s <= 50) return 'Moderat';
+  if (s <= 75) return 'Erhöht';
+  return 'Hoch';
 }
 function hrZone(v: number, lang: string) {
   if (lang === 'en') {
@@ -325,6 +344,8 @@ export default function HealthScreen() {
   const [showModal, setShowModal] = useState(false);
   const [todayData, setTodayData] = useState<DayHealth | null>(null);
   const [loaded,    setLoaded]    = useState(false);
+  const [lastSync,  setLastSync]  = useState<string | null>(null);
+  const [syncing,   setSyncing]   = useState(false);
   const fade = useRef(new Animated.Value(0)).current;
 
   // Detect dark/light theme
@@ -372,9 +393,20 @@ export default function HealthScreen() {
 
       setHistory(hist);
       setTodayData(hist.find(h => h.date === today) ?? null);
+      setLastSync(await getLastHealthSync());
     } catch {}
     setLoaded(true);
   }, [today]);
+
+  const syncAppleHealth = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const res = await fetchAndImportHealthData();
+      if (res.success) await load();
+    } finally {
+      setSyncing(false);
+    }
+  }, [load]);
 
   useFocusEffect(useCallback(() => {
     load();
@@ -398,6 +430,8 @@ export default function HealthScreen() {
   const last14 = [...history].sort((a,b)=>a.date.localeCompare(b.date)).slice(-14);
   const avgHRV7 = (() => { const v=last14.slice(-7).map(d=>d.hrv).filter(Boolean) as number[]; return v.length?Math.round(v.reduce((a,b)=>a+b)/v.length):null; })();
   const avgHR7  = (() => { const v=last14.slice(-7).map(d=>d.restingHR).filter(Boolean) as number[]; return v.length?Math.round(v.reduce((a,b)=>a+b)/v.length):null; })();
+  const last14Stress = getStressHistory(history).slice(-14);
+  const todayStress = last14Stress.length ? last14Stress[last14Stress.length - 1].stress : null;
   const recovery = todayData?.recoveryScore ?? 0;
   const rc = recColor(recovery, colors);
   const dateLabel = new Date().toLocaleDateString(lang === 'en' ? 'en-US' : 'de-DE', { weekday:'long', day:'numeric', month:'long' });
@@ -484,6 +518,43 @@ export default function HealthScreen() {
               <Text style={{ color:text, fontSize:17, fontWeight:'700', marginBottom:6 }}>{lang === 'en' ? 'Log today\'s values' : 'Heutige Werte erfassen'}</Text>
               <Text style={{ color:textMuted, fontSize:13 }}>{lang === 'en' ? 'HRV · Resting HR · Sleep · Weight' : 'HRV · Ruhepuls · Schlaf · Gewicht'}</Text>
             </TouchableOpacity>
+          )}
+
+          {/* Stress Score */}
+          {last14Stress.length > 0 && (
+            <View style={cardStyle}>
+              <View style={{ flexDirection:'row', alignItems:'center', gap:20, marginBottom:16 }}>
+                <Ring value={todayStress ?? 0} size={100} stroke={7} color={todayStress!==null?stressColor(todayStress):textDim} trackColor={border}>
+                  <View style={{ alignItems:'center' }}>
+                    <Text style={{ fontSize:26, fontWeight:'800', color:text, letterSpacing:-1 }}>{todayStress ?? '—'}</Text>
+                    <Text style={{ fontSize:8, color:textDim, fontWeight:'700', letterSpacing:1, textTransform:'uppercase' }}>Score</Text>
+                  </View>
+                </Ring>
+                <View style={{ flex:1 }}>
+                  <Text style={{ fontSize:10, fontWeight:'700', letterSpacing:2, textTransform:'uppercase', color:textDim, marginBottom:8 }}>{lang === 'en' ? 'Stress Score' : 'Stress-Score'}</Text>
+                  <View style={{ flexDirection:'row', alignItems:'center', gap:8, marginBottom:10 }}>
+                    <View style={{ width:8, height:8, borderRadius:4, backgroundColor: todayStress!==null?stressColor(todayStress):textDim }} />
+                    <Text style={{ fontSize:16, fontWeight:'700', color: todayStress!==null?stressColor(todayStress):textDim }}>
+                      {todayStress!==null ? stressLabel(todayStress, lang) : (lang === 'en' ? 'Not enough data' : 'Nicht genug Daten')}
+                    </Text>
+                  </View>
+                  <Text style={{ fontSize:12, color:textMuted, lineHeight:18 }}>
+                    {lang === 'en' ? 'Based on HRV and resting HR vs. your 7-day baseline.' : 'Basierend auf HRV und Ruhepuls im Vergleich zum 7-Tage-Schnitt.'}
+                  </Text>
+                </View>
+              </View>
+              <LineChart
+                data={last14Stress.map(d=>d.stress)}
+                color="#FBBF24"
+                minVal={0}
+                maxVal={100}
+                isDark={isDark}
+              />
+              <View style={{ flexDirection:'row', justifyContent:'space-between', marginTop:4 }}>
+                <Text style={{ color:textDim, fontSize:10 }}>{last14[0]?.date.slice(5) ?? ''}</Text>
+                <Text style={{ color:textDim, fontSize:10 }}>{t('today')}</Text>
+              </View>
+            </View>
           )}
 
           {/* HRV Chart */}
@@ -613,16 +684,25 @@ export default function HealthScreen() {
             </View>
           )}
 
-          {/* Garmin Card */}
+          {/* Apple Health Card */}
           <View style={[cardStyle,{ alignItems:'center', paddingVertical:28, borderColor:colors.accent+'30' }]}>
-            <Text style={{ fontSize:32, marginBottom:12 }}>⌚</Text>
-            <Text style={{ color:text, fontSize:16, fontWeight:'700', marginBottom:6 }}>Garmin Forerunner 265</Text>
+            <Text style={{ fontSize:32, marginBottom:12 }}>🍎</Text>
+            <Text style={{ color:text, fontSize:16, fontWeight:'700', marginBottom:6 }}>Apple Health</Text>
             <Text style={{ color:textMuted, fontSize:13, textAlign:'center', lineHeight:20, marginBottom:14 }}>
-              {lang === 'en' ? 'Read HRV and resting HR from Garmin Connect and log here. Auto-sync coming soon.' : 'HRV und Ruhepuls in Garmin Connect ablesen und hier eintragen. Automatischer Sync folgt.'}
+              {isHealthKitAvailable()
+                ? (lang === 'en' ? 'Resting HR, HRV, VO2max and sleep are synced from Apple Health.' : 'Ruhepuls, HRV, VO2max und Schlaf werden aus Apple Health synchronisiert.')
+                : (lang === 'en' ? 'Apple Health sync requires the iOS app build with HealthKit enabled.' : 'Apple Health Sync erfordert den iOS-Build mit aktiviertem HealthKit.')}
             </Text>
-            <View style={{ backgroundColor:colors.accent+'18', paddingHorizontal:16, paddingVertical:8, borderRadius:20, borderWidth:1, borderColor:colors.accent+'40' }}>
-              <Text style={{ color:colors.accent, fontSize:12, fontWeight:'700' }}>{lang === 'en' ? 'Manual · Auto-sync coming' : 'Manuell aktiv · Auto-Sync folgt'}</Text>
-            </View>
+            <TouchableOpacity onPress={syncAppleHealth} disabled={syncing || !isHealthKitAvailable()}
+              style={{ backgroundColor:colors.accent+'18', paddingHorizontal:16, paddingVertical:8, borderRadius:20, borderWidth:1, borderColor:colors.accent+'40', opacity: !isHealthKitAvailable() ? 0.5 : 1 }}>
+              <Text style={{ color:colors.accent, fontSize:12, fontWeight:'700' }}>
+                {syncing
+                  ? (lang === 'en' ? 'Syncing…' : 'Synchronisiere…')
+                  : lastSync
+                    ? `${lang === 'en' ? 'Last sync' : 'Letzter Sync'}: ${new Date(lastSync).toLocaleTimeString(lang === 'en' ? 'en-US' : 'de-DE', { hour:'2-digit', minute:'2-digit' })}`
+                    : (lang === 'en' ? 'Sync now' : 'Jetzt synchronisieren')}
+              </Text>
+            </TouchableOpacity>
           </View>
 
         </Animated.View>

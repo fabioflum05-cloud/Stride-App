@@ -66,6 +66,7 @@ const translations = {
     // Side Menu
     menu_appearance: 'Erscheinungsbild',
     menu_profile: 'Mein Profil',
+    menu_athlete_profile: 'Athleten-Profil',
     menu_achievements: 'Abzeichen',
     menu_history: 'Verlauf',
     menu_friends: 'Freunde',
@@ -350,6 +351,7 @@ const translations = {
     // Side Menu
     menu_appearance: 'Appearance',
     menu_profile: 'My Profile',
+    menu_athlete_profile: 'Athlete Profile',
     menu_achievements: 'Achievements',
     menu_history: 'History',
     menu_friends: 'Friends',

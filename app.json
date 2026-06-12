@@ -48,7 +48,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "@kingstinct/react-native-healthkit"
     ],
     "experiments": {
       "typedRoutes": true,
