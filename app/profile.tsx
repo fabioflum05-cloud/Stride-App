@@ -306,6 +306,20 @@ export default function ProfileScreen() {
                   ))}
                 </View>
 
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>{lang === 'en' ? 'Settings' : 'Einstellungen'}</Text>
+                  {[
+                    { label: t('notif_settings_title'), route: '/notification-settings' },
+                    { label: t('widget_settings_title'), route: '/widget-settings' },
+                  ].map((row, i, arr) => (
+                    <TouchableOpacity key={row.route} onPress={() => router.push(row.route as any)} activeOpacity={0.6}
+                      style={[styles.detailRow, i < arr.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: theme.borderLight }]}>
+                      <Text style={styles.detailKey}>{row.label}</Text>
+                      <Text style={styles.cardLink}>→</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
                 <View style={[styles.card, { backgroundColor: theme.blueLight }]}>
                   <Text style={[styles.cardTitle, { color: theme.blue }]}>{lang === 'en' ? 'My Friend Code' : 'Mein Freundescode'}</Text>
                   <Text style={styles.myCode}>{myCode}</Text>

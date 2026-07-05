@@ -5,21 +5,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Animated, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { theme } from '../constants/theme';
 import { useLanguage } from '../constants/LanguageContext';
-
-function calculateSleepScore(data: {
-  schlafMin: number; tiefZeit: number; remZeit: number;
-  hrv: number; tiefsterPuls: number; avgPuls: number;
-}): number {
-  const { schlafMin, tiefZeit, remZeit, hrv, tiefsterPuls } = data;
-  const deep = Math.min(tiefZeit / (schlafMin * 0.20), 1) * 30;
-  const dur = schlafMin < 300 ? (schlafMin / 360) * 25 :
-    schlafMin <= 540 ? 25 :
-    schlafMin <= 600 ? (1 - (schlafMin - 540) / 120) * 25 : 0;
-  const rem = Math.min(remZeit / (schlafMin * 0.22), 1) * 20;
-  const hrvScore = Math.min(hrv / 75, 1) * 15;
-  const pulse = Math.max(0, Math.min((65 - tiefsterPuls) / 25, 1)) * 10;
-  return Math.round(deep + dur + rem + hrvScore + pulse);
-}
+import { calculateSleepScore, recalcBodyBattery } from '../utils/applehealth';
 
 export default function SleepScreen() {
   const { lang } = useLanguage();
@@ -125,6 +111,8 @@ export default function SleepScreen() {
     filteredHRV.push({ date: new Date().toISOString(), value: hrvVal });
     await AsyncStorage.setItem('hrvHistory', JSON.stringify(filteredHRV));
   }
+
+  await recalcBodyBattery();
 
   setLastScore(score);
   setSaved(true);

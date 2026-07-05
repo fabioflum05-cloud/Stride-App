@@ -10,7 +10,8 @@ import {
 import Svg, { Circle, Path } from 'react-native-svg';
 import { useLanguage } from '../../constants/LanguageContext';
 import { THEMES, useAppTheme } from '../../constants/ThemeContext';
-import { getTrainingReadiness, TrainingReadiness } from '../../utils/applehealth';
+import { getTrainingReadiness, recalcBodyBattery, TrainingReadiness } from '../../utils/applehealth';
+import { syncWidgetData } from '../../utils/widgetData';
 
 const W = Dimensions.get('window').width;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
@@ -237,6 +238,8 @@ export default function HomeScreen() {
       }
       setStreak(st);
 
+      await recalcBodyBattery();
+
       const [rc, rs, rb, rp, rh, rn, rj, rm] = await Promise.all([
         AsyncStorage.getItem('lastCheckin'),
         AsyncStorage.getItem('lastSleep'),
@@ -259,6 +262,7 @@ export default function HomeScreen() {
         setHabits(h.map((hh: any) => ({ ...hh, completedToday: hh.completedDates?.some(isToday) ?? false })));
       }
       setReadiness(await getTrainingReadiness(lang));
+      syncWidgetData(lang).catch(() => {});
     } catch {}
   }
 
@@ -300,7 +304,7 @@ export default function HomeScreen() {
   const cardBorder  = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
 
   const wakeDisplay = sleep?.wakeTime ? formatTime(sleep.wakeTime) : sleep?.date ? formatTime(sleep.date) : '—';
-  const bedDisplay  = sleep?.bedTime ? formatTime(sleep.bedTime) : '—';
+  const bedDisplay  = sleep?.bedtime ? formatTime(sleep.bedtime) : '—';
   const sleepHours  = sleep?.schlafStunden ?? sleep?.sleepHours ?? 0;
   const battColor   = battLevel >= 65 ? '#4ADE80' : battLevel >= 35 ? '#FBBF24' : battLevel > 0 ? '#F87171' : textDim;
   const kcalGoal    = nutrition?.goal ?? 2500;
@@ -455,7 +459,7 @@ export default function HomeScreen() {
                 </View>
               </View>
             )}
-            <TouchableOpacity onPress={() => router.push('/sleep' as any)} style={[s.cardBtn, { borderColor: cardBorder }]} activeOpacity={0.7}>
+            <TouchableOpacity onPress={() => router.push('/sleep-details' as any)} style={[s.cardBtn, { borderColor: cardBorder }]} activeOpacity={0.7}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: '#818CF8' }}>{t('home_sleep_details')}</Text>
               <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
                 <Path d="M9 18l6-6-6-6" stroke="#818CF8" strokeWidth={2} strokeLinecap="round" />

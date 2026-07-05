@@ -10,6 +10,7 @@ import {
   getMostRecentQuantitySample,
   isHealthDataAvailable,
   queryCategorySamples,
+  queryQuantitySamples,
   queryStatisticsForQuantity,
   queryWorkoutSamples,
   requestAuthorization,
@@ -29,13 +30,6 @@ const LANGUAGE_KEY = 'appLanguage';
 
 type Lang = 'de' | 'en';
 
-const ASLEEP_VALUES = [
-  CategoryValueSleepAnalysis.asleepUnspecified,
-  CategoryValueSleepAnalysis.asleepCore,
-  CategoryValueSleepAnalysis.asleepDeep,
-  CategoryValueSleepAnalysis.asleepREM,
-];
-
 interface DayHealth {
   date: string;
   hrv: number | null;
@@ -46,6 +40,7 @@ interface DayHealth {
   stressScore?: number | null;
   steps?: number | null;
   activeEnergy?: number | null;
+  basalEnergy?: number | null;
   bodyweight: number | null;
   notes: string;
 }
@@ -75,9 +70,11 @@ export async function initHealthKit(): Promise<boolean> {
     toRead: [
       'HKQuantityTypeIdentifierRestingHeartRate',
       'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
+      'HKQuantityTypeIdentifierHeartRate',
       'HKQuantityTypeIdentifierVO2Max',
       'HKQuantityTypeIdentifierStepCount',
       'HKQuantityTypeIdentifierActiveEnergyBurned',
+      'HKQuantityTypeIdentifierBasalEnergyBurned',
       'HKCategoryTypeIdentifierSleepAnalysis',
       'HKWorkoutTypeIdentifier',
     ],
@@ -89,7 +86,41 @@ async function fetchLatestRestingHeartRate(): Promise<number | null> {
   return sample ? Math.round(sample.quantity) : null;
 }
 
+/**
+ * HRV der letzten Nacht (12:00 Vortag bis jetzt).
+ * HealthKit kennt nur den Typ HeartRateVariabilitySDNN — eine eigene RMSSD-Kennzahl
+ * existiert dort nicht. Garmin berechnet seinen "HRV Status" intern aus RMSSD,
+ * schreibt das Ergebnis beim Sync nach Apple Health aber ebenfalls in dieses
+ * SDNN-Feld (einziger verfügbarer HRV-Typ). Garmin liefert dafür EINEN Sample,
+ * dessen Zeitspanne die gesamte Nacht abdeckt. Die Apple Watch schreibt zusätzlich
+ * viele kurze (~5 Min) Tages-Spotchecks mit deutlich niedrigeren Werten — ein
+ * einfacher Durchschnitt über die ganze Nacht (wie zuvor via discreteAverage)
+ * wird dadurch nach unten verzerrt (z.B. auf ~33 statt dem echten nächtlichen Wert).
+ * Daher: den Sample mit der längsten Dauer wählen — das ist der nächtliche
+ * Summary-Wert (Garmin/Whoop/Oura-Stil), nicht ein kurzer Tages-Spotcheck.
+ */
 async function fetchLatestHRV(): Promise<number | null> {
+  const start = new Date();
+  start.setDate(start.getDate() - 1);
+  start.setHours(12, 0, 0, 0);
+
+  try {
+    const samples = await queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', {
+      filter: { date: { startDate: start, endDate: new Date() } },
+      limit: 0,
+      ascending: false,
+      unit: 'ms',
+    });
+    if (samples.length > 0) {
+      const longest = samples.reduce((a, b) =>
+        (b.endDate.getTime() - b.startDate.getTime()) > (a.endDate.getTime() - a.startDate.getTime()) ? b : a
+      );
+      return Math.round(longest.quantity);
+    }
+  } catch {
+    // fall through to most recent sample
+  }
+
   const sample = await getMostRecentQuantitySample('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', 'ms');
   return sample ? Math.round(sample.quantity) : null;
 }
@@ -99,7 +130,22 @@ async function fetchLatestVo2Max(): Promise<number | null> {
   return sample ? Math.round(sample.quantity * 10) / 10 : null;
 }
 
-async function fetchLastNightSleep(): Promise<{ hours: number; endDate: string } | null> {
+interface SleepDetails {
+  hours: number;
+  startDate: string;
+  endDate: string;
+  deepMin: number;
+  remMin: number;
+  lightMin: number;
+  awakeMin: number;
+  avgHeartRate: number | null;
+}
+
+/**
+ * Liefert Schlafphasen (Tief/REM/Leicht/Wach in Minuten) sowie den Durchschnittspuls
+ * während der letzten Nacht (12:00 Vortag bis jetzt) aus HealthKit.
+ */
+async function fetchLastNightSleepDetails(): Promise<SleepDetails | null> {
   const start = new Date();
   start.setDate(start.getDate() - 1);
   start.setHours(12, 0, 0, 0);
@@ -110,18 +156,55 @@ async function fetchLastNightSleep(): Promise<{ hours: number; endDate: string }
     ascending: false,
   });
 
-  let totalMs = 0;
-  let latestEnd = '';
+  let totalMs = 0, deepMs = 0, remMs = 0, lightMs = 0, awakeMs = 0;
+  let windowStart = '';
+  let windowEnd = '';
+
   samples.forEach(s => {
-    if (ASLEEP_VALUES.includes(s.value as CategoryValueSleepAnalysis)) {
-      totalMs += s.endDate.getTime() - s.startDate.getTime();
-      const endIso = s.endDate.toISOString();
-      if (!latestEnd || endIso > latestEnd) latestEnd = endIso;
+    const startIso = s.startDate.toISOString();
+    const endIso = s.endDate.toISOString();
+    if (!windowStart || startIso < windowStart) windowStart = startIso;
+    if (!windowEnd || endIso > windowEnd) windowEnd = endIso;
+
+    const ms = s.endDate.getTime() - s.startDate.getTime();
+    switch (s.value as CategoryValueSleepAnalysis) {
+      case CategoryValueSleepAnalysis.asleepDeep:
+        deepMs += ms; totalMs += ms; break;
+      case CategoryValueSleepAnalysis.asleepREM:
+        remMs += ms; totalMs += ms; break;
+      case CategoryValueSleepAnalysis.asleepCore:
+      case CategoryValueSleepAnalysis.asleepUnspecified:
+        lightMs += ms; totalMs += ms; break;
+      case CategoryValueSleepAnalysis.awake:
+        awakeMs += ms; break;
+      default:
+        break;
     }
   });
 
   if (totalMs === 0) return null;
-  return { hours: Math.round((totalMs / 3600000) * 10) / 10, endDate: latestEnd };
+
+  let avgHeartRate: number | null = null;
+  try {
+    const hrRes = await queryStatisticsForQuantity('HKQuantityTypeIdentifierHeartRate', ['discreteAverage'], {
+      filter: { date: { startDate: new Date(windowStart), endDate: new Date(windowEnd) } },
+      unit: 'count/min',
+    });
+    avgHeartRate = hrRes.averageQuantity ? Math.round(hrRes.averageQuantity.quantity) : null;
+  } catch {
+    // ignore — avg HR optional
+  }
+
+  return {
+    hours: Math.round((totalMs / 3600000) * 10) / 10,
+    startDate: windowStart,
+    endDate: windowEnd,
+    deepMin: Math.round(deepMs / 60000),
+    remMin: Math.round(remMs / 60000),
+    lightMin: Math.round(lightMs / 60000),
+    awakeMin: Math.round(awakeMs / 60000),
+    avgHeartRate,
+  };
 }
 
 async function fetchTodaySteps(): Promise<number | null> {
@@ -143,6 +226,20 @@ async function fetchTodayActiveEnergy(): Promise<number | null> {
   start.setHours(0, 0, 0, 0);
   try {
     const res = await queryStatisticsForQuantity('HKQuantityTypeIdentifierActiveEnergyBurned', ['cumulativeSum'], {
+      filter: { date: { startDate: start, endDate: new Date() } },
+      unit: 'kcal',
+    });
+    return res.sumQuantity ? Math.round(res.sumQuantity.quantity) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTodayBasalEnergy(): Promise<number | null> {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  try {
+    const res = await queryStatisticsForQuantity('HKQuantityTypeIdentifierBasalEnergyBurned', ['cumulativeSum'], {
       filter: { date: { startDate: start, endDate: new Date() } },
       unit: 'kcal',
     });
@@ -226,6 +323,25 @@ function sleepComponentScore(sleepHours: number, sleepQuality: number): number {
   return Math.round(hp * 0.6 + qp * 0.4);
 }
 
+/**
+ * Sleep Score 0-100: Tiefschlaf 30% · Dauer 25% · REM 20% · HRV 15% · tiefster Puls 10%.
+ * Geteilte Formel zwischen manuellem Sleep Log (app/sleep.tsx) und Apple Health Import.
+ */
+export function calculateSleepScore(data: {
+  schlafMin: number; tiefZeit: number; remZeit: number;
+  hrv: number; tiefsterPuls: number; avgPuls: number;
+}): number {
+  const { schlafMin, tiefZeit, remZeit, hrv, tiefsterPuls } = data;
+  const deep = Math.min(tiefZeit / (schlafMin * 0.20), 1) * 30;
+  const dur = schlafMin < 300 ? (schlafMin / 360) * 25 :
+    schlafMin <= 540 ? 25 :
+    schlafMin <= 600 ? (1 - (schlafMin - 540) / 120) * 25 : 0;
+  const rem = Math.min(remZeit / (schlafMin * 0.22), 1) * 20;
+  const hrvScore = Math.min(hrv / 75, 1) * 15;
+  const pulse = Math.max(0, Math.min((65 - tiefsterPuls) / 25, 1)) * 10;
+  return Math.round(deep + dur + rem + hrvScore + pulse);
+}
+
 export interface TrainingReadiness {
   score: number;
   label: string;
@@ -301,10 +417,14 @@ export async function getTrainingReadiness(lang: Lang = 'de'): Promise<TrainingR
   let sleepScore = 0;
   if (rawSleep) {
     const s = JSON.parse(rawSleep);
-    if (typeof s.sleepScore === 'number' && s.sleepScore > 0) {
-      sleepScore = s.sleepScore;
-    } else if (typeof s.schlafStunden === 'number') {
-      sleepScore = sleepComponentScore(s.schlafStunden, todayEntry?.sleepQuality ?? 3);
+    if (isToday(s.date)) {
+      if (typeof s.sleepScore === 'number' && s.sleepScore > 0) {
+        sleepScore = s.sleepScore;
+      } else if (typeof s.schlafStunden === 'number') {
+        sleepScore = sleepComponentScore(s.schlafStunden, todayEntry?.sleepQuality ?? 3);
+      }
+    } else if (todayEntry) {
+      sleepScore = sleepComponentScore(todayEntry.sleepHours, todayEntry.sleepQuality);
     }
   } else if (todayEntry) {
     sleepScore = sleepComponentScore(todayEntry.sleepHours, todayEntry.sleepQuality);
@@ -503,7 +623,30 @@ function isToday(dateStr: string): boolean {
   return new Date(dateStr).toDateString() === new Date().toDateString();
 }
 
-/** Berechnet Body Battery neu basierend auf Schlaf, Stress Score und heutigem Kalorienverbrauch (manuell + Apple Health). */
+/**
+ * Body Battery Level 0-100. Einzige Quelle der Wahrheit für die Berechnung —
+ * wird sowohl von recalcBodyBattery() (Hintergrund-Sync) als auch von app/battery.tsx (manuelle Einträge) verwendet.
+ * Basis = Sleep Score * 0.85 (Aufladung durch Schlaf).
+ * Drain = (manuelle kcal + aktive Kalorien + Grundumsatz) / 100 * 1.5  +  Stress-Anteil (Stress Score 0-100 / 20 * 4).
+ */
+export function calcBatteryLevel(params: {
+  sleepScore: number;
+  calorieEntries: { kcal: number }[];
+  activeEnergy?: number | null;
+  basalEnergy?: number | null;
+  stressScore?: number | null;
+}): number {
+  const base = Math.round(params.sleepScore * 0.85);
+  const manualKcal = params.calorieEntries.reduce((sum, e) => sum + e.kcal, 0);
+  const activeEnergy = params.activeEnergy ?? 0;
+  const basalEnergy = params.basalEnergy ?? 0;
+  const kcalDrain = Math.round(((manualKcal + activeEnergy + basalEnergy) / 100) * 1.5);
+  const stressVal = params.stressScore != null ? params.stressScore / 20 : 3;
+  const stressDrain = Math.round(stressVal * 4);
+  return Math.max(0, Math.min(100, base - kcalDrain - stressDrain));
+}
+
+/** Berechnet Body Battery neu basierend auf Schlaf, Stress Score und heutigem Kalorienverbrauch (manuell + Apple Health, aktiv + Grundumsatz). */
 export async function recalcBodyBattery(): Promise<void> {
   const [rawSleep, rawBattery, rawHealth] = await Promise.all([
     AsyncStorage.getItem(SLEEP_KEY),
@@ -526,19 +669,19 @@ export async function recalcBodyBattery(): Promise<void> {
   let battery: BatteryData;
   if (rawBattery) {
     const b: BatteryData = JSON.parse(rawBattery);
-    battery = isToday(b.date) ? b : { level: Math.round(sleepScore * 0.85), calorieEntries: [], date: new Date().toISOString() };
+    battery = isToday(b.date) ? b : { level: 0, calorieEntries: [], date: new Date().toISOString() };
   } else {
-    battery = { level: Math.round(sleepScore * 0.85), calorieEntries: [], date: new Date().toISOString() };
+    battery = { level: 0, calorieEntries: [], date: new Date().toISOString() };
   }
 
-  const base = Math.round(sleepScore * 0.85);
-  const totalKcal = battery.calorieEntries.reduce((sum, e) => sum + e.kcal, 0);
-  const activeEnergy = todayEntry?.activeEnergy ?? 0;
-  const kcalDrain = Math.round(((totalKcal + activeEnergy) / 100) * 1.5);
-  const stressVal = stressScore !== null ? stressScore / 20 : 3;
-  const stressDrain = Math.round(stressVal * 4);
+  battery.level = calcBatteryLevel({
+    sleepScore,
+    calorieEntries: battery.calorieEntries,
+    activeEnergy: todayEntry?.activeEnergy,
+    basalEnergy: todayEntry?.basalEnergy,
+    stressScore,
+  });
 
-  battery.level = Math.max(0, Math.min(100, base - kcalDrain - stressDrain));
   await AsyncStorage.setItem(BATTERY_KEY, JSON.stringify(battery));
 }
 
@@ -550,13 +693,14 @@ export async function fetchAndImportHealthData(): Promise<{ success: boolean; me
   const ok = await initHealthKit();
   if (!ok) return { success: false, message: 'Zugriff auf Apple Health wurde nicht gewährt.' };
 
-  const [restingHR, hrv, vo2, sleep, steps, activeEnergy] = await Promise.all([
+  const [restingHR, hrv, vo2, sleep, steps, activeEnergy, basalEnergy] = await Promise.all([
     fetchLatestRestingHeartRate(),
     fetchLatestHRV(),
     fetchLatestVo2Max(),
-    fetchLastNightSleep(),
+    fetchLastNightSleepDetails(),
     fetchTodaySteps(),
     fetchTodayActiveEnergy(),
+    fetchTodayBasalEnergy(),
   ]);
 
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -574,6 +718,7 @@ export async function fetchAndImportHealthData(): Promise<{ success: boolean; me
     stressScore: existing?.stressScore ?? null,
     steps: steps ?? existing?.steps ?? null,
     activeEnergy: activeEnergy ?? existing?.activeEnergy ?? null,
+    basalEnergy: basalEnergy ?? existing?.basalEnergy ?? null,
     bodyweight: existing?.bodyweight ?? null,
     notes: existing?.notes ?? '',
   };
@@ -593,11 +738,42 @@ export async function fetchAndImportHealthData(): Promise<{ success: boolean; me
   }
 
   if (sleep) {
+    const rawLastSleep = await AsyncStorage.getItem(SLEEP_KEY);
+    const existingSleep = rawLastSleep ? JSON.parse(rawLastSleep) : {};
+
+    const schlafMin = Math.round(sleep.hours * 60);
+    const hrvVal = hrv ?? existingSleep.hrv ?? 0;
+    const tiefsterPuls = restingHR ?? existingSleep.tiefsterPuls ?? 60;
+    const avgPuls = sleep.avgHeartRate ?? existingSleep.avgPuls ?? null;
+
+    const sleepScore = calculateSleepScore({
+      schlafMin,
+      tiefZeit: sleep.deepMin,
+      remZeit: sleep.remMin,
+      hrv: hrvVal,
+      tiefsterPuls,
+      avgPuls: avgPuls ?? 0,
+    });
+
     await AsyncStorage.setItem(SLEEP_KEY, JSON.stringify({
+      ...existingSleep,
       date: sleep.endDate,
       schlafStunden: sleep.hours,
-      hrv: hrv ?? undefined,
-      tiefsterPuls: restingHR ?? undefined,
+      schlafMin,
+      deep: sleep.deepMin,
+      rem: sleep.remMin,
+      light: sleep.lightMin,
+      awake: sleep.awakeMin,
+      deepZeit: sleep.deepMin / 60,
+      remZeit: sleep.remMin / 60,
+      avgPuls: avgPuls ?? existingSleep.avgPuls,
+      tiefsterPuls,
+      restingHR: tiefsterPuls,
+      hrv: hrvVal,
+      sleepScore,
+      bedtime: sleep.startDate,
+      wakeTime: sleep.endDate,
+      source: 'apple_health',
     }));
   }
 
@@ -615,6 +791,7 @@ const BACKGROUND_TYPES = [
   'HKQuantityTypeIdentifierRestingHeartRate',
   'HKQuantityTypeIdentifierStepCount',
   'HKQuantityTypeIdentifierActiveEnergyBurned',
+  'HKQuantityTypeIdentifierBasalEnergyBurned',
   'HKCategoryTypeIdentifierSleepAnalysis',
   'HKWorkoutTypeIdentifier',
 ] as const;
@@ -642,24 +819,28 @@ export async function syncAllHealthData(): Promise<void> {
  * und richtet Listener ein, die bei neuen Daten automatisch einen vollständigen Sync auslösen.
  */
 export async function startHealthAutoSync(): Promise<void> {
-  if (!isHealthKitAvailable()) return;
-  const ok = await initHealthKit();
-  if (!ok) return;
+  try {
+    if (!isHealthKitAvailable()) return;
+    const ok = await initHealthKit();
+    if (!ok) return;
 
-  for (const type of BACKGROUND_TYPES) {
-    try {
-      await enableBackgroundDelivery(type, UpdateFrequency.immediate);
-    } catch {
-      // ignore unsupported types
+    for (const type of BACKGROUND_TYPES) {
+      try {
+        await enableBackgroundDelivery(type, UpdateFrequency.immediate);
+      } catch {
+        // ignore unsupported types
+      }
     }
+
+    activeSubscriptions.forEach(s => { try { s.remove(); } catch { /* ignore */ } });
+    activeSubscriptions = BACKGROUND_TYPES.map(type =>
+      subscribeToChanges(type, () => { syncAllHealthData().catch(() => {}); })
+    );
+
+    await syncAllHealthData();
+  } catch {
+    // HealthKit unavailable/unauthorized — app must continue without it
   }
-
-  activeSubscriptions.forEach(s => { try { s.remove(); } catch { /* ignore */ } });
-  activeSubscriptions = BACKGROUND_TYPES.map(type =>
-    subscribeToChanges(type, () => { syncAllHealthData(); })
-  );
-
-  await syncAllHealthData();
 }
 
 export function stopHealthAutoSync(): void {

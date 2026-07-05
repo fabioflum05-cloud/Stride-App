@@ -6,6 +6,7 @@ import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, T
 import Svg, { ClipPath, Defs, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg';
 import { theme } from '../constants/theme';
 import { useLanguage } from '../constants/LanguageContext';
+import { recalcBodyBattery } from '../utils/applehealth';
 
 type CalorieEntry = { id: string; time: string; kcal: number; label: string; };
 type BatteryData = { level: number; calorieEntries: CalorieEntry[]; date: string; };
@@ -60,7 +61,9 @@ export default function BatteryScreen() {
   const { t, lang } = useLanguage();
   const [batteryData, setBatteryData] = useState<BatteryData | null>(null);
   const [sleepScore, setSleepScore] = useState(0);
-  const [stress, setStress] = useState(3);
+  const [stress, setStress] = useState<number | null>(null);
+  const [activeEnergy, setActiveEnergy] = useState(0);
+  const [basalEnergy, setBasalEnergy] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [kcalInput, setKcalInput] = useState('');
   const [labelInput, setLabelInput] = useState('');
@@ -69,29 +72,31 @@ export default function BatteryScreen() {
 
   async function load() {
     const rawSleep = await AsyncStorage.getItem('lastSleep');
-    const rawCheckin = await AsyncStorage.getItem('lastCheckin');
-    const rawBattery = await AsyncStorage.getItem('batteryData');
-    let sleepSc = 0, stressVal = 3;
-    if (rawSleep) { const s = JSON.parse(rawSleep); if (isToday(s.date)) sleepSc = s.sleepScore ?? 0; }
-    if (rawCheckin) { const c = JSON.parse(rawCheckin); if (isToday(c.date)) stressVal = c.stress ?? 3; }
-    setSleepScore(sleepSc);
-    setStress(stressVal);
-    if (rawBattery) {
-      const data: BatteryData = JSON.parse(rawBattery);
-      if (isToday(data.date)) { setBatteryData(data); return; }
-    }
-    const startLevel = Math.round(sleepSc * 0.85);
-    const newData: BatteryData = { level: startLevel, calorieEntries: [], date: new Date().toISOString() };
-    setBatteryData(newData);
-    await AsyncStorage.setItem('batteryData', JSON.stringify(newData));
-  }
+    const rawHealth = await AsyncStorage.getItem('stride_health_history');
 
-  function calculateLevel(entries: CalorieEntry[], baseSleep: number, stressVal: number) {
-    const base = Math.round(baseSleep * 0.85);
-    const totalKcal = entries.reduce((sum, e) => sum + e.kcal, 0);
-    const kcalDrain = Math.round((totalKcal / 100) * 1.5);
-    const stressDrain = stressVal * 4;
-    return Math.max(0, Math.min(100, base - kcalDrain - stressDrain));
+    let sleepSc = 0;
+    if (rawSleep) { const s = JSON.parse(rawSleep); if (isToday(s.date)) sleepSc = s.sleepScore ?? 0; }
+    setSleepScore(sleepSc);
+
+    let stressVal: number | null = null;
+    let active = 0, basal = 0;
+    if (rawHealth) {
+      const hist = JSON.parse(rawHealth);
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const todayEntry = hist.find((h: any) => h.date === todayKey);
+      if (todayEntry) {
+        stressVal = todayEntry.stressScore ?? null;
+        active = todayEntry.activeEnergy ?? 0;
+        basal = todayEntry.basalEnergy ?? 0;
+      }
+    }
+    setStress(stressVal);
+    setActiveEnergy(active);
+    setBasalEnergy(basal);
+
+    await recalcBodyBattery();
+    const rawBattery = await AsyncStorage.getItem('batteryData');
+    if (rawBattery) setBatteryData(JSON.parse(rawBattery));
   }
 
   async function addCalories() {
@@ -101,24 +106,27 @@ export default function BatteryScreen() {
     const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const entry: CalorieEntry = { id: Date.now().toString(), time: timeStr, kcal, label: labelInput.trim() || (lang === 'en' ? 'Activity' : 'Aktivität') };
     const newEntries = [...(batteryData?.calorieEntries ?? []), entry];
-    const newLevel = calculateLevel(newEntries, sleepScore, stress);
-    const newData: BatteryData = { level: newLevel, calorieEntries: newEntries, date: new Date().toISOString() };
-    setBatteryData(newData);
+    const newData: BatteryData = { level: batteryData?.level ?? 0, calorieEntries: newEntries, date: new Date().toISOString() };
     await AsyncStorage.setItem('batteryData', JSON.stringify(newData));
+    await recalcBodyBattery();
+    const raw = await AsyncStorage.getItem('batteryData');
+    if (raw) setBatteryData(JSON.parse(raw));
     setKcalInput(''); setLabelInput(''); setShowModal(false);
   }
 
   async function deleteEntry(id: string) {
     const newEntries = (batteryData?.calorieEntries ?? []).filter(e => e.id !== id);
-    const newLevel = calculateLevel(newEntries, sleepScore, stress);
-    const newData: BatteryData = { ...batteryData!, level: newLevel, calorieEntries: newEntries };
-    setBatteryData(newData);
+    const newData: BatteryData = { ...batteryData!, calorieEntries: newEntries, date: new Date().toISOString() };
     await AsyncStorage.setItem('batteryData', JSON.stringify(newData));
+    await recalcBodyBattery();
+    const raw = await AsyncStorage.getItem('batteryData');
+    if (raw) setBatteryData(JSON.parse(raw));
   }
 
   const level = batteryData?.level ?? 0;
   const entries = batteryData?.calorieEntries ?? [];
   const totalKcal = entries.reduce((sum, e) => sum + e.kcal, 0);
+  const stressDrain = stress != null ? Math.round((stress / 20) * 4) : 0;
 
   return (
     <KeyboardAvoidingView
@@ -139,7 +147,7 @@ export default function BatteryScreen() {
           {[
             { val: sleepScore || '--', lbl: 'Sleep Score', color: theme.purple },
             { val: totalKcal, lbl: lang === 'en' ? 'kcal burned' : 'kcal verbrannt', color: theme.red },
-            { val: `${stress}/5`, lbl: 'Stress', color: theme.pink },
+            { val: stress ?? '--', lbl: lang === 'en' ? 'Stress Score' : 'Stress-Score', color: theme.pink },
           ].map(s => (
             <View key={s.lbl} style={styles.statBox}>
               <Text style={[styles.statVal, { color: s.color }]}>{s.val}</Text>
@@ -166,14 +174,36 @@ export default function BatteryScreen() {
           </View>
         )}
 
-        {stress > 3 && (
+        {stressDrain > 0 && (
           <View style={styles.eventRow}>
             <View style={[styles.eventDot, { backgroundColor: theme.pink }]} />
             <View style={styles.eventContent}>
               <Text style={styles.eventName}>Stress</Text>
-              <Text style={styles.eventTime}>Check-in</Text>
+              <Text style={styles.eventTime}>HRV · {lang === 'en' ? 'Resting HR' : 'Ruhepuls'}</Text>
             </View>
-            <Text style={[styles.eventDelta, { color: theme.red }]}>-{stress * 4}</Text>
+            <Text style={[styles.eventDelta, { color: theme.red }]}>-{stressDrain}</Text>
+          </View>
+        )}
+
+        {activeEnergy > 0 && (
+          <View style={styles.eventRow}>
+            <View style={[styles.eventDot, { backgroundColor: theme.orange }]} />
+            <View style={styles.eventContent}>
+              <Text style={styles.eventName}>{lang === 'en' ? 'Active Energy' : 'Aktive Kalorien'}</Text>
+              <Text style={styles.eventTime}>Apple Health · {activeEnergy} kcal</Text>
+            </View>
+            <Text style={[styles.eventDelta, { color: theme.red }]}>-{Math.round(activeEnergy / 100 * 1.5)}</Text>
+          </View>
+        )}
+
+        {basalEnergy > 0 && (
+          <View style={styles.eventRow}>
+            <View style={[styles.eventDot, { backgroundColor: theme.orange }]} />
+            <View style={styles.eventContent}>
+              <Text style={styles.eventName}>{lang === 'en' ? 'Resting Energy' : 'Grundumsatz'}</Text>
+              <Text style={styles.eventTime}>Apple Health · {basalEnergy} kcal</Text>
+            </View>
+            <Text style={[styles.eventDelta, { color: theme.red }]}>-{Math.round(basalEnergy / 100 * 1.5)}</Text>
           </View>
         )}
 

@@ -10,6 +10,7 @@ import Svg, {
 import { useAppTheme } from '../../constants/ThemeContext';
 import { useLanguage } from '../../constants/LanguageContext';
 import { getTrainingReadiness, syncAppleHealthWorkouts, TrainingReadiness } from '../../utils/applehealth';
+import { scheduleNutritionReminder } from '../../utils/notifications';
 
 function getT(colors: any) {
   const dark = colors.bg < '#888888';
@@ -1578,7 +1579,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
 function RunScreen({ onStop }: { onStop: () => void }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white } };
   const runTimer = useWorkoutTimer('activeRunTimer');
   const [dist, setDist] = useState('');
@@ -1600,6 +1601,7 @@ function RunScreen({ onStop }: { onStop: () => void }) {
     const raw = await AsyncStorage.getItem('runs'); const runs = raw ? JSON.parse(raw) : [];
     runs.push(run); await AsyncStorage.setItem('runs', JSON.stringify(runs));
     await AsyncStorage.removeItem('activeWorkout');
+    scheduleNutritionReminder(lang).catch(() => {});
     Alert.alert(t('training_run_complete'), `${d.toFixed(2)} km · ${formatTime(dur)} · ${formatPace(d > 0 ? dur / d : 0)} /km`, [{ text: 'OK', onPress: onStop }]);
   }
   return (
@@ -2361,6 +2363,7 @@ await AsyncStorage.setItem('muscleRecovery', JSON.stringify(newMuscles));
 setMuscles(newMuscles);
 await AsyncStorage.setItem('muscleRecovery', JSON.stringify(newMuscles));
 setShowWorkoutComplete(true);
+scheduleNutritionReminder(lang).catch(() => {});
 await loadAll();
   }
   async function stopSession() {
