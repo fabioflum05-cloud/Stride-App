@@ -5,9 +5,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
 import {
-  Alert, Animated, ScrollView, Text,
+  Alert, Animated, LayoutChangeEvent, ScrollView, Text,
   TouchableOpacity, View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
 import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
@@ -53,30 +55,42 @@ function dayKey(iso: string): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
-// ─── Mini Line Chart ──────────────────────────────────────────────────────────
-function MiniChart({ data, color, isDark, lang }: {
+// ─── Mini Line Chart (interaktiv: Finger über Chart ziehen zeigt Wert + Datum) ──
+function MiniChart({ data, dates, color, isDark, lang, unit }: {
   data: (number | null)[];
+  dates: string[];
   color: string;
   isDark: boolean;
   lang: string;
+  unit?: string;
 }) {
-  const CW = 280; const H = 90; const PAD_TOP = 10; const PAD_BOTTOM = 10; const PAD_L = 34; const PAD_R = 10;
+  const H = 90; const PAD_TOP = 10; const PAD_BOTTOM = 10; const PAD_L = 34; const PAD_R = 10;
+  const [chartW, setChartW] = useState(0);
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const valid = data.filter(v => v !== null) as number[];
   const textMuted = isDark ? 'rgba(245,240,238,0.4)' : 'rgba(26,18,9,0.4)';
+
+  function onLayout(e: LayoutChangeEvent) {
+    const w = e.nativeEvent.layout.width;
+    if (w > 0 && Math.abs(w - chartW) > 0.5) setChartW(w);
+  }
+
   if (valid.length < 2) return (
-    <View style={{ height: H, alignItems: 'center', justifyContent: 'center' }}>
+    <View onLayout={onLayout} style={{ height: H, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', fontSize: 12 }}>
         {lang === 'en' ? 'Not enough data' : 'Noch zu wenig Daten'}
       </Text>
     </View>
   );
+
+  const CW = chartW || 280;
   const min = Math.min(...valid);
   const max = Math.max(...valid);
   const range = max - min || 1;
   const plotW = CW - PAD_L - PAD_R;
   const plotH = H - PAD_TOP - PAD_BOTTOM;
   const pts = data.map((v, i) => ({
-    x: PAD_L + (i / (data.length - 1)) * plotW,
+    x: PAD_L + (data.length > 1 ? (i / (data.length - 1)) * plotW : plotW / 2),
     y: v !== null ? PAD_TOP + (1 - (v - min) / range) * plotH : null,
   }));
   const validPts = pts.filter(p => p.y !== null) as { x: number; y: number }[];
@@ -84,25 +98,84 @@ function MiniChart({ data, color, isDark, lang }: {
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const fmt = (v: number) => Number.isInteger(v) ? `${v}` : v.toFixed(1);
 
+  function nearestIndexForX(x: number): number {
+    const clamped = Math.min(Math.max(x, PAD_L), CW - PAD_R);
+    let idx = Math.round(((clamped - PAD_L) / (plotW || 1)) * (data.length - 1));
+    idx = Math.min(Math.max(idx, 0), data.length - 1);
+    if (pts[idx].y === null) {
+      let lo = idx, hi = idx, found = -1;
+      while (lo >= 0 || hi < data.length) {
+        if (lo >= 0 && pts[lo].y !== null) { found = lo; break; }
+        if (hi < data.length && pts[hi].y !== null) { found = hi; break; }
+        lo--; hi++;
+      }
+      if (found >= 0) idx = found;
+    }
+    return idx;
+  }
+
+  function updateActive(x: number) { setActiveIdx(nearestIndexForX(x)); }
+  function clearActive() { setActiveIdx(null); }
+
+  const pan = Gesture.Pan()
+    .activeOffsetX([-5, 5])
+    .failOffsetY([-10, 10])
+    .onBegin((e) => { runOnJS(updateActive)(e.x); })
+    .onUpdate((e) => { runOnJS(updateActive)(e.x); })
+    .onFinalize(() => { runOnJS(clearActive)(); });
+
+  const active = activeIdx !== null ? pts[activeIdx] : null;
+  const activeValue = activeIdx !== null ? data[activeIdx] : null;
+  const activeDate = activeIdx !== null ? dates[activeIdx] : null;
+
+  const tooltipW = 96;
+  const tooltipX = active ? Math.min(Math.max(active.x - tooltipW / 2, 0), Math.max(0, CW - tooltipW)) : 0;
+
   return (
-    <Svg width="100%" height={H} viewBox={`0 0 ${CW} ${H}`} preserveAspectRatio="xMidYMid meet">
-      {[0, 0.5, 1].map(f => (
-        <Line key={f} x1={PAD_L} y1={PAD_TOP + plotH * f} x2={CW - PAD_R} y2={PAD_TOP + plotH * f}
-          stroke={gridColor} strokeWidth={1} />
-      ))}
-      <SvgText x={PAD_L - 6} y={PAD_TOP + 4} fontSize={9} fill={textMuted} textAnchor="end">{fmt(max)}</SvgText>
-      <SvgText x={PAD_L - 6} y={PAD_TOP + plotH + 4} fontSize={9} fill={textMuted} textAnchor="end">{fmt(min)}</SvgText>
-      {validPts.length > 1 && (
-        <Polyline points={poly} fill="none" stroke={color} strokeWidth={2.5}
-          strokeLinecap="round" strokeLinejoin="round" />
-      )}
-      {pts.map((p, i) => p.y !== null ? (
-        <Circle key={i} cx={p.x} cy={p.y}
-          r={i === pts.length - 1 ? 5 : 3}
-          fill={i === pts.length - 1 ? color : (isDark ? '#1C1917' : '#fff')}
-          stroke={color} strokeWidth={2} />
-      ) : null)}
-    </Svg>
+    <GestureDetector gesture={pan}>
+      <View onLayout={onLayout} style={{ height: H }}>
+        <Svg width={CW} height={H} viewBox={`0 0 ${CW} ${H}`}>
+          {[0, 0.5, 1].map(f => (
+            <Line key={f} x1={PAD_L} y1={PAD_TOP + plotH * f} x2={CW - PAD_R} y2={PAD_TOP + plotH * f}
+              stroke={gridColor} strokeWidth={1} />
+          ))}
+          <SvgText x={PAD_L - 6} y={PAD_TOP + 4} fontSize={9} fill={textMuted} textAnchor="end">{fmt(max)}</SvgText>
+          <SvgText x={PAD_L - 6} y={PAD_TOP + plotH + 4} fontSize={9} fill={textMuted} textAnchor="end">{fmt(min)}</SvgText>
+          {validPts.length > 1 && (
+            <Polyline points={poly} fill="none" stroke={color} strokeWidth={2.5}
+              strokeLinecap="round" strokeLinejoin="round" />
+          )}
+          {pts.map((p, i) => p.y !== null ? (
+            <Circle key={i} cx={p.x} cy={p.y}
+              r={i === pts.length - 1 && activeIdx === null ? 5 : 3}
+              fill={i === pts.length - 1 && activeIdx === null ? color : (isDark ? '#1C1917' : '#fff')}
+              stroke={color} strokeWidth={2}
+              opacity={activeIdx !== null && i !== activeIdx ? 0.35 : 1} />
+          ) : null)}
+          {active && (
+            <>
+              <Line x1={active.x} y1={PAD_TOP} x2={active.x} y2={PAD_TOP + plotH}
+                stroke={color} strokeWidth={1} strokeDasharray="3,3" opacity={0.6} />
+              <Circle cx={active.x} cy={active.y!} r={6} fill={color} stroke={isDark ? '#1C1917' : '#fff'} strokeWidth={2} />
+            </>
+          )}
+        </Svg>
+        {active && activeValue !== null && (
+          <View pointerEvents="none" style={{
+            position: 'absolute', left: tooltipX, top: 0, width: tooltipW,
+            backgroundColor: isDark ? '#2A2622' : '#1A1209', borderRadius: 10,
+            paddingHorizontal: 8, paddingVertical: 6, alignItems: 'center',
+          }}>
+            <Text style={{ fontSize: 12, fontWeight: '800', color: '#fff' }}>
+              {Number.isInteger(activeValue) ? activeValue : activeValue.toFixed(1)}{unit ? ` ${unit}` : ''}
+            </Text>
+            <Text style={{ fontSize: 9, color: 'rgba(255,255,255,0.6)', marginTop: 1 }}>
+              {activeDate ? new Date(activeDate).toLocaleDateString(lang === 'en' ? 'en-GB' : 'de-DE', { day: 'numeric', month: 'short' }) : ''}
+            </Text>
+          </View>
+        )}
+      </View>
+    </GestureDetector>
   );
 }
 
@@ -346,7 +419,7 @@ export default function HistoryScreen() {
                   </View>
                 </View>
 
-                <MiniChart data={vals} color={m.color} isDark={isDark} lang={lang} />
+                <MiniChart data={vals} dates={ranged.map(d => d.date)} color={m.color} isDark={isDark} lang={lang} unit={m.unit} />
 
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
                   <Text style={{ fontSize: 10, color: textDim }}>{ranged[0]?.label ?? ''}</Text>

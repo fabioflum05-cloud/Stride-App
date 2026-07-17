@@ -536,13 +536,57 @@ export function mapWorkoutActivityType(activityType: WorkoutActivityType, lang: 
 
 function metersToKm(q?: { unit: string; quantity: number } | null): number | undefined {
   if (!q) return undefined;
-  if (q.unit === 'm') return Math.round((q.quantity / 1000) * 100) / 100;
+  // HealthKit liefert totalDistance als Quantity mit unit "meters" (nicht "m") — siehe
+  // WorkoutProxy.swift: Quantity(unit: "meters", quantity: ...HKUnit.meter()...).
+  const isMeters = q.unit === 'm' || q.unit.toLowerCase().startsWith('meter');
+  if (isMeters) return Math.round((q.quantity / 1000) * 100) / 100;
   return Math.round(q.quantity * 100) / 100;
 }
+
+/**
+ * Zwei Apple-Health-Workouts gelten als dasselbe reale Training, wenn Aktivitätstyp,
+ * Startzeit (±5 Min) und Dauer (±5 Min) übereinstimmen. Nötig weil Garmin/Watch bei
+ * wiederholtem Sync mitunter mehrere HKWorkout-Objekte mit unterschiedlicher UUID
+ * für dasselbe Training in Apple Health anlegen — reines UUID-Dedup reicht dann nicht.
+ */
+function isSameAppleHealthWorkout(
+  a: { activityType?: number; date: string; duration: number },
+  b: { activityType?: number; date: string; duration: number }
+): boolean {
+  return a.activityType === b.activityType &&
+    Math.abs(new Date(a.date).getTime() - new Date(b.date).getTime()) <= 5 * 60000 &&
+    Math.abs((a.duration ?? 0) - (b.duration ?? 0)) <= 5;
+}
+
+/** Bereinigt bereits gespeicherte Apple-Health-Duplikate (z.B. durch einen früheren Sync-Bug entstanden). */
+function dedupeAppleHealthWorkouts(list: StoredWorkout[]): StoredWorkout[] {
+  const kept: StoredWorkout[] = [];
+  for (const w of list) {
+    if (w.source === 'apple_health' && kept.some(k => k.source === 'apple_health' && isSameAppleHealthWorkout(k, w))) {
+      continue;
+    }
+    kept.push(w);
+  }
+  return kept;
+}
+
+let workoutSyncInProgress = false;
 
 /** Importiert Apple Health Workouts der letzten 30 Tage in den `workouts` AsyncStorage-Eintrag (mit Duplikat-Prüfung). */
 export async function syncAppleHealthWorkouts(): Promise<{ added: number }> {
   if (!isHealthKitAvailable()) return { added: 0 };
+  // Verhindert überlappende Läufe (z.B. Training-Tab-Focus + Background-Sync gleichzeitig),
+  // die andernfalls beide auf demselben veralteten AsyncStorage-Stand rechnen würden.
+  if (workoutSyncInProgress) return { added: 0 };
+  workoutSyncInProgress = true;
+  try {
+    return await syncAppleHealthWorkoutsInternal();
+  } finally {
+    workoutSyncInProgress = false;
+  }
+}
+
+async function syncAppleHealthWorkoutsInternal(): Promise<{ added: number }> {
   const ok = await initHealthKit();
   if (!ok) return { added: 0 };
 
@@ -571,7 +615,8 @@ export async function syncAppleHealthWorkouts(): Promise<{ added: number }> {
   const lang: Lang = langRaw === 'en' ? 'en' : 'de';
 
   const raw = await AsyncStorage.getItem(WORKOUTS_KEY);
-  const existing: StoredWorkout[] = raw ? JSON.parse(raw) : [];
+  const stored: StoredWorkout[] = raw ? JSON.parse(raw) : [];
+  const existing = dedupeAppleHealthWorkouts(stored);
   const existingHkIds = new Set(existing.map(w => w.id));
 
   const newOnes: StoredWorkout[] = [];
@@ -591,6 +636,12 @@ export async function syncAppleHealthWorkouts(): Promise<{ added: number }> {
     );
     if (dupManual) continue;
 
+    const candidate = { activityType: w.workoutActivityType, date: startDate.toISOString(), duration: durationMin };
+    const dupAppleHealth = [...existing, ...newOnes].some(e =>
+      e.source === 'apple_health' && isSameAppleHealthWorkout(e, candidate)
+    );
+    if (dupAppleHealth) continue;
+
     const { name, type } = mapWorkoutActivityType(w.workoutActivityType, lang);
 
     newOnes.push({
@@ -608,7 +659,7 @@ export async function syncAppleHealthWorkouts(): Promise<{ added: number }> {
     });
   }
 
-  if (newOnes.length) {
+  if (newOnes.length > 0 || existing.length !== stored.length) {
     const merged = [...newOnes, ...existing].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     await AsyncStorage.setItem(WORKOUTS_KEY, JSON.stringify(merged));
   }

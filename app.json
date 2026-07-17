@@ -62,6 +62,18 @@
           "color": "#E8572A"
         }
       ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Stride nutzt die Kamera, um Mahlzeiten per KI-Foto zu erkennen und Barcodes zu scannen."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Stride braucht Zugriff auf deine Fotos, um Mahlzeiten aus der Galerie per KI zu analysieren."
+        }
+      ],
       "@bacons/apple-targets"
     ],
     "experiments": {

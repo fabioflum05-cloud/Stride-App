@@ -49,7 +49,7 @@ type FoodEntry = {
 type DayLog = { date: string; entries: FoodEntry[]; goal: Macros; burned: number };
 
 const DEFAULT_GOAL: Macros = { kcal: 2000, protein: 150, carbs: 250, fat: 70 };
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 function getDateKey(offset = 0) {
   const d = new Date();
@@ -151,8 +151,10 @@ function scoreColor(score: number): string {
 }
 
 async function analyzeWithAI(base64: string): Promise<Partial<FoodEntry> | null> {
-  try {
-    const response = await fetch(GEMINI_URL, {
+  if (!GEMINI_API_KEY) {
+    throw new Error('Gemini API-Key fehlt (EXPO_PUBLIC_GEMINI_API_KEY in .env.local).');
+  }
+  const response = await fetch(GEMINI_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -196,9 +198,14 @@ Reply ONLY with valid JSON, no Markdown:
       })
     });
     const data = await response.json();
-    if (!response.ok) return null;
+    if (!response.ok) {
+      throw new Error(data?.error?.message || `Gemini API Fehler (HTTP ${response.status})`);
+    }
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    if (!text) return null;
+    if (!text) {
+      const blockReason = data?.promptFeedback?.blockReason;
+      throw new Error(blockReason ? `Von der KI blockiert: ${blockReason}` : 'Keine Antwort von der KI erhalten.');
+    }
     const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     const p = JSON.parse(cleaned);
     return {
@@ -216,10 +223,6 @@ Reply ONLY with valid JSON, no Markdown:
         sodium: p.sodium||undefined,
       },
     };
-  } catch (e: any) {
-    Alert.alert('Analysis failed', e?.message ?? String(e));
-    return null;
-  }
 }
 
 async function generateDayReport(entries: FoodEntry[], goal: Macros, lang: string): Promise<string | null> {
@@ -284,9 +287,15 @@ Halte es kurz, direkt und hilfreich. Maximal 200 Wörter.`;
       })
     });
     const data = await response.json();
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.warn('generateDayReport failed:', data?.error?.message || response.status);
+      return null;
+    }
     return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
-  } catch { return null; }
+  } catch (e) {
+    console.warn('generateDayReport error:', e);
+    return null;
+  }
 }
 
 function BarcodeScanner({ onResult, onClose, lang }: { onResult:(f:Partial<FoodEntry>)=>void; onClose:()=>void; lang:string }) {
@@ -921,6 +930,18 @@ export default function NutritionScreen() {
     setShowAddSheet(false);
     await new Promise(resolve => setTimeout(resolve, 600));
     try {
+      const permission = fromCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          lang==='en'?'Permission needed':'Berechtigung benötigt',
+          fromCamera
+            ? (lang==='en'?'Please allow camera access in Settings.':'Bitte Kamera-Zugriff in den Einstellungen erlauben.')
+            : (lang==='en'?'Please allow photo access in Settings.':'Bitte Fotozugriff in den Einstellungen erlauben.')
+        );
+        return;
+      }
       const result = fromCamera
         ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.4 })
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'] as any, base64: true, quality: 0.4 });
@@ -946,7 +967,7 @@ export default function NutritionScreen() {
         ]
       );
     } catch (e: any) {
-      Alert.alert(lang==='en'?'Error':'Fehler', e?.message ?? 'Unknown');
+      Alert.alert(lang==='en'?'Error':'Fehler', e?.message || String(e) || (lang==='en'?'Unknown error':'Unbekannter Fehler'));
     } finally {
       setAiLoading(false);
     }
