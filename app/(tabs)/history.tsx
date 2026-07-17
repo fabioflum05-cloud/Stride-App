@@ -8,7 +8,7 @@ import {
   Alert, Animated, ScrollView, Text,
   TouchableOpacity, View,
 } from 'react-native';
-import Svg, { Circle, Line, Polyline } from 'react-native-svg';
+import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
 import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
 
@@ -28,7 +28,7 @@ interface DayData {
   recovery?:    number;
 }
 
-type MetricKey = keyof Omit<DayData, 'date' | 'label'>;
+type MetricKey = Exclude<keyof Omit<DayData, 'date' | 'label'>, 'workouts' | 'kcal'>;
 type Range = 7 | 14 | 30 | 90;
 
 // ─── Metrics config ───────────────────────────────────────────────────────────
@@ -60,8 +60,9 @@ function MiniChart({ data, color, isDark, lang }: {
   isDark: boolean;
   lang: string;
 }) {
-  const W = 280; const H = 56; const PAD = 6;
+  const CW = 280; const H = 90; const PAD_TOP = 10; const PAD_BOTTOM = 10; const PAD_L = 34; const PAD_R = 10;
   const valid = data.filter(v => v !== null) as number[];
+  const textMuted = isDark ? 'rgba(245,240,238,0.4)' : 'rgba(26,18,9,0.4)';
   if (valid.length < 2) return (
     <View style={{ height: H, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)', fontSize: 12 }}>
@@ -72,20 +73,25 @@ function MiniChart({ data, color, isDark, lang }: {
   const min = Math.min(...valid);
   const max = Math.max(...valid);
   const range = max - min || 1;
+  const plotW = CW - PAD_L - PAD_R;
+  const plotH = H - PAD_TOP - PAD_BOTTOM;
   const pts = data.map((v, i) => ({
-    x: PAD + (i / (data.length - 1)) * (W - PAD * 2),
-    y: v !== null ? PAD + (1 - (v - min) / range) * (H - PAD * 2) : null,
+    x: PAD_L + (i / (data.length - 1)) * plotW,
+    y: v !== null ? PAD_TOP + (1 - (v - min) / range) * plotH : null,
   }));
   const validPts = pts.filter(p => p.y !== null) as { x: number; y: number }[];
   const poly = validPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-  const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const fmt = (v: number) => Number.isInteger(v) ? `${v}` : v.toFixed(1);
 
   return (
-    <Svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-      {[0.25, 0.5, 0.75].map(f => (
-        <Line key={f} x1={PAD} y1={H * f} x2={W - PAD} y2={H * f}
+    <Svg width="100%" height={H} viewBox={`0 0 ${CW} ${H}`} preserveAspectRatio="xMidYMid meet">
+      {[0, 0.5, 1].map(f => (
+        <Line key={f} x1={PAD_L} y1={PAD_TOP + plotH * f} x2={CW - PAD_R} y2={PAD_TOP + plotH * f}
           stroke={gridColor} strokeWidth={1} />
       ))}
+      <SvgText x={PAD_L - 6} y={PAD_TOP + 4} fontSize={9} fill={textMuted} textAnchor="end">{fmt(max)}</SvgText>
+      <SvgText x={PAD_L - 6} y={PAD_TOP + plotH + 4} fontSize={9} fill={textMuted} textAnchor="end">{fmt(min)}</SvgText>
       {validPts.length > 1 && (
         <Polyline points={poly} fill="none" stroke={color} strokeWidth={2.5}
           strokeLinecap="round" strokeLinejoin="round" />
@@ -350,42 +356,80 @@ export default function HistoryScreen() {
             );
           })}
 
-          {/* ── Daily Log ── */}
+          {/* ── Daily Overview (grouped by day) ── */}
           {ranged.length > 0 && (
-            <View style={cardStyle}>
-              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 14 }}>
+            <>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 10, marginTop: 4 }}>
                 {lang === 'en' ? 'Daily Overview' : 'Tagesübersicht'}
               </Text>
-              {[...ranged].reverse().map((day, i) => (
-                <View key={day.date} style={{ paddingVertical: 12,
-                  borderBottomWidth: i < ranged.length - 1 ? 1 : 0,
-                  borderBottomColor: border }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: text }}>{day.label}</Text>
-                    <View style={{ flexDirection: 'row', gap: 6 }}>
-                      {day.workoutScore ? (
-                        <View style={{ backgroundColor: '#C084FC20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 }}>
-                          <Text style={{ fontSize: 11, color: '#C084FC', fontWeight: '700' }}>🏋️ {day.workoutScore}</Text>
-                        </View>
-                      ) : null}
-                      {day.perfScore ? (
-                        <View style={{ backgroundColor: '#818CF820', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 }}>
-                          <Text style={{ fontSize: 11, color: '#818CF8', fontWeight: '700' }}>⚡ {day.perfScore}</Text>
-                        </View>
-                      ) : null}
+              {[...ranged].reverse().map((day) => {
+                const statusCol = dayStatusColor(day, textDim);
+                const weekday = new Date(day.date).toLocaleDateString(lang === 'en' ? 'en-US' : 'de-DE', { weekday: 'short' });
+                const rows: { key: MetricKey; value: number }[] = [
+                  ...(day.sleepHours ? [{ key: 'sleepHours' as MetricKey, value: day.sleepHours }] : []),
+                  ...(day.hrv ? [{ key: 'hrv' as MetricKey, value: day.hrv }] : []),
+                  ...(day.restingHR ? [{ key: 'restingHR' as MetricKey, value: day.restingHR }] : []),
+                  ...(day.battLevel ? [{ key: 'battLevel' as MetricKey, value: day.battLevel }] : []),
+                  ...(day.recovery ? [{ key: 'recovery' as MetricKey, value: day.recovery }] : []),
+                ];
+                return (
+                  <View key={day.date} style={{ backgroundColor: card, borderRadius: 18, borderWidth: 1, borderColor: border,
+                    borderLeftWidth: 4, borderLeftColor: statusCol, padding: 16, marginBottom: 10 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
+                        <Text style={{ fontSize: 17, fontWeight: '800', color: text, letterSpacing: -0.3 }}>{weekday}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: textMuted }}>{day.label}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 6 }}>
+                        {day.workoutScore ? (
+                          <View style={{ backgroundColor: '#C084FC20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 }}>
+                            <Text style={{ fontSize: 11, color: '#C084FC', fontWeight: '700' }}>🏋️ {day.workoutScore}</Text>
+                          </View>
+                        ) : null}
+                        {day.perfScore ? (
+                          <View style={{ backgroundColor: statusCol + '20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12 }}>
+                            <Text style={{ fontSize: 11, color: statusCol, fontWeight: '700' }}>⚡ {day.perfScore}</Text>
+                          </View>
+                        ) : null}
+                      </View>
                     </View>
+                    {rows.length > 0 ? (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                        {rows.map(({ key, value }) => {
+                          const m = METRICS.find(x => x.key === key)!;
+                          const col = metricStatusColor(key, value);
+                          return (
+                            <View key={key} style={{ minWidth: 72 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={{ fontSize: 12 }}>{m.emoji}</Text>
+                                <Text style={{ fontSize: 15, fontWeight: '800', color: col }}>
+                                  {key === 'sleepHours' ? value.toFixed(1) : value}
+                                  <Text style={{ fontSize: 10, fontWeight: '600', color: textDim }}> {m.unit}</Text>
+                                </Text>
+                              </View>
+                              <Text style={{ fontSize: 9, color: textDim, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 1 }}>{ml(key)}</Text>
+                            </View>
+                          );
+                        })}
+                        {day.workouts ? (
+                          <View style={{ minWidth: 72 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                              <Text style={{ fontSize: 12 }}>🏋️</Text>
+                              <Text style={{ fontSize: 15, fontWeight: '800', color: colors.accent }}>{day.workouts}×</Text>
+                            </View>
+                            <Text style={{ fontSize: 9, color: textDim, textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 1 }}>
+                              {lang === 'en' ? 'Workout' : 'Training'}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : (
+                      <Text style={{ fontSize: 12, color: textDim }}>{lang === 'en' ? 'No metrics logged' : 'Keine Werte erfasst'}</Text>
+                    )}
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 16, flexWrap: 'wrap' }}>
-                    {day.sleepHours && <StatCell label={lang === 'en' ? 'Sleep' : 'Schlaf'} value={`${day.sleepHours}h`} color="#60A5FA" />}
-                    {day.hrv && <StatCell label="HRV" value={`${day.hrv}ms`} color="#4ADE80" />}
-                    {day.restingHR && <StatCell label="RHR" value={`${day.restingHR}bpm`} color="#F87171" />}
-                    {day.battLevel && <StatCell label={lang === 'en' ? 'Energy' : 'Energie'} value={`${day.battLevel}%`} color="#FBBF24" />}
-                    {day.recovery && <StatCell label={lang === 'en' ? 'Recovery' : 'Erholung'} value={`${day.recovery}`} color="#34D399" />}
-                    {day.workouts && <StatCell label={lang === 'en' ? 'Workout' : 'Training'} value={`${day.workouts}×`} color={colors.accent} />}
-                  </View>
-                </View>
-              ))}
-            </View>
+                );
+              })}
+            </>
           )}
 
           {days.length === 0 && (
@@ -415,9 +459,30 @@ export default function HistoryScreen() {
   );
 }
 
-const StatCell: React.FC<{ label: string; value: string; color: string }> = ({ label, value, color }) => (
-  <View style={{ alignItems: 'center' }}>
-    <Text style={{ fontSize: 13, fontWeight: '700', color }}>{value}</Text>
-    <Text style={{ fontSize: 9, color: 'rgba(128,128,128,0.6)', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{label}</Text>
-  </View>
-);
+/** Grün/Gelb/Rot je nach Metrik-Wert, damit man auf einen Blick sieht was gut/schlecht war. */
+function metricStatusColor(key: MetricKey, value: number): string {
+  switch (key) {
+    case 'sleepHours':
+      return value >= 7 ? '#4ADE80' : value >= 6 ? '#FBBF24' : '#F87171';
+    case 'sleepScore':
+    case 'perfScore':
+    case 'workoutScore':
+    case 'recovery':
+      return value >= 70 ? '#4ADE80' : value >= 45 ? '#FBBF24' : '#F87171';
+    case 'hrv':
+      return value >= 50 ? '#4ADE80' : value >= 35 ? '#FBBF24' : '#F87171';
+    case 'restingHR':
+      return value <= 60 ? '#4ADE80' : value <= 70 ? '#FBBF24' : '#F87171';
+    case 'battLevel':
+      return value >= 65 ? '#4ADE80' : value >= 35 ? '#FBBF24' : '#F87171';
+    default:
+      return '#818CF8';
+  }
+}
+
+/** Gesamtfarbe für den Tag (linker Rand der Karte) basierend auf Performance/Recovery/Schlaf. */
+function dayStatusColor(day: DayData, fallback: string): string {
+  const score = day.perfScore ?? day.recovery ?? day.sleepScore ?? day.battLevel ?? null;
+  if (score == null) return fallback;
+  return score >= 70 ? '#4ADE80' : score >= 45 ? '#FBBF24' : '#F87171';
+}

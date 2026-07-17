@@ -8,7 +8,7 @@ import {
   TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { useLanguage } from '../../constants/LanguageContext';
+import { translateMuscle, useLanguage } from '../../constants/LanguageContext';
 import { THEMES, useAppTheme } from '../../constants/ThemeContext';
 import { getTrainingReadiness, recalcBodyBattery, TrainingReadiness } from '../../utils/applehealth';
 import { syncWidgetData } from '../../utils/widgetData';
@@ -240,13 +240,14 @@ export default function HomeScreen() {
 
       await recalcBodyBattery();
 
-      const [rc, rs, rb, rp, rh, rn, rj, rm] = await Promise.all([
+      const [rc, rs, rb, rp, rh, rn, rng, rj, rm] = await Promise.all([
         AsyncStorage.getItem('lastCheckin'),
         AsyncStorage.getItem('lastSleep'),
         AsyncStorage.getItem('batteryData'),
         AsyncStorage.getItem('profile'),
         AsyncStorage.getItem('habits'),
-        AsyncStorage.getItem('nutritionToday'),
+        AsyncStorage.getItem(`nutrition_${today}`),
+        AsyncStorage.getItem('nutritionGoal'),
         AsyncStorage.getItem(`journal_${today}`),
         AsyncStorage.getItem('muscleRecovery'),
       ]);
@@ -254,7 +255,22 @@ export default function HomeScreen() {
       if (rs) { const s = JSON.parse(rs); if (isToday(s.date ?? '')) setSleep(s); }
       if (rb) { const b = JSON.parse(rb); if (isToday(b.date ?? '')) setBattery(b); }
       if (rp) setProfile(JSON.parse(rp));
-      if (rn) setNutrition(JSON.parse(rn));
+      const nutriGoal = rng ? JSON.parse(rng) : { kcal: 2000, protein: 150, carbs: 250, fat: 70 };
+      const nutriLog = rn ? JSON.parse(rn) : null;
+      const nutriEntries: any[] = nutriLog?.entries ?? [];
+      const nutriTotals = nutriEntries.reduce((s: any, e: any) => ({
+        kcal: s.kcal + (e.macros?.kcal ?? 0),
+        protein: s.protein + (e.macros?.protein ?? 0),
+        carbs: s.carbs + (e.macros?.carbs ?? 0),
+        fat: s.fat + (e.macros?.fat ?? 0),
+      }), { kcal: 0, protein: 0, carbs: 0, fat: 0 });
+      setNutrition({
+        goal: nutriGoal.kcal,
+        eaten: Math.round(nutriTotals.kcal),
+        protein: Math.round(nutriTotals.protein),
+        carbs: Math.round(nutriTotals.carbs),
+        fat: Math.round(nutriTotals.fat),
+      });
       if (rj) setJournal(JSON.parse(rj));
       if (rm) setMuscles(JSON.parse(rm));
       if (rh) {
@@ -558,7 +574,7 @@ export default function HomeScreen() {
                     backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)',
                     borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 }}>
                     <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: col }} />
-                    <Text style={{ fontSize: 11, fontWeight: '600', color: textMuted }}>{m}</Text>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: textMuted }}>{translateMuscle(m, lang)}</Text>
                   </View>
                 );
               })}

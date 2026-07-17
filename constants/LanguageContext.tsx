@@ -254,6 +254,26 @@ const translations = {
     body_never: 'Nie trainiert',
     body_recovered: 'Erholt ✓',
 
+    // Check-in
+    checkin_eyebrow: 'Daily Check-in',
+    checkin_title: 'Wie geht es\ndir heute?',
+    checkin_already_title: 'Heute bereits eingecheckt',
+    checkin_score_label: 'Check-in Score',
+    checkin_energy: 'Energie',
+    checkin_stress: 'Stress',
+    checkin_motivation: 'Motivation',
+    checkin_save: 'Check-in speichern',
+    checkin_energy_1: 'Sehr niedrig',
+    checkin_energy_2: 'Niedrig',
+    checkin_energy_3: 'Mittel',
+    checkin_energy_4: 'Gut',
+    checkin_energy_5: 'Top',
+    checkin_stress_1: 'Kein Stress',
+    checkin_stress_2: 'Wenig',
+    checkin_stress_3: 'Moderat',
+    checkin_stress_4: 'Hoch',
+    checkin_stress_5: 'Sehr hoch',
+
     // Friends
     friends_title: 'Freunde',
     friends_code: 'Mein Friend-Code',
@@ -627,6 +647,26 @@ const translations = {
     body_never: 'Never trained',
     body_recovered: 'Recovered ✓',
 
+    // Check-in
+    checkin_eyebrow: 'Daily Check-in',
+    checkin_title: 'How are you\nfeeling today?',
+    checkin_already_title: 'Already checked in today',
+    checkin_score_label: 'Check-in Score',
+    checkin_energy: 'Energy',
+    checkin_stress: 'Stress',
+    checkin_motivation: 'Motivation',
+    checkin_save: 'Save Check-in',
+    checkin_energy_1: 'Very low',
+    checkin_energy_2: 'Low',
+    checkin_energy_3: 'Medium',
+    checkin_energy_4: 'Good',
+    checkin_energy_5: 'Top',
+    checkin_stress_1: 'No stress',
+    checkin_stress_2: 'Low',
+    checkin_stress_3: 'Moderate',
+    checkin_stress_4: 'High',
+    checkin_stress_5: 'Very high',
+
     // Friends
     friends_title: 'Friends',
     friends_code: 'My Friend Code',
@@ -752,6 +792,26 @@ const translations = {
   },
 };
 
+const MUSCLE_NAMES_EN: Record<string, string> = {
+  'Brust': 'Chest',
+  'Rücken': 'Back',
+  'Schultern': 'Shoulders',
+  'Bizeps': 'Biceps',
+  'Trizeps': 'Triceps',
+  'Quadrizeps': 'Quads',
+  'Hamstrings': 'Hamstrings',
+  'Gluteus': 'Glutes',
+  'Waden': 'Calves',
+  'Core': 'Core',
+  'Abduktoren': 'Abductors',
+};
+
+/** Übersetzt einen intern (auf Deutsch) gespeicherten Muskelgruppennamen für die Anzeige. */
+function translateMuscle(name: string, lang: string): string {
+  if (lang !== 'en') return name;
+  return MUSCLE_NAMES_EN[name] ?? name;
+}
+
 type TranslationKey = keyof typeof translations.de;
 
 interface LanguageContextType {
@@ -795,4 +855,5 @@ export function useLanguage() {
   return useContext(LanguageContext);
 }
 
+export { translateMuscle };
 export type { Lang, TranslationKey };

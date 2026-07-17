@@ -1,6 +1,6 @@
 import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useLanguage } from '../constants/LanguageContext';
+import { translateMuscle, useLanguage } from '../constants/LanguageContext';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -426,14 +426,14 @@ export default function BodyScreen() {
         {warnings.length > 0 && (
           <View style={styles.warningCard}>
             <Text style={styles.warningTitle}>{t('body_warning')}</Text>
-            <Text style={styles.warningText}>{warnings.join(', ')} – {t('body_warning_msg')}</Text>
+            <Text style={styles.warningText}>{warnings.map(m => translateMuscle(m, lang)).join(', ')} – {t('body_warning_msg')}</Text>
           </View>
         )}
 
         {ready.length > 0 && (
           <View style={styles.readyCard}>
             <Text style={styles.readyTitle}>{t('body_ready')}</Text>
-            <Text style={styles.readyText}>{ready.join(', ')}</Text>
+            <Text style={styles.readyText}>{ready.map(m => translateMuscle(m, lang)).join(', ')}</Text>
           </View>
         )}
 
@@ -448,7 +448,7 @@ export default function BodyScreen() {
           return (
             <View key={m} style={styles.muscleRow}>
               <View style={styles.muscleLeft}>
-                <Text style={styles.muscleName}>{m}</Text>
+                <Text style={styles.muscleName}>{translateMuscle(m, lang)}</Text>
                 <Text style={styles.muscleTime}>
                   {muscle.lastTrained ? hoursLeft > 0 ? (lang === 'en' ? `${Math.round(hoursLeft)}h left` : `noch ${Math.round(hoursLeft)}h`) : t('body_recovered') : t('body_never')}
                 </Text>

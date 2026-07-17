@@ -3,25 +3,26 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useLanguage } from '../constants/LanguageContext';
 import { theme } from '../constants/theme';
 
-const LEVELS = [
-  { value: 1, emoji: '😴', label: 'Sehr niedrig' },
-  { value: 2, emoji: '😕', label: 'Niedrig' },
-  { value: 3, emoji: '😐', label: 'Mittel' },
-  { value: 4, emoji: '🙂', label: 'Gut' },
-  { value: 5, emoji: '🔥', label: 'Top' },
-];
-
-const STRESS_LEVELS = [
-  { value: 1, emoji: '😌', label: 'Kein Stress' },
-  { value: 2, emoji: '🙂', label: 'Wenig' },
-  { value: 3, emoji: '😐', label: 'Moderat' },
-  { value: 4, emoji: '😰', label: 'Hoch' },
-  { value: 5, emoji: '🤯', label: 'Sehr hoch' },
-];
-
 export default function CheckinScreen() {
+  const { t } = useLanguage();
+  const LEVELS = [
+    { value: 1, emoji: '😴', label: t('checkin_energy_1') },
+    { value: 2, emoji: '😕', label: t('checkin_energy_2') },
+    { value: 3, emoji: '😐', label: t('checkin_energy_3') },
+    { value: 4, emoji: '🙂', label: t('checkin_energy_4') },
+    { value: 5, emoji: '🔥', label: t('checkin_energy_5') },
+  ];
+
+  const STRESS_LEVELS = [
+    { value: 1, emoji: '😌', label: t('checkin_stress_1') },
+    { value: 2, emoji: '🙂', label: t('checkin_stress_2') },
+    { value: 3, emoji: '😐', label: t('checkin_stress_3') },
+    { value: 4, emoji: '😰', label: t('checkin_stress_4') },
+    { value: 5, emoji: '🤯', label: t('checkin_stress_5') },
+  ];
   const [energie, setEnergie] = useState(3);
   const [stress, setStress] = useState(2);
   const [motivation, setMotivation] = useState(3);
@@ -73,28 +74,28 @@ export default function CheckinScreen() {
   }
 
   const sections = [
-    { label: 'Energie', value: energie, setValue: setEnergie, levels: LEVELS, color: theme.orange, bg: theme.orangeLight },
-    { label: 'Stress', value: stress, setValue: setStress, levels: STRESS_LEVELS, color: theme.pink, bg: theme.pinkLight },
-    { label: 'Motivation', value: motivation, setValue: setMotivation, levels: LEVELS, color: theme.purple, bg: theme.purpleLight },
+    { label: t('checkin_energy'), value: energie, setValue: setEnergie, levels: LEVELS, color: theme.orange, bg: theme.orangeLight },
+    { label: t('checkin_stress'), value: stress, setValue: setStress, levels: STRESS_LEVELS, color: theme.pink, bg: theme.pinkLight },
+    { label: t('checkin_motivation'), value: motivation, setValue: setMotivation, levels: LEVELS, color: theme.purple, bg: theme.purpleLight },
   ];
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
         <BackButton />
-        <Text style={styles.headerLabel}>Daily Check-in</Text>
-        <Text style={styles.title}>Wie geht es{'\n'}dir heute?</Text>
+        <Text style={styles.headerLabel}>{t('checkin_eyebrow')}</Text>
+        <Text style={styles.title}>{t('checkin_title')}</Text>
 
         {saved && lastScore !== null && (
           <View style={styles.savedCard}>
             <View style={styles.savedIconWrap}>
               <Text style={styles.savedIcon}>✓</Text>
             </View>
-            <Text style={styles.savedTitle}>Heute bereits eingecheckt</Text>
+            <Text style={styles.savedTitle}>{t('checkin_already_title')}</Text>
             <Text style={styles.savedScore}>{lastScore}</Text>
-            <Text style={styles.savedScoreLabel}>Check-in Score</Text>
+            <Text style={styles.savedScoreLabel}>{t('checkin_score_label')}</Text>
             <TouchableOpacity onPress={() => setSaved(false)} style={styles.editBtn}>
-              <Text style={styles.editBtnText}>Bearbeiten</Text>
+              <Text style={styles.editBtnText}>{t('edit')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -137,7 +138,7 @@ export default function CheckinScreen() {
             ))}
 
             <TouchableOpacity style={styles.saveBtn} onPress={save} activeOpacity={0.85}>
-              <Text style={styles.saveBtnText}>Check-in speichern</Text>
+              <Text style={styles.saveBtnText}>{t('checkin_save')}</Text>
             </TouchableOpacity>
           </>
         )}

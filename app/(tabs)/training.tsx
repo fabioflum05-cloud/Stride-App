@@ -8,7 +8,7 @@ import Svg, {
   Path, RadialGradient, Rect, Stop
 } from 'react-native-svg';
 import { useAppTheme } from '../../constants/ThemeContext';
-import { useLanguage } from '../../constants/LanguageContext';
+import { translateMuscle, useLanguage } from '../../constants/LanguageContext';
 import { getTrainingReadiness, syncAppleHealthWorkouts, TrainingReadiness } from '../../utils/applehealth';
 import { scheduleNutritionReminder } from '../../utils/notifications';
 
@@ -1127,7 +1127,10 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
             const vol = w?.exercises?.reduce((t, ex) => t + ex.sets.reduce((s, set) =>
               s + parseFloat(set.reps || '0') * parseFloat(set.weight || '0'), 0), 0) ?? 0;
             const score = w?.score;
-            const isHero = i === 0 && !isRun;
+            const isAppleHealth = !isRun && w?.source === 'apple_health';
+            const hasDistance = !isRun && w?.distance != null && w.distance > 0;
+            const ahPace = hasDistance && w!.duration > 0 ? formatPace((w!.duration * 60) / w!.distance!) : null;
+            const isHero = i === 0 && !isRun && !isAppleHealth;
 
             if (isHero) return (
               <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setDetailItem(item)} style={{ backgroundColor: '#1A1209', borderRadius: 22, padding: 16, marginBottom: 10 }}>
@@ -1166,19 +1169,30 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
               </TouchableOpacity>
             );
 
+            const subtitle = isRun && r
+              ? `${formatDateLabel(item.data.date, t('today'))} · ${r.distance.toFixed(1)} km`
+              : hasDistance
+                ? `${formatDateLabel(item.data.date, t('today'))} · ${w!.distance!.toFixed(1)} km${w?.calories ? ` · ${w.calories} kcal` : ''}`
+                : `${formatDateLabel(item.data.date, t('today'))} · ${w?.duration} Min${w?.calories ? ` · ${w.calories} kcal` : ''}`;
+
             return (
               <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setDetailItem(item)} style={{ backgroundColor: T.card, borderRadius: 18, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: isRun ? T.greenAlpha : T.orangeAlpha, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {isRun ? <IconRun size={17} color={T.green} /> : <IconDumbbell size={17} color={T.orange} />}
+                  <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: isRun || hasDistance ? T.greenAlpha : T.orangeAlpha, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {isRun || hasDistance ? <IconRun size={17} color={T.green} /> : <IconDumbbell size={17} color={T.orange} />}
                   </View>
                   <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: T.text1 }} numberOfLines={1}>
-                      {isRun ? t('training_run_session') : w?.name}
-                    </Text>
-                    <Text style={{ fontSize: 10, color: T.text4, marginTop: 2 }}>
-                      {formatDateLabel(item.data.date, t('today'))} · {isRun && r ? `${r.distance.toFixed(1)} km` : `${w?.duration} Min`}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: T.text1 }} numberOfLines={1}>
+                        {isRun ? t('training_run_session') : w?.name}
+                      </Text>
+                      {isAppleHealth && (
+                        <View style={{ backgroundColor: T.redAlpha, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1.5, borderWidth: 1, borderColor: T.redBorder }}>
+                          <Text style={{ fontSize: 8, fontWeight: '700', color: T.red }}>🍎 Apple Health</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={{ fontSize: 10, color: T.text4, marginTop: 2 }}>{subtitle}</Text>
                   </View>
                   {!isRun && score != null && (
                     <View style={{ backgroundColor: T.greenAlpha, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: T.greenBorder }}>
@@ -1187,6 +1201,9 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
                   )}
                   {isRun && r && (
                     <Text style={{ fontSize: 11, fontWeight: '600', color: T.text3 }}>{r.pace} /km</Text>
+                  )}
+                  {ahPace && (
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: T.text3 }}>{ahPace} /km</Text>
                   )}
                   <TouchableOpacity style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: T.redAlpha, alignItems: 'center', justifyContent: 'center' }} onPress={() => handleDelete(item)}>
                     <IconTrash size={13} />
@@ -1213,15 +1230,25 @@ function WorkoutDetailModal({ item, T, t, lang, onClose }: {
   const r = isRun ? item.data as RunData : null;
   const vol = w?.exercises?.reduce((sum, ex) => sum + ex.sets.reduce((s, set) =>
     s + parseFloat(set.reps || '0') * parseFloat(set.weight || '0'), 0), 0) ?? 0;
+  const isAppleHealth = !isRun && w?.source === 'apple_health';
+  const hasDistance = !isRun && w?.distance != null && w.distance > 0;
+  const ahPace = hasDistance && w!.duration > 0 ? formatPace((w!.duration * 60) / w!.distance!) : null;
 
   return (
     <Modal visible animationType="slide">
       <View style={{ flex: 1, backgroundColor: T.bg }}>
         <View style={{ paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange, marginBottom: 4 }}>
-              {formatDateLabel(item.data.date, t('today'))}
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange }}>
+                {formatDateLabel(item.data.date, t('today'))}
+              </Text>
+              {isAppleHealth && (
+                <View style={{ backgroundColor: T.redAlpha, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1.5, borderWidth: 1, borderColor: T.redBorder }}>
+                  <Text style={{ fontSize: 8, fontWeight: '700', color: T.red }}>🍎 Apple Health</Text>
+                </View>
+              )}
+            </View>
             <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }} numberOfLines={1}>
               {isRun ? t('training_run_session') : w?.name}
             </Text>
@@ -1246,6 +1273,31 @@ function WorkoutDetailModal({ item, T, t, lang, onClose }: {
                   <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2, textAlign: 'center' }}>{s.l}</Text>
                 </View>
               ))}
+            </View>
+          ) : hasDistance ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+              {[
+                { v: `${w!.distance!.toFixed(2)} km`, l: lang === 'en' ? 'Distance' : 'Distanz' },
+                { v: ahPace ? `${ahPace} /km` : '—', l: lang === 'en' ? 'Pace' : 'Tempo' },
+                { v: `${w?.duration}'`, l: t('training_duration') },
+                { v: w?.calories != null ? `${w.calories} kcal` : '—', l: 'Kcal' },
+              ].map((s, i) => (
+                <View key={i} style={{ width: '48%', backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+                  <Text style={{ fontSize: 16, fontWeight: '800', color: T.text1 }}>{s.v}</Text>
+                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2, textAlign: 'center' }}>{s.l}</Text>
+                </View>
+              ))}
+            </View>
+          ) : isAppleHealth ? (
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+              <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{`${w?.duration}'`}</Text>
+                <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{t('training_duration')}</Text>
+              </View>
+              <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{w?.calories != null ? w.calories : '—'}</Text>
+                <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>Kcal</Text>
+              </View>
             </View>
           ) : (
             <>
@@ -1276,7 +1328,7 @@ function WorkoutDetailModal({ item, T, t, lang, onClose }: {
                     <Text style={{ fontSize: 14, fontWeight: '700', color: T.text1, flex: 1 }}>{ex.name}</Text>
                     {ex.muscleGroup ? (
                       <View style={{ backgroundColor: (MUSCLE_COLORS[ex.muscleGroup] ?? T.orange) + '22', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 }}>
-                        <Text style={{ fontSize: 10, fontWeight: '600', color: MUSCLE_COLORS[ex.muscleGroup] ?? T.orange }}>{ex.muscleGroup}</Text>
+                        <Text style={{ fontSize: 10, fontWeight: '600', color: MUSCLE_COLORS[ex.muscleGroup] ?? T.orange }}>{translateMuscle(ex.muscleGroup, lang)}</Text>
                       </View>
                     ) : null}
                   </View>
@@ -1411,7 +1463,7 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
 function RoutineDetail({ routine, onStart, onBack }: { routine: Routine; onStart: (r: Routine) => void; onBack: () => void }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border, marginTop: 4 } };
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
   const field = { list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12, borderWidth: 1, borderColor: T.border }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, padding: 14 }, rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft }, rowText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: T.text1 }, dot: { width: 8, height: 8, borderRadius: 4 } };
@@ -1432,7 +1484,7 @@ function RoutineDetail({ routine, onStart, onBack }: { routine: Routine; onStart
               <View key={i} style={[field.row, i < all.length - 1 && field.rowBorder]}>
                 <View style={[field.dot, { backgroundColor: MUSCLE_COLORS[ex.muscleGroup] ?? T.orange }]} />
                 <View style={{ flex: 1 }}><Text style={field.rowText}>{ex.name}</Text>{ex.equipment && <Text style={{ fontSize: 10, color: T.text4 }}>{ex.equipment}</Text>}</View>
-                <Text style={{ fontSize: 11, color: T.text4 }}>{ex.muscleGroup}</Text>
+                <Text style={{ fontSize: 11, color: T.text4 }}>{translateMuscle(ex.muscleGroup, lang)}</Text>
               </View>
             ))}
           </View>
@@ -1450,7 +1502,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
 }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
   const activeS = { header: { backgroundColor: T.card, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row' as const, alignItems: 'flex-start' as const, gap: 12, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, workoutTag: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 1.5, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, workoutTitle: { fontSize: 20, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.4 }, timerBadge: { backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border }, timerText: { fontSize: 18, fontWeight: '700' as const, color: T.text1, letterSpacing: 1 }, timerLabel: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, statsRow: { flexDirection: 'row' as const, gap: 8, padding: 12, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, statBox: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border }, statVal: { fontSize: 18, fontWeight: '700' as const }, statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, restCard: { backgroundColor: T.card, borderLeftWidth: 3, padding: 12, marginBottom: 12, marginTop: 12, borderRadius: 0 }, restLabel: { fontSize: 9, fontWeight: '700' as const, letterSpacing: 0.8, textTransform: 'uppercase' as const, marginBottom: 2 }, restTimer: { fontSize: 22, fontWeight: '800' as const, color: T.text1, letterSpacing: 1 }, restBtn: { backgroundColor: T.cardAlt, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: T.border }, restBtnText: { fontSize: 11, fontWeight: '600' as const, color: T.text3 }, exCard: { backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: T.border }, musclePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }, musclePillText: { fontSize: 11, fontWeight: '500' as const }, exName: { flex: 1, fontSize: 15, fontWeight: '700' as const, color: T.text1 }, recRow: { backgroundColor: T.blueAlpha, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: T.blueBorder }, recText: { fontSize: 12, color: T.blue, fontWeight: '500' as const }, lastRow: { flexDirection: 'row' as const, backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, marginBottom: 8 }, lastLabel: { fontSize: 11, color: T.text3 }, lastVal: { fontSize: 11, color: T.orange, fontWeight: '500' as const, flex: 1 }, oneRM: { fontSize: 11, color: T.text3, marginBottom: 10 }, setHdr: { fontSize: 9, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.8, textAlign: 'center' as const }, setRow: { flexDirection: 'row' as const, gap: 8, marginBottom: 8, alignItems: 'center' as const }, setNum: { fontSize: 13, color: T.text3, width: 24, textAlign: 'center' as const }, setInput: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 11, color: T.text1, fontSize: 15, textAlign: 'center' as const, borderWidth: 1, borderColor: T.border }, setInputDone: { borderColor: 'rgba(52,199,89,0.4)', color: T.green }, addSetBtn: { padding: 8, alignItems: 'center' as const }, addSetText: { fontSize: 13, color: T.orange, fontWeight: '500' as const } };
   const [showPicker, setShowPicker] = useState(false);
@@ -1527,7 +1579,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
             return (
               <View key={exercise.id} style={activeS.exCard}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                  <View style={[activeS.musclePill, { backgroundColor: mc + '22' }]}><Text style={[activeS.musclePillText, { color: mc }]}>{exercise.muscleGroup}</Text></View>
+                  <View style={[activeS.musclePill, { backgroundColor: mc + '22' }]}><Text style={[activeS.musclePillText, { color: mc }]}>{translateMuscle(exercise.muscleGroup, lang)}</Text></View>
                   <View style={{ flex: 1 }}>
                     <Text style={activeS.exName}>{exercise.name}</Text>
                     {exercise.equipment && <Text style={{ fontSize: 10, color: T.text4, marginTop: 1 }}>{exercise.equipment}</Text>}
@@ -1640,7 +1692,7 @@ function RunScreen({ onStop }: { onStop: () => void }) {
 function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => void }) {
   const { colors } = useAppTheme();
   const T = getT(colors);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border } };
   const tabSt = { btn: { flex: 1, borderRadius: 12, padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: T.border, alignItems: 'center' as const }, btnActive: { backgroundColor: T.orangeAlpha, borderColor: T.orangeBorder }, text: { fontSize: 12, fontWeight: '600' as const, color: T.text4 }, textActive: { color: T.orange } };
   const [view, setView] = useState<'front' | 'back'>('front');
@@ -1677,14 +1729,14 @@ function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => vo
               ))}
             </View>
           </View>
-          {warn.length > 0 && <View style={{ backgroundColor: T.redAlpha, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: T.redBorder }}><Text style={{ color: T.red, fontWeight: '700', marginBottom: 4 }}>{t('training_rest_today')}</Text><Text style={{ color: T.red, opacity: 0.8, fontSize: 12 }}>{warn.join(', ')}</Text></View>}
-          {ready.length > 0 && <View style={{ backgroundColor: T.greenAlpha, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: T.greenBorder }}><Text style={{ color: T.green, fontWeight: '700', marginBottom: 4 }}>{t('training_ready')}</Text><Text style={{ color: T.green, opacity: 0.8, fontSize: 12 }}>{ready.join(', ')}</Text></View>}
+          {warn.length > 0 && <View style={{ backgroundColor: T.redAlpha, borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: T.redBorder }}><Text style={{ color: T.red, fontWeight: '700', marginBottom: 4 }}>{t('training_rest_today')}</Text><Text style={{ color: T.red, opacity: 0.8, fontSize: 12 }}>{warn.map(m => translateMuscle(m, lang)).join(', ')}</Text></View>}
+          {ready.length > 0 && <View style={{ backgroundColor: T.greenAlpha, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: T.greenBorder }}><Text style={{ color: T.green, fontWeight: '700', marginBottom: 4 }}>{t('training_ready')}</Text><Text style={{ color: T.green, opacity: 0.8, fontSize: 12 }}>{ready.map(m => translateMuscle(m, lang)).join(', ')}</Text></View>}
           {MUSCLE_GROUPS.map(m => {
             const lvl = muscles[m]?.level ?? 100;
             const color = getMuscleRecoveryColor(lvl);
             return (
               <View key={m} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: T.borderSoft }}>
-                <Text style={{ fontSize: 13, fontWeight: '500', color: T.text1, width: 100 }}>{m}</Text>
+                <Text style={{ fontSize: 13, fontWeight: '500', color: T.text1, width: 100 }}>{translateMuscle(m, lang)}</Text>
                 <View style={{ flex: 1, height: 4, backgroundColor: T.card, borderRadius: 2 }}>
                   <View style={{ height: 4, borderRadius: 2, backgroundColor: color, width: `${lvl}%` as any }} />
                 </View>

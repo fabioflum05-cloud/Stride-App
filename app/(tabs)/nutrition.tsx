@@ -881,7 +881,7 @@ export default function NutritionScreen() {
     if (rawWorkouts) {
       const ws = JSON.parse(rawWorkouts);
       const dayKey = getDateKey(offset);
-      ws.forEach((w:any) => { if (w.date?.startsWith(dayKey) && w.caloriesBurned) burned += w.caloriesBurned; });
+      ws.forEach((w:any) => { if (w.date?.startsWith(dayKey) && w.calories) burned += w.calories; });
     }
     if (raw) setDayLog({...JSON.parse(raw), goal, burned});
     else setDayLog({date:key, entries:[], goal, burned});
