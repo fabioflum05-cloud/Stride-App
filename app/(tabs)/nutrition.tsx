@@ -49,7 +49,7 @@ type FoodEntry = {
 type DayLog = { date: string; entries: FoodEntry[]; goal: Macros; burned: number };
 
 const DEFAULT_GOAL: Macros = { kcal: 2000, protein: 150, carbs: 250, fat: 70 };
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
 function getDateKey(offset = 0) {
   const d = new Date();

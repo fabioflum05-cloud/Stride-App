@@ -570,6 +570,24 @@ function dedupeAppleHealthWorkouts(list: StoredWorkout[]): StoredWorkout[] {
   return kept;
 }
 
+/**
+ * Repariert bereits gespeicherte Distanzen, die durch den früheren "meters" vs. "m"
+ * Einheiten-Bug fälschlich unskaliert (in Metern statt Kilometern) abgespeichert wurden
+ * — z.B. 5000 statt 5 für einen 5km-Lauf. Kein realistisches Einzeltraining kommt auf
+ * >500km, daher ist das ein sicherer Indikator für den alten Bug.
+ */
+function repairImplausibleDistances(list: StoredWorkout[]): { list: StoredWorkout[]; changed: boolean } {
+  let changed = false;
+  const fixed = list.map(w => {
+    if (w.source === 'apple_health' && w.distance != null && w.distance > 500) {
+      changed = true;
+      return { ...w, distance: Math.round((w.distance / 1000) * 100) / 100 };
+    }
+    return w;
+  });
+  return { list: fixed, changed };
+}
+
 let workoutSyncInProgress = false;
 
 /** Importiert Apple Health Workouts der letzten 30 Tage in den `workouts` AsyncStorage-Eintrag (mit Duplikat-Prüfung). */
@@ -616,18 +634,35 @@ async function syncAppleHealthWorkoutsInternal(): Promise<{ added: number }> {
 
   const raw = await AsyncStorage.getItem(WORKOUTS_KEY);
   const stored: StoredWorkout[] = raw ? JSON.parse(raw) : [];
-  const existing = dedupeAppleHealthWorkouts(stored);
+  let existing = dedupeAppleHealthWorkouts(stored);
+  const repair = repairImplausibleDistances(existing);
+  existing = repair.list;
+  let refreshed = repair.changed;
   const existingHkIds = new Set(existing.map(w => w.id));
 
   const newOnes: StoredWorkout[] = [];
   for (const w of hkWorkouts) {
     const id = `hk_${w.uuid}`;
-    if (existingHkIds.has(id)) continue;
-
-    const startDate = new Date(w.startDate);
     const durationMin = Math.round((w.duration?.quantity ?? 0) / 60);
     if (durationMin <= 0) continue;
 
+    const freshDistance = metersToKm(w.totalDistance);
+    const freshCalories = w.totalEnergyBurned ? Math.round(w.totalEnergyBurned.quantity) : undefined;
+
+    // Bereits importiert: Distanz/Kalorien/Dauer mit den aktuell aus HealthKit gelesenen
+    // Werten auffrischen — behebt Altbestände, die durch einen früheren Bug (z.B. die
+    // "meters" vs. "m" Einheitenverwechslung) falsch abgespeichert wurden.
+    const existingIdx = existing.findIndex(e => e.id === id);
+    if (existingIdx !== -1) {
+      const e = existing[existingIdx];
+      if (e.distance !== freshDistance || e.calories !== freshCalories || e.duration !== durationMin) {
+        existing[existingIdx] = { ...e, distance: freshDistance, calories: freshCalories, duration: durationMin };
+        refreshed = true;
+      }
+      continue;
+    }
+
+    const startDate = new Date(w.startDate);
     const startDay = startDate.toISOString().slice(0, 10);
     const dupManual = existing.some(e =>
       e.source !== 'apple_health' &&
@@ -654,12 +689,12 @@ async function syncAppleHealthWorkoutsInternal(): Promise<{ added: number }> {
       type,
       source: 'apple_health',
       activityType: w.workoutActivityType,
-      calories: w.totalEnergyBurned ? Math.round(w.totalEnergyBurned.quantity) : undefined,
-      distance: metersToKm(w.totalDistance),
+      calories: freshCalories,
+      distance: freshDistance,
     });
   }
 
-  if (newOnes.length > 0 || existing.length !== stored.length) {
+  if (newOnes.length > 0 || refreshed || existing.length !== stored.length) {
     const merged = [...newOnes, ...existing].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     await AsyncStorage.setItem(WORKOUTS_KEY, JSON.stringify(merged));
   }
