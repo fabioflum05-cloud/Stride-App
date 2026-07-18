@@ -2,8 +2,14 @@
 // Reusable, source-aware resolvers for HealthKit quantity/category samples.
 // Shared between utils/applehealth.ts (real data fetch) and the debug screen
 // (app/(tabs)/health.tsx), so both always apply the exact same selection logic.
-
-import { CategoryValueSleepAnalysis } from '@kingstinct/react-native-healthkit';
+//
+// Deliberately has ZERO import from '@kingstinct/react-native-healthkit' (or any other native
+// module) — this file is pure data-transformation logic operating on plain {value, startDate,
+// endDate} shapes. That keeps it trivially unit-testable with plain Jest/Node, no RN/native
+// mocking required, and decouples the business logic from whichever HealthKit wrapper the app
+// happens to use. The sleep category raw values below mirror Apple's own public
+// HKCategoryValueSleepAnalysis constants (stable since introduction, part of the documented
+// HealthKit API): inBed=0, asleepUnspecified=1, awake=2, asleepCore=3, asleepDeep=4, asleepREM=5.
 
 /** Wie weit die Debug-Ansicht und die VO2max-Query zurückschauen, um seltener geschriebene
  * Garmin-Werte nicht durch Apples häufigere Auto-Schätzungen aus dem Fenster zu verdrängen. */
@@ -77,11 +83,21 @@ export interface SleepSession {
   end: Date;
 }
 
+/** Mirrors HKCategoryValueSleepAnalysis raw values — see file header comment. */
+export const SleepValue = {
+  inBed: 0,
+  asleepUnspecified: 1,
+  awake: 2,
+  asleepCore: 3,
+  asleepDeep: 4,
+  asleepREM: 5,
+} as const;
+
 const ASLEEP_VALUES = new Set<number>([
-  CategoryValueSleepAnalysis.asleepDeep,
-  CategoryValueSleepAnalysis.asleepREM,
-  CategoryValueSleepAnalysis.asleepCore,
-  CategoryValueSleepAnalysis.asleepUnspecified,
+  SleepValue.asleepDeep,
+  SleepValue.asleepREM,
+  SleepValue.asleepCore,
+  SleepValue.asleepUnspecified,
 ]);
 
 const SESSION_GAP_MS = 75 * 60 * 1000;
