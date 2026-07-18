@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Animated, KeyboardAvoidingView, Modal, Platform,
+  Alert, Animated, KeyboardAvoidingView, Modal, Platform,
   ScrollView,
   Text, TextInput,
   TouchableOpacity, View
@@ -15,7 +15,7 @@ import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
 import {
   DebugHealthSamples, fetchAndImportHealthData, fetchDebugHealthSamples,
-  getLastHealthSync, getStressHistory, isHealthKitAvailable,
+  getLastHealthSync, getStressHistory, initHealthKit, isHealthKitAvailable,
 } from '../../utils/applehealth';
 import { DEBUG_LOOKBACK_DAYS } from '../../utils/healthkitResolvers';
 
@@ -225,6 +225,7 @@ function DebugSamplesSection({ isDark, text, textMuted, border, card, colors }: 
 }) {
   const [data, setData] = useState<DebugHealthSamples | null>(null);
   const [loading, setLoading] = useState(false);
+  const [requestingAuth, setRequestingAuth] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -232,6 +233,24 @@ function DebugSamplesSection({ isDark, text, textMuted, border, card, colors }: 
       setData(await fetchDebugHealthSamples());
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Ruft initHealthKit() direkt auf — unabhängig vom Onboarding-Status, ohne App neu zu
+  // installieren oder onboardingDone zurückzusetzen. initHealthKit() selbst loggt die volle
+  // toRead-Liste + Ergebnis + Autorisierungsstatus pro Typ in die Konsole (Xcode/Metro).
+  async function requestAuth() {
+    setRequestingAuth(true);
+    try {
+      const ok = await initHealthKit();
+      Alert.alert(
+        'Health-Berechtigung angefragt',
+        `requestAuthorization() -> ${ok}\n\nDetails (toRead-Liste, Status pro Typ) siehe Konsole/Metro-Log.`
+      );
+    } catch (e: any) {
+      Alert.alert('Fehler', e?.message ?? String(e));
+    } finally {
+      setRequestingAuth(false);
     }
   }
 
@@ -248,9 +267,16 @@ function DebugSamplesSection({ isDark, text, textMuted, border, card, colors }: 
       </Text>
 
       <TouchableOpacity onPress={load} disabled={loading}
-        style={{ backgroundColor: '#F87171', borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginBottom: 14, opacity: loading ? 0.6 : 1 }}>
+        style={{ backgroundColor: '#F87171', borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginBottom: 10, opacity: loading ? 0.6 : 1 }}>
         <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>
           {loading ? 'Lade…' : data ? 'Neu laden' : 'Debug-Samples laden'}
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity onPress={requestAuth} disabled={requestingAuth}
+        style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: '#F87171', borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginBottom: 14, opacity: requestingAuth ? 0.6 : 1 }}>
+        <Text style={{ color: '#F87171', fontSize: 13, fontWeight: '700' }}>
+          {requestingAuth ? 'Frage an…' : 'Health-Berechtigung erneut anfragen'}
         </Text>
       </TouchableOpacity>
 

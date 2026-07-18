@@ -5,10 +5,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import {
+  AuthorizationRequestStatus,
+  AuthorizationStatus,
+  authorizationStatusFor,
   CategoryValueSleepAnalysis,
   enableBackgroundDelivery,
   getMostRecentQuantitySample,
+  getRequestStatusForAuthorization,
   isHealthDataAvailable,
+  type ObjectTypeIdentifier,
   queryCategorySamples,
   queryQuantitySamples,
   queryStatisticsForQuantity,
@@ -74,21 +79,72 @@ function isHealthKitAvailable(): boolean {
   return Platform.OS === 'ios' && isHealthDataAvailable();
 }
 
-export async function initHealthKit(): Promise<boolean> {
-  if (!isHealthKitAvailable()) return false;
-  return requestAuthorization({
-    toRead: [
-      'HKQuantityTypeIdentifierRestingHeartRate',
-      'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
-      'HKQuantityTypeIdentifierHeartRate',
-      'HKQuantityTypeIdentifierVO2Max',
-      'HKQuantityTypeIdentifierStepCount',
-      'HKQuantityTypeIdentifierActiveEnergyBurned',
-      'HKQuantityTypeIdentifierBasalEnergyBurned',
-      'HKCategoryTypeIdentifierSleepAnalysis',
-      'HKWorkoutTypeIdentifier',
-    ],
+/**
+ * Alle Read-Typen, die die App je irgendwo abfragt. Als eigene Konstante exportiert, damit
+ * sowohl initHealthKit() als auch der manuelle "Berechtigung erneut anfragen"-Debug-Button
+ * (app/(tabs)/health.tsx) garantiert dieselbe Liste verwenden.
+ */
+export const HEALTHKIT_READ_TYPES: readonly ObjectTypeIdentifier[] = [
+  'HKQuantityTypeIdentifierRestingHeartRate',
+  'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
+  'HKQuantityTypeIdentifierHeartRate',
+  'HKQuantityTypeIdentifierVO2Max',
+  'HKQuantityTypeIdentifierStepCount',
+  'HKQuantityTypeIdentifierActiveEnergyBurned',
+  'HKQuantityTypeIdentifierBasalEnergyBurned',
+  'HKCategoryTypeIdentifierSleepAnalysis',
+  'HKWorkoutTypeIdentifier',
+];
+
+/**
+ * Best-effort Diagnose NACH requestAuthorization(): loggt zuerst getRequestStatusForAuthorization
+ * (sagt, ob iOS für das übergebene Set überhaupt noch einen Prompt zeigen würde — "unnecessary"
+ * heißt: aus iOS-Sicht wurde für ALLE Typen im Set bereits eine Entscheidung getroffen), danach
+ * pro einzelnem Typ authorizationStatusFor().
+ *
+ * Achtung: Apple gibt aus Datenschutzgründen für reine LESE-Berechtigungen absichtlich NICHT
+ * zuverlässig preis, ob der Nutzer Zugriff gewährt oder verweigert hat — authorizationStatusFor()
+ * kann für "toRead"-Typen auch nach einer Ablehnung "sharingAuthorized" zurückgeben. Zuverlässig
+ * unterscheidbar ist nur "notDetermined" (= wurde diesem Gerät gegenüber nie gefragt) von "schon
+ * irgendeine Entscheidung getroffen".
+ */
+async function debugLogAuthorizationStatus(types: readonly ObjectTypeIdentifier[]): Promise<void> {
+  try {
+    const requestStatus = await getRequestStatusForAuthorization({ toRead: types });
+    console.log(`[Stride HealthKit] getRequestStatusForAuthorization: ${AuthorizationRequestStatus[requestStatus]} (${requestStatus})`);
+  } catch (e) {
+    console.log('[Stride HealthKit] getRequestStatusForAuthorization failed:', e);
+  }
+
+  types.forEach(type => {
+    try {
+      const status = authorizationStatusFor(type);
+      console.log(`[Stride HealthKit]   ${type}: ${AuthorizationStatus[status]} (${status})`);
+    } catch (e) {
+      console.log(`[Stride HealthKit]   ${type}: authorizationStatusFor failed:`, e);
+    }
   });
+}
+
+export async function initHealthKit(): Promise<boolean> {
+  if (!isHealthKitAvailable()) {
+    console.log('[Stride HealthKit] initHealthKit: HealthKit nicht verfügbar (falsche Plattform oder Expo Go statt Dev-Client-Build) — requestAuthorization wird NICHT aufgerufen.');
+    return false;
+  }
+
+  console.log('[Stride HealthKit] requestAuthorization toRead:', HEALTHKIT_READ_TYPES);
+  let ok = false;
+  try {
+    ok = await requestAuthorization({ toRead: HEALTHKIT_READ_TYPES });
+    console.log(`[Stride HealthKit] requestAuthorization resolved: ${ok}`);
+  } catch (e) {
+    console.log('[Stride HealthKit] requestAuthorization threw:', e);
+    throw e;
+  }
+
+  await debugLogAuthorizationStatus(HEALTHKIT_READ_TYPES);
+
+  return ok;
 }
 
 async function fetchLatestRestingHeartRate(): Promise<number | null> {
