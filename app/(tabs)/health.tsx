@@ -17,6 +17,7 @@ import {
   DebugHealthSamples, fetchAndImportHealthData, fetchDebugHealthSamples,
   getLastHealthSync, getStressHistory, isHealthKitAvailable,
 } from '../../utils/applehealth';
+import { DEBUG_LOOKBACK_DAYS } from '../../utils/healthkitResolvers';
 
 // ─── Storage Keys ─────────────────────────────────────────────────────────────
 const HEALTH_KEY = 'stride_health_history';
@@ -242,7 +243,9 @@ function DebugSamplesSection({ isDark, text, textMuted, border, card, colors }: 
   return (
     <View style={{ backgroundColor: card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#F87171', marginBottom: 12 }}>
       <Text style={{ color: '#F87171', fontSize: 13, fontWeight: '800', marginBottom: 4 }}>🐛 DEBUG: Apple Health Raw Samples</Text>
-      <Text style={{ color: textMuted, fontSize: 11, marginBottom: 12 }}>Temporär — letzte 3 Tage, ungefiltert direkt aus HealthKit.</Text>
+      <Text style={{ color: textMuted, fontSize: 11, marginBottom: 12 }}>
+        Temporär — ungefiltert direkt aus HealthKit. HRV/VO2max: letzte {DEBUG_LOOKBACK_DAYS} Tage · Schlaf: letzte 3 Tage.
+      </Text>
 
       <TouchableOpacity onPress={load} disabled={loading}
         style={{ backgroundColor: '#F87171', borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginBottom: 14, opacity: loading ? 0.6 : 1 }}>

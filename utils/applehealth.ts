@@ -18,6 +18,16 @@ import {
   UpdateFrequency,
   WorkoutActivityType,
 } from '@kingstinct/react-native-healthkit';
+import {
+  DEBUG_LOOKBACK_DAYS,
+  getFallAsleepTime,
+  getWakeTime,
+  isGarminSource,
+  resolveMainSleepSession,
+  resolvePreferredQuantitySample,
+  clusterSleepSessions,
+  type SourcedSample,
+} from './healthkitResolvers';
 
 const HEALTH_KEY = 'stride_health_history';
 const SLEEP_KEY = 'lastSleep';
@@ -86,37 +96,6 @@ async function fetchLatestRestingHeartRate(): Promise<number | null> {
   return sample ? Math.round(sample.quantity) : null;
 }
 
-interface SourcedSample {
-  sourceRevision?: { source?: { name?: string; bundleIdentifier?: string } };
-  device?: { name?: string; manufacturer?: string; model?: string };
-}
-
-/**
- * Apple Health führt für dieselbe Metrik oft mehrere Quellen (Garmin Connect, iPhone,
- * Apple Watch, andere Apps). Garmin-Werte sind die verlässlichsten (Chest-Strap/Watch-
- * Sensorik, echte nächtliche HRV-Summaries statt kurzer Spotchecks), daher bevorzugen
- * wir explizit Garmin-Samples. Garmin kann je nach Sync-Pfad entweder als App-Quelle
- * ("Garmin Connect", bundleIdentifier "com.garmin.connect...") ODER über das gekoppelte
- * Gerät (HKDevice.manufacturer "Garmin", model z.B. "Forerunner 265") auftauchen —
- * daher prüfen wir alle diese Felder statt uns auf eines zu verlassen.
- */
-function isGarminSource(sample: SourcedSample): boolean {
-  const haystack = [
-    sample.sourceRevision?.source?.name,
-    sample.sourceRevision?.source?.bundleIdentifier,
-    sample.device?.manufacturer,
-    sample.device?.name,
-    sample.device?.model,
-  ].filter(Boolean).join(' | ').toLowerCase();
-  return haystack.includes('garmin');
-}
-
-/** Wählt aus den Garmin-Samples, falls vorhanden, sonst aus allen Samples. */
-function preferGarmin<T extends SourcedSample>(samples: readonly T[]): readonly T[] {
-  const garmin = samples.filter(isGarminSource);
-  return garmin.length > 0 ? garmin : samples;
-}
-
 /** Debug: loggt alle Samples (Wert, Quelle, Gerät, Datum) — hilft zu sehen, was Apple Health wirklich liefert. */
 function debugLogSamples(label: string, samples: readonly (SourcedSample & { quantity: number; startDate: Date; endDate?: Date })[]): void {
   if (samples.length === 0) {
@@ -178,33 +157,40 @@ function sleepValueLabel(value: CategoryValueSleepAnalysis): string {
 }
 
 /**
- * Debug-Helfer: liest die rohen HRV-, VO2max- und Schlaf-Samples der letzten 3 Tage direkt
- * aus Apple Health, inklusive Quelle/Gerät/Zeitstempel — für die Debug-Ansicht im Health-Screen.
- * Keine Filterung/Aggregation, damit man sieht was HealthKit wirklich liefert.
+ * Debug-Helfer: liest die rohen HRV-, VO2max- und Schlaf-Samples direkt aus Apple Health,
+ * inklusive Quelle/Gerät/Zeitstempel — für die Debug-Ansicht im Health-Screen. HRV/VO2max nutzen
+ * das DEBUG_LOOKBACK_DAYS-Fenster (Metriken, die Garmin ggf. selten schreibt); der Schlaf-Bug ist
+ * ein Session-Clustering-Problem, kein Fenstergrößen-Problem, daher bleibt das Schlaf-Fenster bei
+ * 3 Tagen. Keine Filterung/Aggregation, damit man sieht was HealthKit wirklich liefert.
  */
 export async function fetchDebugHealthSamples(): Promise<DebugHealthSamples> {
   if (!isHealthKitAvailable()) return { hrv: [], vo2max: [], sleep: [] };
   const ok = await initHealthKit();
   if (!ok) return { hrv: [], vo2max: [], sleep: [] };
 
-  const since = new Date();
-  since.setDate(since.getDate() - 3);
-  since.setHours(0, 0, 0, 0);
+  const sinceMetrics = new Date();
+  sinceMetrics.setDate(sinceMetrics.getDate() - DEBUG_LOOKBACK_DAYS);
+  sinceMetrics.setHours(0, 0, 0, 0);
+
+  const sinceSleep = new Date();
+  sinceSleep.setDate(sinceSleep.getDate() - 3);
+  sinceSleep.setHours(0, 0, 0, 0);
 
   const [hrvSamples, vo2Samples, sleepSamples] = await Promise.all([
     queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', {
-      filter: { date: { startDate: since, endDate: new Date() } },
+      filter: { date: { startDate: sinceMetrics, endDate: new Date() } },
       limit: 0,
       ascending: false,
       unit: 'ms',
     }).catch(() => []),
     queryQuantitySamples('HKQuantityTypeIdentifierVO2Max', {
-      limit: 20,
+      filter: { date: { startDate: sinceMetrics, endDate: new Date() } },
+      limit: 0,
       ascending: false,
       unit: 'ml/(kg*min)',
     }).catch(() => []),
     queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', {
-      filter: { date: { startDate: since, endDate: new Date() } },
+      filter: { date: { startDate: sinceSleep, endDate: new Date() } },
       limit: 0,
       ascending: false,
     }).catch(() => []),
@@ -265,41 +251,45 @@ async function fetchLatestHRV(): Promise<number | null> {
       unit: 'ms',
     });
     debugLogSamples('HRV', samples);
-    if (samples.length > 0) {
-      const pool = preferGarmin(samples);
-      const longest = pool.reduce((a, b) =>
+    const resolved = resolvePreferredQuantitySample(samples, pool =>
+      pool.reduce((a, b) =>
         (b.endDate.getTime() - b.startDate.getTime()) > (a.endDate.getTime() - a.startDate.getTime()) ? b : a
-      );
-      return Math.round(longest.quantity);
-    }
+      )
+    );
+    return resolved ? Math.round(resolved.quantity) : null;
   } catch {
-    // fall through to most recent sample
+    return null;
   }
-
-  const sample = await getMostRecentQuantitySample('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', 'ms');
-  return sample ? Math.round(sample.quantity) : null;
 }
 
-/** Neuester VO2max-Wert, bevorzugt von Garmin Connect (sonst neuester über alle Quellen). */
+/**
+ * Neuester VO2max-Wert, bevorzugt von Garmin (gemessen) statt Apples eigener Schätzung.
+ * Garmin schreibt VO2max deutlich seltener als Apple (das bei praktisch jedem Lauf neu
+ * schätzt) — ohne weites Zeitfenster verdrängen Apples häufige Auto-Schätzungen Garmins
+ * seltenen, aber gemessenen Wert aus den "neuesten" Samples. Daher DEBUG_LOOKBACK_DAYS
+ * (90 Tage) statt nur der letzten paar Tage, und limit:0 (= unlimitiert laut Library-Typen,
+ * "Specify -1, 0 or any non-positive number for fetching all samples") statt einer festen
+ * Trefferzahl, die sonst genau dasselbe Verdrängungsproblem hätte.
+ */
 async function fetchLatestVo2Max(): Promise<number | null> {
+  const start = new Date();
+  start.setDate(start.getDate() - DEBUG_LOOKBACK_DAYS);
+
   try {
     const samples = await queryQuantitySamples('HKQuantityTypeIdentifierVO2Max', {
-      limit: 20,
+      filter: { date: { startDate: start, endDate: new Date() } },
+      limit: 0,
       ascending: false,
       unit: 'ml/(kg*min)',
     });
     debugLogSamples('VO2max', samples);
-    if (samples.length > 0) {
-      const pool = preferGarmin(samples);
-      // Samples sind bereits absteigend sortiert (ascending: false) — erster Treffer ist der neueste.
-      return Math.round(pool[0].quantity * 10) / 10;
-    }
+    // Default-Selector von resolvePreferredQuantitySample (erstes Element) passt hier direkt:
+    // Samples sind absteigend sortiert, also ist pool[0] das neueste Sample aus der bevorzugten Quelle.
+    const resolved = resolvePreferredQuantitySample(samples);
+    return resolved ? Math.round(resolved.quantity * 10) / 10 : null;
   } catch {
-    // fall through to most recent sample
+    return null;
   }
-
-  const sample = await getMostRecentQuantitySample('HKQuantityTypeIdentifierVO2Max', 'ml/(kg*min)');
-  return sample ? Math.round(sample.quantity * 10) / 10 : null;
 }
 
 interface SleepDetails {
@@ -314,8 +304,12 @@ interface SleepDetails {
 }
 
 /**
- * Liefert Schlafphasen (Tief/REM/Leicht/Wach in Minuten) sowie den Durchschnittspuls
- * während der letzten Nacht (12:00 Vortag bis jetzt) aus HealthKit.
+ * Liefert Schlafphasen (Tief/REM/Leicht/Wach in Minuten) sowie den Durchschnittspuls der
+ * Hauptschlaf-Session der letzten Nacht (12:00 Vortag bis jetzt) aus HealthKit.
+ * Gruppiert alle Sleep-Samples in Sessions (clusterSleepSessions) und wählt darunter gezielt
+ * die Session mit der größten Nachtfenster-Überlappung (resolveMainSleepSession) — ein
+ * zusätzlicher Mittagsschlaf im selben Zeitraum wird dadurch automatisch ausgeschlossen,
+ * statt fälschlich als früheste Einschlafzeit gewertet zu werden.
  */
 async function fetchLastNightSleepDetails(): Promise<SleepDetails | null> {
   const start = new Date();
@@ -328,31 +322,18 @@ async function fetchLastNightSleepDetails(): Promise<SleepDetails | null> {
     ascending: false,
   });
 
-  const ASLEEP_VALUES = new Set<CategoryValueSleepAnalysis>([
-    CategoryValueSleepAnalysis.asleepDeep,
-    CategoryValueSleepAnalysis.asleepREM,
-    CategoryValueSleepAnalysis.asleepCore,
-    CategoryValueSleepAnalysis.asleepUnspecified,
-  ]);
+  const sessions = clusterSleepSessions(samples);
+  const main = resolveMainSleepSession(sessions);
+  if (!main) return null;
+
+  const fallAsleep = getFallAsleepTime(main);
+  const wake = getWakeTime(main);
+  if (!fallAsleep || !wake) return null;
 
   let totalMs = 0, deepMs = 0, remMs = 0, lightMs = 0, awakeMs = 0;
-  let windowStart = '';
-  let windowEnd = '';
-
-  samples.forEach(s => {
+  main.samples.forEach(s => {
     const value = s.value as CategoryValueSleepAnalysis;
     const ms = s.endDate.getTime() - s.startDate.getTime();
-
-    // Bettzeit-Fenster (Einschlaf-/Aufwachzeit) NUR aus echten "Asleep"-Samples ableiten —
-    // "InBed" (0) kann irreführende/veraltete Einträge mit falscher Uhrzeit enthalten
-    // (z.B. ein Mittagsschlaf-Eintrag), die die Einschlafzeit sonst auf z.B. 13:43 verzerren.
-    if (ASLEEP_VALUES.has(value)) {
-      const startIso = s.startDate.toISOString();
-      const endIso = s.endDate.toISOString();
-      if (!windowStart || startIso < windowStart) windowStart = startIso;
-      if (!windowEnd || endIso > windowEnd) windowEnd = endIso;
-    }
-
     switch (value) {
       case CategoryValueSleepAnalysis.asleepDeep:
         deepMs += ms; totalMs += ms; break;
@@ -368,19 +349,20 @@ async function fetchLastNightSleepDetails(): Promise<SleepDetails | null> {
     }
   });
 
-  if (totalMs === 0 || !windowStart || !windowEnd) return null;
+  if (totalMs === 0) return null;
 
-  // Validierung: unplausible Werte verwerfen statt kaputte Daten anzuzeigen.
-  const durationHours = (new Date(windowEnd).getTime() - new Date(windowStart).getTime()) / 3600000;
+  // Validierung als zusätzliches Sicherheitsnetz — mit korrektem Session-Clustering sollte
+  // dies kaum noch greifen, schützt aber weiterhin vor unplausiblen Randfällen.
+  const durationHours = (wake.getTime() - fallAsleep.getTime()) / 3600000;
   if (durationHours < 2 || durationHours > 16) return null;
-  const bedHour = new Date(windowStart).getHours();
+  const bedHour = fallAsleep.getHours();
   const bedtimeIsPlausible = bedHour >= 18 || bedHour < 6;
   if (!bedtimeIsPlausible) return null;
 
   let avgHeartRate: number | null = null;
   try {
     const hrRes = await queryStatisticsForQuantity('HKQuantityTypeIdentifierHeartRate', ['discreteAverage'], {
-      filter: { date: { startDate: new Date(windowStart), endDate: new Date(windowEnd) } },
+      filter: { date: { startDate: fallAsleep, endDate: wake } },
       unit: 'count/min',
     });
     avgHeartRate = hrRes.averageQuantity ? Math.round(hrRes.averageQuantity.quantity) : null;
@@ -390,8 +372,8 @@ async function fetchLastNightSleepDetails(): Promise<SleepDetails | null> {
 
   return {
     hours: Math.round((totalMs / 3600000) * 10) / 10,
-    startDate: windowStart,
-    endDate: windowEnd,
+    startDate: fallAsleep.toISOString(),
+    endDate: wake.toISOString(),
     deepMin: Math.round(deepMs / 60000),
     remMin: Math.round(remMs / 60000),
     lightMin: Math.round(lightMs / 60000),
@@ -519,20 +501,36 @@ function sleepComponentScore(sleepHours: number, sleepQuality: number): number {
 /**
  * Sleep Score 0-100: Tiefschlaf 30% · Dauer 25% · REM 20% · HRV 15% · tiefster Puls 10%.
  * Geteilte Formel zwischen manuellem Sleep Log (app/sleep.tsx) und Apple Health Import.
+ * hrv/tiefsterPuls sind nullable: fehlt einer der beiden (z.B. weil Apple Health aktuell keine
+ * HRV-Samples liefert), fällt NICHT stillschweigend ein erfundener Wert (0) in die Rechnung —
+ * das würde HRV als schlechtestmöglichen Messwert werten und den Score künstlich drücken.
+ * Stattdessen wird die fehlende Gewichtung auf die übrigen Komponenten umgelegt (dieselbe
+ * Renormalisierung wie in calcRecovery(): gewichtete Summe geteilt durch die Summe der
+ * tatsächlich vorhandenen Gewichte — dadurch bleibt 100 weiterhin erreichbar, statt bei
+ * fehlendem HRV z.B. bei 85 gedeckelt zu sein).
  */
 export function calculateSleepScore(data: {
   schlafMin: number; tiefZeit: number; remZeit: number;
-  hrv: number; tiefsterPuls: number; avgPuls: number;
+  hrv: number | null; tiefsterPuls: number | null; avgPuls: number;
 }): number {
   const { schlafMin, tiefZeit, remZeit, hrv, tiefsterPuls } = data;
-  const deep = Math.min(tiefZeit / (schlafMin * 0.20), 1) * 30;
-  const dur = schlafMin < 300 ? (schlafMin / 360) * 25 :
-    schlafMin <= 540 ? 25 :
-    schlafMin <= 600 ? (1 - (schlafMin - 540) / 120) * 25 : 0;
-  const rem = Math.min(remZeit / (schlafMin * 0.22), 1) * 20;
-  const hrvScore = Math.min(hrv / 75, 1) * 15;
-  const pulse = Math.max(0, Math.min((65 - tiefsterPuls) / 25, 1)) * 10;
-  return Math.round(deep + dur + rem + hrvScore + pulse);
+  const deepPct = Math.min(tiefZeit / (schlafMin * 0.20), 1) * 100;
+  const durPct = schlafMin < 300 ? (schlafMin / 360) * 100 :
+    schlafMin <= 540 ? 100 :
+    schlafMin <= 600 ? (1 - (schlafMin - 540) / 120) * 100 : 0;
+  const remPct = Math.min(remZeit / (schlafMin * 0.22), 1) * 100;
+
+  let score = 0, w = 0;
+  score += deepPct * 0.30; w += 0.30;
+  score += durPct * 0.25; w += 0.25;
+  score += remPct * 0.20; w += 0.20;
+  if (hrv !== null) {
+    score += Math.min(hrv / 75, 1) * 100 * 0.15; w += 0.15;
+  }
+  if (tiefsterPuls !== null) {
+    score += Math.max(0, Math.min((65 - tiefsterPuls) / 25, 1)) * 100 * 0.10; w += 0.10;
+  }
+  return w > 0 ? Math.round(score / w) : 0;
 }
 
 export interface TrainingReadiness {
@@ -1020,8 +1018,12 @@ export async function fetchAndImportHealthData(): Promise<{ success: boolean; me
     const existingSleep = rawLastSleep ? JSON.parse(rawLastSleep) : {};
 
     const schlafMin = Math.round(sleep.hours * 60);
-    const hrvVal = hrv ?? existingSleep.hrv ?? 0;
-    const tiefsterPuls = restingHR ?? existingSleep.tiefsterPuls ?? 60;
+    // Kein Fallback mehr auf existingSleep.hrv/.tiefsterPuls — das war ein sich selbst
+    // verewigender Feedback-Loop: sobald ein Sync 0 Samples zurückbekommt, wurde einfach der
+    // (irgendwann veraltete) vorherige Wert unverändert zurückgeschrieben, jeden Tag aufs Neue,
+    // ohne Ablaufdatum. Bei fehlenden Live-Daten bleibt der Wert jetzt explizit null.
+    const hrvVal: number | null = hrv ?? null;
+    const tiefsterPuls: number | null = restingHR ?? null;
     const avgPuls = sleep.avgHeartRate ?? existingSleep.avgPuls ?? null;
 
     const sleepScore = calculateSleepScore({
