@@ -74,6 +74,7 @@ const translations = {
     menu_language: 'Sprache',
 
     // Home Edit Mode
+    home_customize: 'Anpassen',
     home_edit_title: 'Home anpassen',
     home_edit_subtitle: 'Karten ein-/ausblenden und per Ziehen neu anordnen.',
     home_edit_done: 'Fertig',
@@ -480,6 +481,7 @@ const translations = {
     menu_language: 'Language',
 
     // Home Edit Mode
+    home_customize: 'Customize',
     home_edit_title: 'Customize Home',
     home_edit_subtitle: 'Show/hide cards and drag to reorder.',
     home_edit_done: 'Done',

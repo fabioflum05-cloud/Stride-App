@@ -12,6 +12,10 @@ import {
 import Svg, { Circle, Line, Path, Polyline, Text as SvgText } from 'react-native-svg';
 import { GradientBar } from '../../components/GradientBar';
 import { useLanguage } from '../../constants/LanguageContext';
+import {
+  CalorieStrategy, CalorieStrategyMode, DEFAULT_STRATEGY,
+  getEffectiveNutritionGoal, saveCalorieStrategy,
+} from '../../utils/nutritionGoal';
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
 
 const W = Dimensions.get('window').width;
@@ -444,64 +448,34 @@ function AddOptionsSheet({ onBarcode, onCamera, onGallery, onManual, onClose, lo
   );
 }
 
-function AIContextModal({ food, loading, onReanalyze, onDone, lang }: {
-  food: Partial<FoodEntry>; loading: boolean;
-  onReanalyze: (context: string) => void; onDone: () => void; lang: string;
+function AIContextModal({ onSubmit, onClose, lang }: {
+  onSubmit: (context: string) => void; onClose: () => void; lang: string;
 }) {
   const [context, setContext] = useState('');
 
-  function submit() {
-    const trimmed = context.trim();
-    if (!trimmed) { onDone(); return; }
-    onReanalyze(trimmed);
-    setContext('');
-  }
-
   return (
-    <Modal visible animationType="slide" transparent>
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':'height'} style={{flex:1,justifyContent:'flex-end'}}>
-        <TouchableOpacity style={{flex:1}} activeOpacity={1} onPress={onDone}/>
+        <TouchableOpacity style={{flex:1}} activeOpacity={1} onPress={onClose}/>
         <View style={{backgroundColor:c.bg,borderTopLeftRadius:28,borderTopRightRadius:28,padding:24,gap:14}}>
           <Text style={{fontSize:18,fontWeight:'800',color:c.text,letterSpacing:-0.4}}>
-            {lang==='en'?'🍽 Meal detected':'🍽 Mahlzeit erkannt'}
+            {lang==='en'?'🍽 What\'s in the photo?':'🍽 Was ist auf dem Foto?'}
+          </Text>
+          <Text style={{fontSize:13,color:c.textSec}}>
+            {lang==='en'?'Optional — helps the AI estimate more accurately (hidden ingredients, side dishes, portion size…).':'Optional — hilft der KI bei einer genaueren Schätzung (versteckte Zutaten, Beilagen, Portionsgröße…).'}
           </Text>
 
-          {loading ? (
-            <View style={{paddingVertical:24,alignItems:'center',gap:10}}>
-              <ActivityIndicator color={c.greenDark}/>
-              <Text style={{color:c.textSec,fontSize:13}}>{lang==='en'?'Re-analyzing…':'Analysiere erneut…'}</Text>
-            </View>
-          ) : (
-            <>
-              <Text style={{fontSize:16,fontWeight:'700',color:c.text}}>{food.label}</Text>
-              <View style={{flexDirection:'row',justifyContent:'space-around',backgroundColor:'rgba(58,122,192,0.08)',borderRadius:14,padding:14}}>
-                {[
-                  {l:'kcal',v:Math.round(food.macros?.kcal||0),cl:'#D97706'},
-                  {l:'Protein',v:Math.round(food.macros?.protein||0),cl:c.blue},
-                  {l:lang==='en'?'Carbs':'KH',v:Math.round(food.macros?.carbs||0),cl:c.green},
-                  {l:lang==='en'?'Fat':'Fett',v:Math.round(food.macros?.fat||0),cl:c.fat},
-                ].map(m=>(
-                  <View key={m.l} style={{alignItems:'center'}}>
-                    <Text style={{color:m.cl,fontSize:17,fontWeight:'800'}}>{m.v}</Text>
-                    <Text style={{color:c.textSec,fontSize:9,textTransform:'uppercase'}}>{m.l}</Text>
-                  </View>
-                ))}
-              </View>
-            </>
-          )}
-
-          <Text style={s.lbl}>{lang==='en'?'Anything to add?':'Noch etwas hinzufügen?'}</Text>
           <TextInput
-            style={[s.inp,{minHeight:70,textAlignVertical:'top'}]}
-            value={context} onChangeText={setContext} multiline editable={!loading}
-            placeholder={lang==='en'?'e.g. hidden ingredients, side dishes…':'z.B. versteckte Zutaten, Beilagen…'}
+            style={[s.inp,{minHeight:80,textAlignVertical:'top'}]}
+            value={context} onChangeText={setContext} multiline autoFocus
+            placeholder={lang==='en'?'e.g. with olive oil, ~400g, extra cheese…':'z.B. mit Olivenöl, ~400g, extra Käse…'}
             placeholderTextColor={c.textTer}
           />
 
-          <TouchableOpacity style={[s.darkBtn, loading && {opacity:0.5}]} onPress={submit} disabled={loading}>
-            <Text style={s.darkBtnTxt}>{context.trim() ? (lang==='en'?'Re-analyze':'Erneut analysieren') : (lang==='en'?'Continue':'Weiter')}</Text>
+          <TouchableOpacity style={s.darkBtn} onPress={()=>onSubmit(context.trim())}>
+            <Text style={s.darkBtnTxt}>{lang==='en'?'Analyze':'Analysieren'}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={{paddingVertical:10,alignItems:'center'}} onPress={onDone} disabled={loading}>
+          <TouchableOpacity style={{paddingVertical:10,alignItems:'center'}} onPress={()=>onSubmit('')}>
             <Text style={{color:c.textSec,fontSize:14,fontWeight:'600'}}>{lang==='en'?'Skip':'Überspringen'}</Text>
           </TouchableOpacity>
         </View>
@@ -622,30 +596,98 @@ function AddEntryModal({ prefill, onSave, onClose, lang }: { prefill?:Partial<Fo
   );
 }
 
-function GoalsModal({ goals, onSave, onClose, lang }: { goals:Macros; onSave:(g:Macros)=>void; onClose:()=>void; lang:string }) {
+function GoalsModal({ goals, strategy, burned, onSave, onSaveStrategy, onClose, lang }: {
+  goals:Macros; strategy:CalorieStrategy; burned:number|null;
+  onSave:(g:Macros)=>void; onSaveStrategy:(s:CalorieStrategy)=>void; onClose:()=>void; lang:string;
+}) {
   const [kcal,setKcal]       = useState(String(goals.kcal));
   const [protein,setProtein] = useState(String(goals.protein));
   const [carbs,setCarbs]     = useState(String(goals.carbs));
   const [fat,setFat]         = useState(String(goals.fat));
+  const [mode,setMode]       = useState<CalorieStrategyMode>(strategy.mode);
+  const [offsetMag,setOffsetMag] = useState(Math.abs(strategy.offset) || 300);
+
+  const isAuto = mode !== 'manual';
+  const offsetSigned = mode === 'bulk' ? offsetMag : mode === 'cut' ? -offsetMag : 0;
+  const previewKcal = burned !== null ? Math.max(1200, burned + offsetSigned) : null;
+
+  const MODES: { key: CalorieStrategyMode; label: string }[] = [
+    { key: 'bulk',     label: lang==='en'?'Gain weight':'Zunehmen' },
+    { key: 'maintain', label: lang==='en'?'Maintain':'Halten' },
+    { key: 'cut',      label: lang==='en'?'Lose weight':'Abnehmen' },
+    { key: 'manual',   label: lang==='en'?'Manual':'Manuell' },
+  ];
+
+  function save() {
+    onSaveStrategy({ mode, offset: offsetSigned });
+    const finalKcal = isAuto && previewKcal !== null ? previewKcal : (parseFloat(kcal)||2000);
+    onSave({ kcal: finalKcal, protein:parseFloat(protein)||150, carbs:parseFloat(carbs)||250, fat:parseFloat(fat)||70 });
+  }
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':'height'} style={{flex:1,justifyContent:'flex-end'}}>
-      <View style={{backgroundColor:c.bg,borderTopLeftRadius:28,borderTopRightRadius:28,padding:24,gap:12}}>
+      <ScrollView style={{backgroundColor:c.bg,borderTopLeftRadius:28,borderTopRightRadius:28,maxHeight:'88%'}} contentContainerStyle={{padding:24,gap:12}} keyboardShouldPersistTaps="handled">
         <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center'}}>
           <Text style={{fontSize:18,fontWeight:'800',color:c.text}}>{lang==='en'?'Daily Goals':'Tagesziele'}</Text>
           <TouchableOpacity onPress={onClose}><Svg width={14} height={14} viewBox="0 0 24 24" fill="none"><Path d="M18 6L6 18M6 6L18 18" stroke={c.text} strokeWidth={2} strokeLinecap="round"/></Svg></TouchableOpacity>
         </View>
+
+        <Text style={s.lbl}>{lang==='en'?'Calorie Strategy':'Kalorienstrategie'}</Text>
+        <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>
+          {MODES.map(m=>(
+            <TouchableOpacity key={m.key} onPress={()=>setMode(m.key)}
+              style={{paddingHorizontal:14,paddingVertical:9,borderRadius:20,backgroundColor:mode===m.key?c.text:'rgba(0,0,0,0.05)'}}>
+              <Text style={{fontSize:13,fontWeight:'700',color:mode===m.key?'#fff':c.textSec}}>{m.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {(mode==='bulk'||mode==='cut') && (
+          <View style={{flexDirection:'row',gap:8}}>
+            {[300,500].map(v=>(
+              <TouchableOpacity key={v} onPress={()=>setOffsetMag(v)}
+                style={{flex:1,paddingVertical:10,borderRadius:14,alignItems:'center',backgroundColor:offsetMag===v?(mode==='bulk'?'rgba(34,197,94,0.12)':'rgba(192,57,43,0.1)'):'rgba(0,0,0,0.04)',
+                  borderWidth:1,borderColor:offsetMag===v?(mode==='bulk'?c.green:c.red):c.border}}>
+                <Text style={{fontSize:13,fontWeight:'800',color:offsetMag===v?(mode==='bulk'?c.green:c.red):c.textSec}}>
+                  {mode==='bulk'?'+':'-'}{v} kcal
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {isAuto ? (
+          <View style={{backgroundColor:'rgba(58,122,192,0.08)',borderRadius:14,padding:14,gap:4}}>
+            {burned !== null ? (
+              <>
+                <Text style={{fontSize:11,color:c.textSec,fontWeight:'600'}}>
+                  {lang==='en'?'Burned today':'Heute verbrannt'}: {burned} kcal {offsetSigned!==0 ? (offsetSigned>0?`+ ${offsetSigned}`:`- ${Math.abs(offsetSigned)}`) : ''}
+                </Text>
+                <Text style={{fontSize:20,fontWeight:'800',color:c.blue}}>{previewKcal} kcal</Text>
+              </>
+            ) : (
+              <Text style={{fontSize:12,color:c.textSec}}>
+                {lang==='en'?'No Apple Health data yet today — falling back to manual value below.':'Noch keine Apple-Health-Daten heute — Ziel folgt dem manuellen Wert unten.'}
+              </Text>
+            )}
+          </View>
+        ) : null}
+
+        {(!isAuto || burned===null) && (
+          <View><Text style={s.lbl}>{lang==='en'?'Calories (kcal)':'Kalorien (kcal)'}</Text><TextInput style={s.inp} value={kcal} onChangeText={setKcal} keyboardType="numeric" placeholderTextColor={c.textTer}/></View>
+        )}
         {[
-          {l:lang==='en'?'Calories (kcal)':'Kalorien (kcal)',v:kcal,set:setKcal},
           {l:'Protein (g)',v:protein,set:setProtein},
           {l:lang==='en'?'Carbohydrates (g)':'Kohlenhydrate (g)',v:carbs,set:setCarbs},
           {l:lang==='en'?'Fat (g)':'Fett (g)',v:fat,set:setFat}
         ].map(f=>(
           <View key={f.l}><Text style={s.lbl}>{f.l}</Text><TextInput style={s.inp} value={f.v} onChangeText={f.set} keyboardType="numeric" placeholderTextColor={c.textTer}/></View>
         ))}
-        <TouchableOpacity style={s.darkBtn} onPress={()=>onSave({kcal:parseFloat(kcal)||2000,protein:parseFloat(protein)||150,carbs:parseFloat(carbs)||250,fat:parseFloat(fat)||70})}>
+        <TouchableOpacity style={s.darkBtn} onPress={save}>
           <Text style={s.darkBtnTxt}>{lang==='en'?'Save':'Speichern'}</Text>
         </TouchableOpacity>
-      </View>
+        <View style={{height:8}}/>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
@@ -947,12 +989,12 @@ export default function NutritionScreen() {
   const [prefill, setPrefill]                 = useState<Partial<FoodEntry>|undefined>();
   const [aiLoading, setAiLoading]             = useState(false);
   const [showAIContext, setShowAIContext]     = useState(false);
-  const [aiFood, setAiFood]                   = useState<Partial<FoodEntry>|null>(null);
   const [aiBase64, setAiBase64]               = useState<string|null>(null);
-  const [aiReanalyzing, setAiReanalyzing]     = useState(false);
   const [showReport, setShowReport]           = useState(false);
   const [reportText, setReportText]           = useState('');
   const [reportLoading, setReportLoading]     = useState(false);
+  const [strategy, setStrategy]               = useState<CalorieStrategy>(DEFAULT_STRATEGY);
+  const [burnedToday, setBurnedToday]         = useState<number|null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   async function handleDayReport() {
@@ -987,21 +1029,21 @@ export default function NutritionScreen() {
   async function loadDay(offset: number) {
     const key = getDateKey(offset);
     const raw = await AsyncStorage.getItem(`nutrition_${key}`);
-    const rawGoal = await AsyncStorage.getItem('nutritionGoal');
-    let goal = rawGoal ? JSON.parse(rawGoal) : DEFAULT_GOAL;
-    const rawProfile = await AsyncStorage.getItem('profile');
-    if (rawProfile) {
-      const prof = JSON.parse(rawProfile);
-      const bw = parseFloat(prof.weight||'70');
-      if (prof.goal==='Masse aufbauen') { goal.protein=Math.round(bw*2.2); goal.kcal=Math.round(bw*40); }
-      else if (prof.goal==='Fett verlieren') { goal.protein=Math.round(bw*2.0); goal.kcal=Math.round(bw*28); }
-    }
-    const rawWorkouts = await AsyncStorage.getItem('workouts');
+    const effective = await getEffectiveNutritionGoal(key);
+    setStrategy(effective.strategy);
+    setBurnedToday(effective.burned);
+    const goal: Macros = { kcal: effective.kcal, protein: effective.protein, carbs: effective.carbs, fat: effective.fat };
+
+    // Bei bulk/maintain/cut ist der Tagesverbrauch bereits über Apple Health (aktiv+passiv)
+    // ins Ziel eingerechnet — zusätzliches Workout-"burned" oben drauf würde doppelt zählen.
     let burned = 0;
-    if (rawWorkouts) {
-      const ws = JSON.parse(rawWorkouts);
-      const dayKey = getDateKey(offset);
-      ws.forEach((w:any) => { if (w.date?.startsWith(dayKey) && w.calories) burned += w.calories; });
+    if (effective.strategy.mode === 'manual') {
+      const rawWorkouts = await AsyncStorage.getItem('workouts');
+      if (rawWorkouts) {
+        const ws = JSON.parse(rawWorkouts);
+        const dayKey = getDateKey(offset);
+        ws.forEach((w:any) => { if (w.date?.startsWith(dayKey) && w.calories) burned += w.calories; });
+      }
     }
     if (raw) setDayLog({...JSON.parse(raw), goal, burned});
     else setDayLog({date:key, entries:[], goal, burned});
@@ -1057,45 +1099,40 @@ export default function NutritionScreen() {
         ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.4 })
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'] as any, base64: true, quality: 0.4 });
       if (result.canceled || !result.assets?.[0]?.base64) return;
-      setAiLoading(true);
-      const base64 = result.assets[0].base64;
-      const food = await analyzeWithAI(base64);
-      if (!food) { Alert.alert(lang==='en'?'Error':'Fehler', lang==='en'?'AI analysis failed.':'KI Analyse fehlgeschlagen.'); return; }
-      setAiBase64(base64);
-      setAiFood(food);
+      // Kontext-Dialog VOR der Analyse zeigen — die Analyse selbst startet erst danach (runAnalysis).
+      setAiBase64(result.assets[0].base64);
       setShowAIContext(true);
+    } catch (e: any) {
+      Alert.alert(lang==='en'?'Error':'Fehler', e?.message || String(e) || (lang==='en'?'Unknown error':'Unbekannter Fehler'));
+    }
+  }
+
+  async function runAnalysis(context: string) {
+    setShowAIContext(false);
+    if (!aiBase64) return;
+    setAiLoading(true);
+    try {
+      const food = await analyzeWithAI(aiBase64, context || undefined);
+      if (!food) { Alert.alert(lang==='en'?'Error':'Fehler', lang==='en'?'AI analysis failed.':'KI Analyse fehlgeschlagen.'); return; }
+      setPrefill(food);
+      setShowAddModal(true);
     } catch (e: any) {
       Alert.alert(lang==='en'?'Error':'Fehler', e?.message || String(e) || (lang==='en'?'Unknown error':'Unbekannter Fehler'));
     } finally {
       setAiLoading(false);
+      setAiBase64(null);
     }
-  }
-
-  async function handleAIReanalyze(context: string) {
-    if (!aiBase64) return;
-    setAiReanalyzing(true);
-    try {
-      const updated = await analyzeWithAI(aiBase64, context);
-      if (updated) setAiFood(updated);
-      else Alert.alert(lang==='en'?'Error':'Fehler', lang==='en'?'AI analysis failed.':'KI Analyse fehlgeschlagen.');
-    } catch (e: any) {
-      Alert.alert(lang==='en'?'Error':'Fehler', e?.message || String(e) || (lang==='en'?'Unknown error':'Unbekannter Fehler'));
-    } finally {
-      setAiReanalyzing(false);
-    }
-  }
-
-  function handleAIContextDone() {
-    setShowAIContext(false);
-    if (aiFood) { setPrefill(aiFood); setShowAddModal(true); }
-    setAiFood(null);
-    setAiBase64(null);
   }
 
   async function saveGoals(g: Macros) {
     await AsyncStorage.setItem('nutritionGoal', JSON.stringify(g));
     setDayLog(prev => ({...prev, goal:g}));
     setShowGoals(false);
+  }
+
+  async function saveStrategy(s: CalorieStrategy) {
+    await saveCalorieStrategy(s);
+    setStrategy(s);
   }
 
   const totals       = sumMacros(dayLog.entries);
@@ -1343,14 +1380,13 @@ export default function NutritionScreen() {
         </View>
       </Modal>
 
-      {showAIContext && aiFood && (
-        <AIContextModal lang={lang} food={aiFood} loading={aiReanalyzing}
-          onReanalyze={handleAIReanalyze} onDone={handleAIContextDone}/>
+      {showAIContext && (
+        <AIContextModal lang={lang} onSubmit={runAnalysis} onClose={()=>{setShowAIContext(false);setAiBase64(null);}}/>
       )}
 
       <Modal visible={showGoals} transparent animationType="slide">
         <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.3)'}}>
-          <GoalsModal lang={lang} goals={dayLog.goal} onSave={saveGoals} onClose={()=>setShowGoals(false)}/>
+          <GoalsModal lang={lang} goals={dayLog.goal} strategy={strategy} burned={burnedToday} onSave={saveGoals} onSaveStrategy={saveStrategy} onClose={()=>setShowGoals(false)}/>
         </View>
       </Modal>
 

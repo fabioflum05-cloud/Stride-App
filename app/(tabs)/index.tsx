@@ -14,6 +14,7 @@ import { translateMuscle, useLanguage } from '../../constants/LanguageContext';
 import { THEMES, useAppTheme } from '../../constants/ThemeContext';
 import { getTrainingReadiness, recalcBodyBattery, TrainingReadiness } from '../../utils/applehealth';
 import { DEFAULT_HOME_LAYOUT, getHomeLayout, HomeCardConfig, HomeCardId, saveHomeLayout } from '../../utils/homeLayout';
+import { getEffectiveNutritionGoal } from '../../utils/nutritionGoal';
 import { syncWidgetData } from '../../utils/widgetData';
 
 const W = Dimensions.get('window').width;
@@ -246,14 +247,14 @@ export default function HomeScreen() {
 
       await recalcBodyBattery();
 
-      const [rc, rs, rb, rp, rh, rn, rng, rj, rm] = await Promise.all([
+      const [rc, rs, rb, rp, rh, rn, effectiveGoal, rj, rm] = await Promise.all([
         AsyncStorage.getItem('lastCheckin'),
         AsyncStorage.getItem('lastSleep'),
         AsyncStorage.getItem('batteryData'),
         AsyncStorage.getItem('profile'),
         AsyncStorage.getItem('habits'),
         AsyncStorage.getItem(`nutrition_${today}`),
-        AsyncStorage.getItem('nutritionGoal'),
+        getEffectiveNutritionGoal(),
         AsyncStorage.getItem(`journal_${today}`),
         AsyncStorage.getItem('muscleRecovery'),
       ]);
@@ -261,7 +262,7 @@ export default function HomeScreen() {
       if (rs) { const s = JSON.parse(rs); if (isToday(s.date ?? '')) setSleep(s); }
       if (rb) { const b = JSON.parse(rb); if (isToday(b.date ?? '')) setBattery(b); }
       if (rp) setProfile(JSON.parse(rp));
-      const nutriGoal = rng ? JSON.parse(rng) : { kcal: 2000, protein: 150, carbs: 250, fat: 70 };
+      const nutriGoal = effectiveGoal;
       const nutriLog = rn ? JSON.parse(rn) : null;
       const nutriEntries: any[] = nutriLog?.entries ?? [];
       const nutriTotals = nutriEntries.reduce((s: any, e: any) => ({
@@ -402,18 +403,13 @@ export default function HomeScreen() {
                 </View>
               )}
             </View>
-            <View style={{ gap: 8 }}>
-              <TouchableOpacity onPress={() => setEditHomeOpen(true)} style={[s.iconBtn, { backgroundColor: colors.card, borderColor: cardBorder }]} activeOpacity={0.7}>
-                <Text style={{ fontSize: 16 }}>⚙️</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={openMenu} style={[s.iconBtn, { backgroundColor: colors.card, borderColor: cardBorder }]} activeOpacity={0.7}>
-                <View style={{ gap: 4, alignItems: 'center' }}>
-                  <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
-                  <View style={[s.menuLine, { width: 12, backgroundColor: textPrimary }]} />
-                  <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
-                </View>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity onPress={openMenu} style={[s.iconBtn, { backgroundColor: colors.card, borderColor: cardBorder }]} activeOpacity={0.7}>
+              <View style={{ gap: 4, alignItems: 'center' }}>
+                <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
+                <View style={[s.menuLine, { width: 12, backgroundColor: textPrimary }]} />
+                <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
+              </View>
+            </TouchableOpacity>
           </View>
 
           {(() => {
@@ -727,6 +723,12 @@ export default function HomeScreen() {
               .filter(c => c.visible && cards[c.id])
               .map(c => <React.Fragment key={c.id}>{cards[c.id]}</React.Fragment>);
           })()}
+
+          <TouchableOpacity onPress={() => setEditHomeOpen(true)} activeOpacity={0.6}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14 }}>
+            <Text style={{ fontSize: 13 }}>⚙️</Text>
+            <Text style={{ fontSize: 12, fontWeight: '600', color: textDim }}>{t('home_customize')}</Text>
+          </TouchableOpacity>
 
         </Animated.View>
       </ScrollView>

@@ -86,21 +86,54 @@ async function fetchLatestRestingHeartRate(): Promise<number | null> {
   return sample ? Math.round(sample.quantity) : null;
 }
 
+interface SourcedSample {
+  sourceRevision?: { source?: { name?: string; bundleIdentifier?: string } };
+  device?: { name?: string; manufacturer?: string; model?: string };
+}
+
 /**
  * Apple Health führt für dieselbe Metrik oft mehrere Quellen (Garmin Connect, iPhone,
  * Apple Watch, andere Apps). Garmin-Werte sind die verlässlichsten (Chest-Strap/Watch-
  * Sensorik, echte nächtliche HRV-Summaries statt kurzer Spotchecks), daher bevorzugen
- * wir explizit Samples deren Quelle "Garmin" im Namen trägt.
+ * wir explizit Garmin-Samples. Garmin kann je nach Sync-Pfad entweder als App-Quelle
+ * ("Garmin Connect", bundleIdentifier "com.garmin.connect...") ODER über das gekoppelte
+ * Gerät (HKDevice.manufacturer "Garmin", model z.B. "Forerunner 265") auftauchen —
+ * daher prüfen wir alle diese Felder statt uns auf eines zu verlassen.
  */
-function isGarminSource(sample: { sourceRevision?: { source?: { name?: string } } }): boolean {
-  const name = sample.sourceRevision?.source?.name ?? '';
-  return name.toLowerCase().includes('garmin');
+function isGarminSource(sample: SourcedSample): boolean {
+  const haystack = [
+    sample.sourceRevision?.source?.name,
+    sample.sourceRevision?.source?.bundleIdentifier,
+    sample.device?.manufacturer,
+    sample.device?.name,
+    sample.device?.model,
+  ].filter(Boolean).join(' | ').toLowerCase();
+  return haystack.includes('garmin');
 }
 
 /** Wählt aus den Garmin-Samples, falls vorhanden, sonst aus allen Samples. */
-function preferGarmin<T extends { sourceRevision?: { source?: { name?: string } } }>(samples: readonly T[]): readonly T[] {
+function preferGarmin<T extends SourcedSample>(samples: readonly T[]): readonly T[] {
   const garmin = samples.filter(isGarminSource);
   return garmin.length > 0 ? garmin : samples;
+}
+
+/** Debug: loggt alle Samples (Wert, Quelle, Gerät, Datum) — hilft zu sehen, was Apple Health wirklich liefert. */
+function debugLogSamples(label: string, samples: readonly (SourcedSample & { quantity: number; startDate: Date; endDate?: Date })[]): void {
+  if (samples.length === 0) {
+    console.log(`[Stride ${label}] keine Samples im Zeitfenster gefunden`);
+    return;
+  }
+  console.log(`[Stride ${label}] ${samples.length} Sample(s):`);
+  samples.forEach(s => {
+    console.log(
+      `  value=${s.quantity} source="${s.sourceRevision?.source?.name ?? '?'}" ` +
+      `bundleId="${s.sourceRevision?.source?.bundleIdentifier ?? '?'}" ` +
+      `device.manufacturer="${s.device?.manufacturer ?? '?'}" device.model="${s.device?.model ?? '?'}" ` +
+      `device.name="${s.device?.name ?? '?'}" ` +
+      `start=${s.startDate.toISOString()} end=${s.endDate?.toISOString() ?? '?'} ` +
+      `isGarmin=${isGarminSource(s)}`
+    );
+  });
 }
 
 /**
@@ -129,6 +162,7 @@ async function fetchLatestHRV(): Promise<number | null> {
       ascending: false,
       unit: 'ms',
     });
+    debugLogSamples('HRV', samples);
     if (samples.length > 0) {
       const pool = preferGarmin(samples);
       const longest = pool.reduce((a, b) =>
@@ -152,6 +186,7 @@ async function fetchLatestVo2Max(): Promise<number | null> {
       ascending: false,
       unit: 'ml/(kg*min)',
     });
+    debugLogSamples('VO2max', samples);
     if (samples.length > 0) {
       const pool = preferGarmin(samples);
       // Samples sind bereits absteigend sortiert (ascending: false) — erster Treffer ist der neueste.
@@ -191,18 +226,32 @@ async function fetchLastNightSleepDetails(): Promise<SleepDetails | null> {
     ascending: false,
   });
 
+  const ASLEEP_VALUES = new Set<CategoryValueSleepAnalysis>([
+    CategoryValueSleepAnalysis.asleepDeep,
+    CategoryValueSleepAnalysis.asleepREM,
+    CategoryValueSleepAnalysis.asleepCore,
+    CategoryValueSleepAnalysis.asleepUnspecified,
+  ]);
+
   let totalMs = 0, deepMs = 0, remMs = 0, lightMs = 0, awakeMs = 0;
   let windowStart = '';
   let windowEnd = '';
 
   samples.forEach(s => {
-    const startIso = s.startDate.toISOString();
-    const endIso = s.endDate.toISOString();
-    if (!windowStart || startIso < windowStart) windowStart = startIso;
-    if (!windowEnd || endIso > windowEnd) windowEnd = endIso;
-
+    const value = s.value as CategoryValueSleepAnalysis;
     const ms = s.endDate.getTime() - s.startDate.getTime();
-    switch (s.value as CategoryValueSleepAnalysis) {
+
+    // Bettzeit-Fenster (Einschlaf-/Aufwachzeit) NUR aus echten "Asleep"-Samples ableiten —
+    // "InBed" (0) kann irreführende/veraltete Einträge mit falscher Uhrzeit enthalten
+    // (z.B. ein Mittagsschlaf-Eintrag), die die Einschlafzeit sonst auf z.B. 13:43 verzerren.
+    if (ASLEEP_VALUES.has(value)) {
+      const startIso = s.startDate.toISOString();
+      const endIso = s.endDate.toISOString();
+      if (!windowStart || startIso < windowStart) windowStart = startIso;
+      if (!windowEnd || endIso > windowEnd) windowEnd = endIso;
+    }
+
+    switch (value) {
       case CategoryValueSleepAnalysis.asleepDeep:
         deepMs += ms; totalMs += ms; break;
       case CategoryValueSleepAnalysis.asleepREM:
@@ -217,7 +266,14 @@ async function fetchLastNightSleepDetails(): Promise<SleepDetails | null> {
     }
   });
 
-  if (totalMs === 0) return null;
+  if (totalMs === 0 || !windowStart || !windowEnd) return null;
+
+  // Validierung: unplausible Werte verwerfen statt kaputte Daten anzuzeigen.
+  const durationHours = (new Date(windowEnd).getTime() - new Date(windowStart).getTime()) / 3600000;
+  if (durationHours < 2 || durationHours > 16) return null;
+  const bedHour = new Date(windowStart).getHours();
+  const bedtimeIsPlausible = bedHour >= 18 || bedHour < 6;
+  if (!bedtimeIsPlausible) return null;
 
   let avgHeartRate: number | null = null;
   try {
