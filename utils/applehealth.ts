@@ -136,6 +136,108 @@ function debugLogSamples(label: string, samples: readonly (SourcedSample & { qua
   });
 }
 
+export interface DebugQuantitySample {
+  quantity: number;
+  unit: string;
+  sourceName: string;
+  bundleId: string;
+  deviceManufacturer: string;
+  deviceModel: string;
+  deviceName: string;
+  startDate: string;
+  endDate: string;
+  isGarmin: boolean;
+}
+
+export interface DebugSleepSample {
+  type: string;
+  sourceName: string;
+  bundleId: string;
+  deviceManufacturer: string;
+  deviceModel: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface DebugHealthSamples {
+  hrv: DebugQuantitySample[];
+  vo2max: DebugQuantitySample[];
+  sleep: DebugSleepSample[];
+}
+
+function sleepValueLabel(value: CategoryValueSleepAnalysis): string {
+  switch (value) {
+    case CategoryValueSleepAnalysis.inBed: return 'InBed';
+    case CategoryValueSleepAnalysis.asleepUnspecified: return 'AsleepUnspecified';
+    case CategoryValueSleepAnalysis.awake: return 'Awake';
+    case CategoryValueSleepAnalysis.asleepCore: return 'AsleepCore';
+    case CategoryValueSleepAnalysis.asleepDeep: return 'AsleepDeep';
+    case CategoryValueSleepAnalysis.asleepREM: return 'AsleepREM';
+    default: return `Unknown(${value})`;
+  }
+}
+
+/**
+ * Debug-Helfer: liest die rohen HRV-, VO2max- und Schlaf-Samples der letzten 3 Tage direkt
+ * aus Apple Health, inklusive Quelle/Gerät/Zeitstempel — für die Debug-Ansicht im Health-Screen.
+ * Keine Filterung/Aggregation, damit man sieht was HealthKit wirklich liefert.
+ */
+export async function fetchDebugHealthSamples(): Promise<DebugHealthSamples> {
+  if (!isHealthKitAvailable()) return { hrv: [], vo2max: [], sleep: [] };
+  const ok = await initHealthKit();
+  if (!ok) return { hrv: [], vo2max: [], sleep: [] };
+
+  const since = new Date();
+  since.setDate(since.getDate() - 3);
+  since.setHours(0, 0, 0, 0);
+
+  const [hrvSamples, vo2Samples, sleepSamples] = await Promise.all([
+    queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', {
+      filter: { date: { startDate: since, endDate: new Date() } },
+      limit: 0,
+      ascending: false,
+      unit: 'ms',
+    }).catch(() => []),
+    queryQuantitySamples('HKQuantityTypeIdentifierVO2Max', {
+      limit: 20,
+      ascending: false,
+      unit: 'ml/(kg*min)',
+    }).catch(() => []),
+    queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', {
+      filter: { date: { startDate: since, endDate: new Date() } },
+      limit: 0,
+      ascending: false,
+    }).catch(() => []),
+  ]);
+
+  const mapQuantity = (s: SourcedSample & { quantity: number; unit: string; startDate: Date; endDate: Date }): DebugQuantitySample => ({
+    quantity: Math.round(s.quantity * 100) / 100,
+    unit: s.unit,
+    sourceName: s.sourceRevision?.source?.name ?? '',
+    bundleId: s.sourceRevision?.source?.bundleIdentifier ?? '',
+    deviceManufacturer: s.device?.manufacturer ?? '',
+    deviceModel: s.device?.model ?? '',
+    deviceName: s.device?.name ?? '',
+    startDate: s.startDate.toISOString(),
+    endDate: s.endDate.toISOString(),
+    isGarmin: isGarminSource(s),
+  });
+
+  return {
+    hrv: hrvSamples.map(mapQuantity),
+    vo2max: vo2Samples.map(mapQuantity),
+    sleep: sleepSamples.map(s => ({
+      type: sleepValueLabel(s.value as CategoryValueSleepAnalysis),
+      sourceName: s.sourceRevision?.source?.name ?? '',
+      bundleId: s.sourceRevision?.source?.bundleIdentifier ?? '',
+      deviceManufacturer: s.device?.manufacturer ?? '',
+      deviceModel: s.device?.model ?? '',
+      startDate: s.startDate.toISOString(),
+      endDate: s.endDate.toISOString(),
+    })),
+  };
+}
+
 /**
  * HRV der letzten Nacht (12:00 Vortag bis jetzt).
  * HealthKit kennt nur den Typ HeartRateVariabilitySDNN — eine eigene RMSSD-Kennzahl

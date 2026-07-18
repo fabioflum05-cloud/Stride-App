@@ -13,7 +13,10 @@ import {
 import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
-import { fetchAndImportHealthData, getLastHealthSync, getStressHistory, isHealthKitAvailable } from '../../utils/applehealth';
+import {
+  DebugHealthSamples, fetchAndImportHealthData, fetchDebugHealthSamples,
+  getLastHealthSync, getStressHistory, isHealthKitAvailable,
+} from '../../utils/applehealth';
 
 // ─── Storage Keys ─────────────────────────────────────────────────────────────
 const HEALTH_KEY = 'stride_health_history';
@@ -193,6 +196,98 @@ function LineChart({ data, color, minVal, maxVal, isDark }: {
             stroke={color} strokeWidth={2} />
         ) : null)}
       </Svg>
+    </View>
+  );
+}
+
+// ─── TEMP DEBUG: Apple Health raw samples (HRV/VO2max/Sleep) ──────────────────
+// Zum Aufspüren des falschen Garmin-Filters und der falschen Schlafzeit — zeigt exakt
+// was HealthKit liefert (Wert, Quelle, Gerät, Zeitstempel), ungefiltert.
+function DebugSampleRow({ lines, isDark, highlight }: { lines: string[]; isDark: boolean; highlight?: boolean }) {
+  return (
+    <View style={{
+      paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, marginBottom: 6,
+      backgroundColor: highlight ? (isDark ? 'rgba(74,222,128,0.12)' : 'rgba(74,222,128,0.1)') : (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'),
+      borderWidth: highlight ? 1 : 0, borderColor: 'rgba(74,222,128,0.4)',
+    }}>
+      {lines.map((line, i) => (
+        <Text key={i} style={{ fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: isDark ? '#F5F0EE' : '#1A1209', lineHeight: 16 }}>
+          {line}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+function DebugSamplesSection({ isDark, text, textMuted, border, card, colors }: {
+  isDark: boolean; text: string; textMuted: string; border: string; card: string; colors: any;
+}) {
+  const [data, setData] = useState<DebugHealthSamples | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      setData(await fetchDebugHealthSamples());
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function fmtTime(iso: string): string {
+    const d = new Date(iso);
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  return (
+    <View style={{ backgroundColor: card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#F87171', marginBottom: 12 }}>
+      <Text style={{ color: '#F87171', fontSize: 13, fontWeight: '800', marginBottom: 4 }}>🐛 DEBUG: Apple Health Raw Samples</Text>
+      <Text style={{ color: textMuted, fontSize: 11, marginBottom: 12 }}>Temporär — letzte 3 Tage, ungefiltert direkt aus HealthKit.</Text>
+
+      <TouchableOpacity onPress={load} disabled={loading}
+        style={{ backgroundColor: '#F87171', borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginBottom: 14, opacity: loading ? 0.6 : 1 }}>
+        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>
+          {loading ? 'Lade…' : data ? 'Neu laden' : 'Debug-Samples laden'}
+        </Text>
+      </TouchableOpacity>
+
+      {data && (
+        <>
+          <Text style={{ color: text, fontSize: 12, fontWeight: '800', marginBottom: 6 }}>HRV — {data.hrv.length} Sample(s)</Text>
+          {data.hrv.length === 0 && <Text style={{ color: textMuted, fontSize: 11, marginBottom: 10 }}>Keine HRV-Samples in den letzten 3 Tagen gefunden.</Text>}
+          {data.hrv.map((s, i) => (
+            <DebugSampleRow key={i} isDark={isDark} highlight={s.isGarmin} lines={[
+              `value=${s.quantity} ${s.unit}   isGarmin=${s.isGarmin ? '✅' : '❌'}`,
+              `source="${s.sourceName || '—'}"  bundleId="${s.bundleId || '—'}"`,
+              `device.manufacturer="${s.deviceManufacturer || '—'}"  model="${s.deviceModel || '—'}"  name="${s.deviceName || '—'}"`,
+              `${fmtTime(s.startDate)} → ${fmtTime(s.endDate)}`,
+            ]} />
+          ))}
+
+          <View style={{ height: 10 }} />
+          <Text style={{ color: text, fontSize: 12, fontWeight: '800', marginBottom: 6 }}>VO2max — {data.vo2max.length} Sample(s)</Text>
+          {data.vo2max.length === 0 && <Text style={{ color: textMuted, fontSize: 11, marginBottom: 10 }}>Keine VO2max-Samples gefunden.</Text>}
+          {data.vo2max.map((s, i) => (
+            <DebugSampleRow key={i} isDark={isDark} highlight={s.isGarmin} lines={[
+              `value=${s.quantity} ${s.unit}   isGarmin=${s.isGarmin ? '✅' : '❌'}`,
+              `source="${s.sourceName || '—'}"  bundleId="${s.bundleId || '—'}"`,
+              `device.manufacturer="${s.deviceManufacturer || '—'}"  model="${s.deviceModel || '—'}"  name="${s.deviceName || '—'}"`,
+              `${fmtTime(s.startDate)} → ${fmtTime(s.endDate)}`,
+            ]} />
+          ))}
+
+          <View style={{ height: 10 }} />
+          <Text style={{ color: text, fontSize: 12, fontWeight: '800', marginBottom: 6 }}>Sleep — {data.sleep.length} Sample(s)</Text>
+          {data.sleep.length === 0 && <Text style={{ color: textMuted, fontSize: 11, marginBottom: 10 }}>Keine Sleep-Samples gefunden.</Text>}
+          {data.sleep.map((s, i) => (
+            <DebugSampleRow key={i} isDark={isDark} highlight={s.type.startsWith('Asleep')} lines={[
+              `type=${s.type}`,
+              `source="${s.sourceName || '—'}"  device="${s.deviceManufacturer || '—'} ${s.deviceModel || ''}"`,
+              `${fmtTime(s.startDate)} → ${fmtTime(s.endDate)}`,
+            ]} />
+          ))}
+        </>
+      )}
     </View>
   );
 }
@@ -704,6 +799,10 @@ export default function HealthScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+
+          {isHealthKitAvailable() && (
+            <DebugSamplesSection isDark={isDark} text={text} textMuted={textMuted} border={border} card={card} colors={colors} />
+          )}
 
         </Animated.View>
       </ScrollView>
