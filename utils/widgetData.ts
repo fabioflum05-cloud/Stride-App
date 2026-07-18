@@ -38,17 +38,17 @@ export interface WidgetConfig {
 }
 
 export const DEFAULT_WIDGET_CONFIG: WidgetConfig = {
-  small: ['battery'],
+  small: ['battery', 'streak'],
   medium: ['battery', 'readiness', 'streak'],
   large: ['battery', 'readiness', 'steps', 'calories', 'sleep', 'streak'],
-  lock: ['battery'],
+  lock: ['battery', 'readiness'],
 };
 
 export const WIDGET_SLOT_COUNTS: Record<keyof WidgetConfig, number> = {
-  small: 1,
+  small: 2,
   medium: 3,
   large: 6,
-  lock: 1,
+  lock: 2,
 };
 
 const CONFIG_KEY = 'widgetConfig';
@@ -405,19 +405,32 @@ async function buildWidgetData(lang: Lang): Promise<Record<WidgetMetricKey, Widg
   return data;
 }
 
+/** Letzte 7 Tage Recovery Score (0-100) für die Mini-Chart im großen Widget — als Trend-Verlauf für Body Battery/Readiness. */
+async function buildRecoveryHistory(): Promise<number[]> {
+  const rawHealth = await AsyncStorage.getItem('stride_health_history');
+  const hist: DayHealth[] = rawHealth ? JSON.parse(rawHealth) : [];
+  return hist
+    .filter(h => typeof h.recoveryScore === 'number' && h.recoveryScore > 0)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-7)
+    .map(h => h.recoveryScore);
+}
+
 /** Writes the latest widget data + config to the shared App Group and reloads all widget timelines. */
 export async function syncWidgetData(lang?: Lang): Promise<void> {
   if (Platform.OS !== 'ios' || !ExtensionStorageClass) return;
   try {
     const resolvedLang = lang ?? await getLang();
-    const [data, config] = await Promise.all([
+    const [data, config, history] = await Promise.all([
       buildWidgetData(resolvedLang),
       getWidgetConfig(),
+      buildRecoveryHistory(),
     ]);
 
     const storage = new ExtensionStorageClass(WIDGET_APP_GROUP);
     storage.set('widgetData', JSON.stringify(data));
     storage.set('widgetConfig', JSON.stringify(config));
+    storage.set('widgetHistory', JSON.stringify(history));
     storage.set('widgetLang', resolvedLang);
     storage.set('widgetUpdatedAt', new Date().toISOString());
     ExtensionStorageClass.reloadWidget();

@@ -86,6 +86,7 @@ struct StrideEntry: TimelineEntry {
   let date: Date
   let metrics: [String: MetricValue]
   let config: WidgetConfig
+  let history: [Double]
 }
 
 func loadEntry(date: Date = Date()) -> StrideEntry {
@@ -105,17 +106,26 @@ func loadEntry(date: Date = Date()) -> StrideEntry {
     config = decoded
   }
 
-  return StrideEntry(date: date, metrics: metrics, config: config)
+  var history: [Double] = [58, 64, 60, 72, 68, 75, 81]
+  if let raw = defaults?.string(forKey: "widgetHistory"),
+     let data = raw.data(using: .utf8),
+     let decoded = try? JSONDecoder().decode([Double].self, from: data) {
+    history = decoded
+  }
+
+  return StrideEntry(date: date, metrics: metrics, config: config, history: history)
 }
+
+private let placeholderHistory: [Double] = [58, 64, 60, 72, 68, 75, 81]
 
 struct Provider: TimelineProvider {
   func placeholder(in context: Context) -> StrideEntry {
-    StrideEntry(date: Date(), metrics: placeholderMetrics, config: placeholderConfig)
+    StrideEntry(date: Date(), metrics: placeholderMetrics, config: placeholderConfig, history: placeholderHistory)
   }
 
   func getSnapshot(in context: Context, completion: @escaping (StrideEntry) -> Void) {
     if context.isPreview {
-      completion(StrideEntry(date: Date(), metrics: placeholderMetrics, config: placeholderConfig))
+      completion(StrideEntry(date: Date(), metrics: placeholderMetrics, config: placeholderConfig, history: placeholderHistory))
     } else {
       completion(loadEntry())
     }
@@ -183,22 +193,57 @@ struct BatteryRingView: View {
 
 // MARK: - Shared building blocks
 
+/// SF Symbol per widget metric key (mirrors utils/widgetData.ts WidgetMetricKey).
+func metricIcon(for key: String?) -> String {
+  switch key {
+  case "battery": return "bolt.fill"
+  case "readiness": return "figure.run"
+  case "steps": return "figure.walk"
+  case "calories": return "flame.fill"
+  case "resting_hr": return "heart.fill"
+  case "hrv": return "waveform.path.ecg"
+  case "streak": return "flame"
+  case "next_workout": return "calendar"
+  case "sleep": return "moon.fill"
+  case "stress": return "brain.head.profile"
+  case "muscle_recovery": return "figure.strengthtraining.traditional"
+  case "weight": return "scalemass.fill"
+  case "nutrition": return "fork.knife"
+  case "vo2max": return "lungs.fill"
+  case "last_workout": return "clock.arrow.circlepath"
+  default: return "circle.fill"
+  }
+}
+
 struct MetricCell: View {
   let metric: MetricValue?
+  let metricKey: String?
   let valueSize: CGFloat
   let labelSize: CGFloat
 
+  init(metric: MetricValue?, metricKey: String? = nil, valueSize: CGFloat, labelSize: CGFloat) {
+    self.metric = metric
+    self.metricKey = metricKey
+    self.valueSize = valueSize
+    self.labelSize = labelSize
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 4) {
+        Image(systemName: metricIcon(for: metricKey))
+          .font(.system(size: labelSize + 1, weight: .semibold))
+          .foregroundColor(metric != nil ? Color(widgetColor: metric!.color) : labelColor)
+        Text((metric?.label ?? "Stride").uppercased())
+          .font(.system(size: labelSize, weight: .semibold))
+          .tracking(0.5)
+          .foregroundColor(labelColor)
+          .lineLimit(1)
+      }
       Text(metric?.value ?? "—")
         .font(.system(size: valueSize, weight: .bold, design: .rounded))
         .foregroundColor(metric != nil ? Color(widgetColor: metric!.color) : labelColor)
         .minimumScaleFactor(0.6)
-        .lineLimit(1)
-      Text((metric?.label ?? "Stride").uppercased())
-        .font(.system(size: labelSize, weight: .semibold))
-        .tracking(0.5)
-        .foregroundColor(labelColor)
         .lineLimit(1)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
@@ -226,7 +271,7 @@ struct MetricOrBatteryView: View {
       }
       .frame(maxWidth: .infinity)
     } else {
-      MetricCell(metric: metric, valueSize: valueSize, labelSize: labelSize)
+      MetricCell(metric: metric, metricKey: metricKey, valueSize: valueSize, labelSize: labelSize)
     }
   }
 }
@@ -237,31 +282,66 @@ struct SmallWidgetView: View {
   let entry: StrideEntry
 
   var body: some View {
-    let key = entry.config.small.first
-    let metric = key.flatMap { entry.metrics[$0] }
+    let mainKey = entry.config.small.first
+    let mainMetric = mainKey.flatMap { entry.metrics[$0] }
+    let subKey = entry.config.small.count > 1 ? entry.config.small[1] : nil
+    let subMetric = subKey.flatMap { entry.metrics[$0] }
 
     Group {
-      if key == "battery" {
-        VStack(spacing: 10) {
-          Spacer(minLength: 0)
-          BatteryRingView(metric: metric, size: 64)
-          Text((metric?.label ?? "Body Battery").uppercased())
-            .font(.system(size: 11, weight: .semibold))
-            .tracking(0.5)
-            .foregroundColor(labelColor)
-            .lineLimit(1)
-          Spacer(minLength: 0)
+      VStack(spacing: 8) {
+        Spacer(minLength: 0)
+        if mainKey == "battery" {
+          VStack(spacing: 6) {
+            BatteryRingView(metric: mainMetric, size: 62)
+            Text((mainMetric?.label ?? "Body Battery").uppercased())
+              .font(.system(size: 10, weight: .semibold))
+              .tracking(0.5)
+              .foregroundColor(labelColor)
+              .lineLimit(1)
+          }
+        } else {
+          VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 5) {
+              Image(systemName: metricIcon(for: mainKey))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(mainMetric != nil ? Color(widgetColor: mainMetric!.color) : labelColor)
+              Text((mainMetric?.label ?? "Stride").uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.5)
+                .foregroundColor(labelColor)
+                .lineLimit(1)
+            }
+            Text(mainMetric?.value ?? "—")
+              .font(.system(size: 32, weight: .bold, design: .rounded))
+              .foregroundColor(mainMetric != nil ? Color(widgetColor: mainMetric!.color) : labelColor)
+              .minimumScaleFactor(0.6)
+              .lineLimit(1)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else {
-        VStack(alignment: .leading) {
-          Spacer()
-          MetricCell(metric: metric, valueSize: 32, labelSize: 11)
+        Spacer(minLength: 0)
+        if let subMetric = subMetric {
+          Divider().background(dividerColor)
+          HStack(spacing: 5) {
+            Image(systemName: metricIcon(for: subKey))
+              .font(.system(size: 9, weight: .semibold))
+              .foregroundColor(labelColor)
+            Text(subMetric.label)
+              .font(.system(size: 9, weight: .semibold))
+              .foregroundColor(labelColor)
+              .lineLimit(1)
+            Spacer()
+            Text(subMetric.value)
+              .font(.system(size: 11, weight: .bold, design: .rounded))
+              .foregroundColor(Color(widgetColor: subMetric.color))
+              .lineLimit(1)
+              .minimumScaleFactor(0.7)
+          }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
       }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
-    .padding(18)
+    .padding(16)
     .containerBackground(for: .widget) { widgetBg }
   }
 }
@@ -289,6 +369,39 @@ struct MediumWidgetView: View {
   }
 }
 
+/// Minimal 7-point trend line (Recovery/Body Battery history) for the large widget.
+struct SparklineView: View {
+  let values: [Double]
+  let color: Color
+
+  var body: some View {
+    GeometryReader { geo in
+      let w = geo.size.width
+      let h = geo.size.height
+      let vMin = values.min() ?? 0
+      let vMax = values.max() ?? 100
+      let range = max(vMax - vMin, 1)
+      let stepX = values.count > 1 ? w / CGFloat(values.count - 1) : 0
+
+      Path { path in
+        for (i, v) in values.enumerated() {
+          let x = CGFloat(i) * stepX
+          let y = h - (CGFloat((v - vMin) / range) * h)
+          if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+          else { path.addLine(to: CGPoint(x: x, y: y)) }
+        }
+      }
+      .stroke(color, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+
+      if let last = values.last {
+        let x = CGFloat(values.count - 1) * stepX
+        let y = h - (CGFloat((last - vMin) / range) * h)
+        Circle().fill(color).frame(width: 6, height: 6).position(x: x, y: y)
+      }
+    }
+  }
+}
+
 struct LargeWidgetView: View {
   let entry: StrideEntry
 
@@ -299,7 +412,7 @@ struct LargeWidgetView: View {
     let pairs = keys.compactMap { key -> (String, MetricValue?)? in
       (key, entry.metrics[key])
     }
-    VStack(alignment: .leading, spacing: 18) {
+    VStack(alignment: .leading, spacing: 16) {
       Text("STRIDE")
         .font(.system(size: 11, weight: .bold))
         .tracking(1.5)
@@ -308,6 +421,16 @@ struct LargeWidgetView: View {
         ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
           let (key, metric) = pair
           MetricOrBatteryView(metricKey: key, metric: metric, ringSize: 56, valueSize: 22, labelSize: 10)
+        }
+      }
+      if entry.history.count > 1 {
+        VStack(alignment: .leading, spacing: 4) {
+          Text((keys.contains("readiness") ? "READINESS TREND" : "RECOVERY TREND"))
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(0.5)
+            .foregroundColor(labelColor)
+          SparklineView(values: entry.history, color: Color(widgetColor: "#4ADE80"))
+            .frame(height: 28)
         }
       }
       Spacer(minLength: 0)
@@ -320,18 +443,41 @@ struct LargeWidgetView: View {
 
 // MARK: - Lock screen widget views
 
+/// Extracts a 0-100 percent value from metrics whose value is inherently a score/percentage
+/// (Body Battery, Readiness, Sleep, Nutrition, Muscle Recovery). Returns nil for metrics that
+/// aren't naturally a percentage (steps, calories, weight, …), so those fall back to plain text.
+func percentValue(for key: String?, metric: MetricValue?) -> Double? {
+  guard let key = key, let metric = metric else { return nil }
+  let percentKeys: Set<String> = ["battery", "readiness", "sleep", "nutrition", "muscle_recovery"]
+  guard percentKeys.contains(key) else { return nil }
+  let digits = metric.value.filter { $0.isNumber }
+  guard let v = Double(digits) else { return nil }
+  return min(100, max(0, v))
+}
+
 struct LockRectangularView: View {
   let entry: StrideEntry
 
   var body: some View {
-    let metric = entry.config.lock.first.flatMap { entry.metrics[$0] }
-    VStack(alignment: .leading, spacing: 2) {
-      Text((metric?.label ?? "Stride").uppercased())
-        .font(.system(size: 10, weight: .semibold))
-      Text(metric?.value ?? "—")
-        .font(.system(size: 18, weight: .bold, design: .rounded))
-        .minimumScaleFactor(0.7)
-        .lineLimit(1)
+    let keys = Array(entry.config.lock.prefix(2))
+    let pairs = keys.compactMap { key -> (String, MetricValue?)? in (key, entry.metrics[key]) }
+    HStack(alignment: .top, spacing: 10) {
+      ForEach(Array(pairs.enumerated()), id: \.offset) { _, pair in
+        let (key, metric) = pair
+        VStack(alignment: .leading, spacing: 2) {
+          HStack(spacing: 3) {
+            Image(systemName: metricIcon(for: key)).font(.system(size: 9, weight: .semibold))
+            Text((metric?.label ?? "Stride").uppercased())
+              .font(.system(size: 9, weight: .semibold))
+              .lineLimit(1)
+          }
+          Text(metric?.value ?? "—")
+            .font(.system(size: 16, weight: .bold, design: .rounded))
+            .minimumScaleFactor(0.7)
+            .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+      }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .containerBackground(for: .widget) { Color.clear }
@@ -342,18 +488,31 @@ struct LockCircularView: View {
   let entry: StrideEntry
 
   var body: some View {
-    let metric = entry.config.lock.first.flatMap { entry.metrics[$0] }
+    let key = entry.config.lock.first
+    let metric = key.flatMap { entry.metrics[$0] }
+    let pct = percentValue(for: key, metric: metric)
+
     ZStack {
       AccessoryWidgetBackground()
-      VStack(spacing: 0) {
-        Text(metric?.value ?? "—")
-          .font(.system(size: 16, weight: .bold, design: .rounded))
-          .minimumScaleFactor(0.5)
-          .lineLimit(1)
-        Text((metric?.label ?? "Stride"))
-          .font(.system(size: 8))
-          .minimumScaleFactor(0.5)
-          .lineLimit(1)
+      if let pct = pct {
+        Gauge(value: pct, in: 0...100) {
+          Image(systemName: metricIcon(for: key))
+        } currentValueLabel: {
+          Text("\(Int(pct))")
+            .font(.system(size: 14, weight: .bold, design: .rounded))
+        }
+        .gaugeStyle(.accessoryCircularCapacity)
+      } else {
+        VStack(spacing: 0) {
+          Text(metric?.value ?? "—")
+            .font(.system(size: 16, weight: .bold, design: .rounded))
+            .minimumScaleFactor(0.5)
+            .lineLimit(1)
+          Text((metric?.label ?? "Stride"))
+            .font(.system(size: 8))
+            .minimumScaleFactor(0.5)
+            .lineLimit(1)
+        }
       }
     }
     .containerBackground(for: .widget) { Color.clear }

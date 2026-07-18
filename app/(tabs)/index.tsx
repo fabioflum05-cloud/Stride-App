@@ -8,9 +8,12 @@ import {
   TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
+import { EditHomeCardsModal } from '../../components/EditHomeCardsModal';
+import { GradientBar } from '../../components/GradientBar';
 import { translateMuscle, useLanguage } from '../../constants/LanguageContext';
 import { THEMES, useAppTheme } from '../../constants/ThemeContext';
 import { getTrainingReadiness, recalcBodyBattery, TrainingReadiness } from '../../utils/applehealth';
+import { DEFAULT_HOME_LAYOUT, getHomeLayout, HomeCardConfig, HomeCardId, saveHomeLayout } from '../../utils/homeLayout';
 import { syncWidgetData } from '../../utils/widgetData';
 
 const W = Dimensions.get('window').width;
@@ -210,6 +213,8 @@ export default function HomeScreen() {
   const [langPicker,   setLangPicker]   = useState(false);
   const [streak,       setStreak]       = useState(0);
   const [readiness,    setReadiness]    = useState<TrainingReadiness | null>(null);
+  const [homeLayout,   setHomeLayout]   = useState<HomeCardConfig[]>(DEFAULT_HOME_LAYOUT);
+  const [editHomeOpen, setEditHomeOpen] = useState(false);
 
   const fade     = useRef(new Animated.Value(0)).current;
   const menuX    = useRef(new Animated.Value(W)).current;
@@ -237,6 +242,7 @@ export default function HomeScreen() {
         else break;
       }
       setStreak(st);
+      setHomeLayout(await getHomeLayout());
 
       await recalcBodyBattery();
 
@@ -396,16 +402,25 @@ export default function HomeScreen() {
                 </View>
               )}
             </View>
-            <TouchableOpacity onPress={openMenu} style={[s.iconBtn, { backgroundColor: colors.card, borderColor: cardBorder }]} activeOpacity={0.7}>
-              <View style={{ gap: 4, alignItems: 'center' }}>
-                <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
-                <View style={[s.menuLine, { width: 12, backgroundColor: textPrimary }]} />
-                <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
-              </View>
-            </TouchableOpacity>
+            <View style={{ gap: 8 }}>
+              <TouchableOpacity onPress={() => setEditHomeOpen(true)} style={[s.iconBtn, { backgroundColor: colors.card, borderColor: cardBorder }]} activeOpacity={0.7}>
+                <Text style={{ fontSize: 16 }}>⚙️</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={openMenu} style={[s.iconBtn, { backgroundColor: colors.card, borderColor: cardBorder }]} activeOpacity={0.7}>
+                <View style={{ gap: 4, alignItems: 'center' }}>
+                  <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
+                  <View style={[s.menuLine, { width: 12, backgroundColor: textPrimary }]} />
+                  <View style={[s.menuLine, { backgroundColor: textPrimary }]} />
+                </View>
+              </TouchableOpacity>
+            </View>
           </View>
 
-          {/* PERFORMANCE SCORE */}
+          {(() => {
+            const cards: Partial<Record<HomeCardId, React.ReactNode>> = {};
+
+          /* PERFORMANCE SCORE */
+          cards.performance = (
           <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
               <Ring value={score} size={100} stroke={7} color={sc} track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
@@ -430,8 +445,10 @@ export default function HomeScreen() {
               </View>
             </View>
           </View>
+          );
 
-          {/* SLEEP */}
+          /* SLEEP */
+          cards.sleep = (
           <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View style={{ flex: 1 }}>
@@ -465,9 +482,7 @@ export default function HomeScreen() {
             </View>
             {sleepHours > 0 && (
               <View style={{ marginTop: 16 }}>
-                <View style={{ height: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)', borderRadius: 2, overflow: 'hidden' }}>
-                  <View style={{ height: 4, width: `${Math.min(100, (sleepHours / 9) * 100)}%`, backgroundColor: '#818CF8', borderRadius: 2 }} />
-                </View>
+                <GradientBar pct={(sleepHours / 9) * 100} color="#818CF8" trackColor={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'} height={4} />
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
                   <Text style={{ fontSize: 9, color: textDim }}>0h</Text>
                   <Text style={{ fontSize: 9, color: textDim }}>{lang === 'en' ? 'Goal: 8h' : 'Ziel: 8h'}</Text>
@@ -482,8 +497,10 @@ export default function HomeScreen() {
               </Svg>
             </TouchableOpacity>
           </View>
+          );
 
-          {/* ENERGY */}
+          /* ENERGY */
+          cards.energy = (
           <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
             <SectionLabel label={t('home_energy')} light={isDark} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
@@ -498,9 +515,7 @@ export default function HomeScreen() {
                    battLevel > 0  ? t('home_energy_low') :
                    t('home_energy_none')}
                 </Text>
-                <View style={{ height: 8, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)', borderRadius: 4, overflow: 'hidden' }}>
-                  <View style={{ height: 8, width: `${battLevel}%`, backgroundColor: battColor, borderRadius: 4 }} />
-                </View>
+                <GradientBar pct={battLevel} color={battColor} trackColor={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'} height={8} />
               </View>
               <View style={{ alignItems: 'center', gap: 4 }}>
                 <View style={{ width: 14, height: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)', borderRadius: 2 }} />
@@ -517,8 +532,10 @@ export default function HomeScreen() {
               </Svg>
             </TouchableOpacity>
           </View>
+          );
 
-          {/* NUTRITION */}
+          /* NUTRITION */
+          cards.nutrition = (
           <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View style={{ flex: 1 }}>
@@ -549,8 +566,10 @@ export default function HomeScreen() {
               </Svg>
             </TouchableOpacity>
           </View>
+          );
 
-          {/* TRAINING READINESS */}
+          /* TRAINING READINESS */
+          cards.readiness = (
           <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
             <SectionLabel label={t('home_readiness')} light={isDark} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -590,9 +609,10 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
           </View>
+          );
 
-          {/* HABITS */}
-          {habTotal > 0 && (
+          /* HABITS */
+          if (habTotal > 0) cards.habits = (
             <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
                 <View>
@@ -628,9 +648,10 @@ export default function HomeScreen() {
                 </View>
               ))}
             </View>
-          )}
+          );
 
-          {/* DAILY JOURNAL */}
+          /* DAILY JOURNAL */
+          cards.journal = (
           <TouchableOpacity onPress={() => setJournalOpen(true)}
             style={[s.card, { marginHorizontal: 16, marginBottom: 12,
               backgroundColor: journal ? colors.card : 'transparent',
@@ -668,8 +689,10 @@ export default function HomeScreen() {
               </View>
             )}
           </TouchableOpacity>
+          );
 
-          {/* TODAY'S TASKS */}
+          /* TODAY'S TASKS */
+          cards.todo = (
           <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 24 }]}>
             <SectionLabel label={t('home_todo')} light={isDark} />
             {[
@@ -698,6 +721,12 @@ export default function HomeScreen() {
               </TouchableOpacity>
             ))}
           </View>
+          );
+
+            return homeLayout
+              .filter(c => c.visible && cards[c.id])
+              .map(c => <React.Fragment key={c.id}>{cards[c.id]}</React.Fragment>);
+          })()}
 
         </Animated.View>
       </ScrollView>
@@ -796,6 +825,29 @@ export default function HomeScreen() {
       <JournalModal
         visible={journalOpen} entry={journal} accent={colors.accent}
         isDark={isDark} lang={lang} onSave={saveJournal} onClose={() => setJournalOpen(false)}
+      />
+
+      {/* HOME EDIT MODE */}
+      <EditHomeCardsModal
+        visible={editHomeOpen}
+        layout={homeLayout}
+        labels={{
+          performance: t('home_card_performance'),
+          sleep: t('home_card_sleep'),
+          energy: t('home_card_energy'),
+          nutrition: t('home_card_nutrition'),
+          readiness: t('home_card_readiness'),
+          habits: t('home_card_habits'),
+          journal: t('home_card_journal'),
+          todo: t('home_card_todo'),
+        }}
+        accent={colors.accent}
+        isDark={isDark}
+        title={t('home_edit_title')}
+        subtitle={t('home_edit_subtitle')}
+        doneLabel={t('home_edit_done')}
+        onChangeLayout={(next) => { setHomeLayout(next); saveHomeLayout(next); }}
+        onClose={() => setEditHomeOpen(false)}
       />
     </View>
   );

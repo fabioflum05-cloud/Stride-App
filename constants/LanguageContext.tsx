@@ -73,6 +73,19 @@ const translations = {
     menu_photos: 'Fortschrittsfotos',
     menu_language: 'Sprache',
 
+    // Home Edit Mode
+    home_edit_title: 'Home anpassen',
+    home_edit_subtitle: 'Karten ein-/ausblenden und per Ziehen neu anordnen.',
+    home_edit_done: 'Fertig',
+    home_card_performance: 'Performance Score',
+    home_card_sleep: 'Schlaf',
+    home_card_energy: 'Body Battery',
+    home_card_nutrition: 'Ernährung',
+    home_card_readiness: 'Trainingsbereitschaft',
+    home_card_habits: 'Habits',
+    home_card_journal: 'Tagesnotiz',
+    home_card_todo: 'Heute erledigen',
+
     // Training
     training_title: 'Training',
     training_start: 'Training starten',
@@ -465,6 +478,19 @@ const translations = {
     menu_friends: 'Friends',
     menu_photos: 'Progress Photos',
     menu_language: 'Language',
+
+    // Home Edit Mode
+    home_edit_title: 'Customize Home',
+    home_edit_subtitle: 'Show/hide cards and drag to reorder.',
+    home_edit_done: 'Done',
+    home_card_performance: 'Performance Score',
+    home_card_sleep: 'Sleep',
+    home_card_energy: 'Body Battery',
+    home_card_nutrition: 'Nutrition',
+    home_card_readiness: 'Training Readiness',
+    home_card_habits: 'Habits',
+    home_card_journal: 'Daily Note',
+    home_card_todo: "Today's Tasks",
 
     // Training
     training_title: 'Training',

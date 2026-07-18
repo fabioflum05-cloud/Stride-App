@@ -10,6 +10,7 @@ import {
   TextInput, TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle, Line, Path, Polyline, Text as SvgText } from 'react-native-svg';
+import { GradientBar } from '../../components/GradientBar';
 import { useLanguage } from '../../constants/LanguageContext';
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
 
@@ -49,7 +50,7 @@ type FoodEntry = {
 type DayLog = { date: string; entries: FoodEntry[]; goal: Macros; burned: number };
 
 const DEFAULT_GOAL: Macros = { kcal: 2000, protein: 150, carbs: 250, fat: 70 };
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
 
 function getDateKey(offset = 0) {
   const d = new Date();
@@ -150,10 +151,13 @@ function scoreColor(score: number): string {
   return c.red;
 }
 
-async function analyzeWithAI(base64: string): Promise<Partial<FoodEntry> | null> {
+async function analyzeWithAI(base64: string, extraContext?: string): Promise<Partial<FoodEntry> | null> {
   if (!GEMINI_API_KEY) {
     throw new Error('Gemini API-Key fehlt (EXPO_PUBLIC_GEMINI_API_KEY in .env.local).');
   }
+  const contextLine = extraContext?.trim()
+    ? `\n\nAdditional context from the user (hidden ingredients, side dishes, corrections, etc.) — take this into account: ${extraContext.trim()}`
+    : '';
   const response = await fetch(GEMINI_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -162,7 +166,7 @@ async function analyzeWithAI(base64: string): Promise<Partial<FoodEntry> | null>
           parts: [
             { inline_data: { mime_type: 'image/jpeg', data: base64 } },
             { text: `You are a nutrition expert. Analyze this meal carefully.
-Identify all visible ingredients and estimate the nutritional values as accurately as possible.
+Identify all visible ingredients and estimate the nutritional values as accurately as possible.${contextLine}
 Reply ONLY with valid JSON, no Markdown:
 {
   "label": "Meal name",
@@ -194,7 +198,7 @@ Reply ONLY with valid JSON, no Markdown:
 }` }
           ]
         }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 2048 }
+        generationConfig: { temperature: 0.1, maxOutputTokens: 4096 }
       })
     });
     const data = await response.json();
@@ -223,6 +227,40 @@ Reply ONLY with valid JSON, no Markdown:
         sodium: p.sodium||undefined,
       },
     };
+}
+
+/** Schätzt Mikronährstoffe per Gemini (Produktname + Makros → Werte), falls OpenFoodFacts keine liefert. */
+async function estimateMicrosWithAI(productName: string, macros: Macros): Promise<Micros | null> {
+  if (!GEMINI_API_KEY) return null;
+  try {
+    const prompt = `You are a nutrition expert. Estimate realistic micronutrient values for this food product based on its name and known macronutrients (values per the given amount, not necessarily per 100g).
+Product: ${productName}
+Macros: ${Math.round(macros.kcal)} kcal, ${Math.round(macros.protein)}g protein, ${Math.round(macros.carbs)}g carbs, ${Math.round(macros.fat)}g fat
+Reply ONLY with valid JSON, no Markdown, no explanation. Use 0 for negligible/unknown values:
+{"fiber":0,"sugar":0,"salt":0,"saturatedFat":0,"vitaminA":0,"vitaminB6":0,"vitaminB12":0,"vitaminC":0,"vitaminD":0,"vitaminE":0,"folate":0,"calcium":0,"iron":0,"magnesium":0,"zinc":0,"potassium":0,"phosphorus":0,"sodium":0}`;
+    const response = await fetch(GEMINI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) return null;
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!text) return null;
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const p = JSON.parse(cleaned);
+    const micros: Micros = {};
+    (Object.keys(p) as (keyof Micros)[]).forEach(k => {
+      const v = p[k];
+      if (typeof v === 'number' && v > 0) micros[k] = v;
+    });
+    return Object.keys(micros).length ? micros : null;
+  } catch {
+    return null;
+  }
 }
 
 async function generateDayReport(entries: FoodEntry[], goal: Macros, lang: string): Promise<string | null> {
@@ -322,7 +360,8 @@ function BarcodeScanner({ onResult, onClose, lang }: { onResult:(f:Partial<FoodE
       const v = (k:string) => { const val=n[`${k}_100g`]??n[`${k}_value`]??n[k]; return val!==undefined?Math.round(parseFloat(String(val))*10)/10:0; };
       const kcal = v('energy-kcal')||Math.round(v('energy')/4.184);
       const name = [p.brands,p.product_name].filter(Boolean).join(' – ')||(lang==='en'?'Unknown':'Unbekannt');
-      const micros: Micros = {
+      const offMacros = { kcal, protein: v('proteins'), carbs: v('carbohydrates'), fat: v('fat') };
+      let micros: Micros = {
         fiber: v('fiber')||undefined, sugar: v('sugars')||undefined,
         salt: v('salt')||undefined, saturatedFat: v('saturated-fat')||undefined,
         calcium: v('calcium')||undefined, iron: v('iron')||undefined,
@@ -330,7 +369,13 @@ function BarcodeScanner({ onResult, onClose, lang }: { onResult:(f:Partial<FoodE
         potassium: v('potassium')||undefined, sodium: v('sodium')||undefined,
         vitaminC: v('vitamin-c')||undefined, vitaminD: v('vitamin-d')||undefined,
       };
-      onResult({ label:name, unit:'g', source:'barcode', macros:{kcal,protein:v('proteins'),carbs:v('carbohydrates'),fat:v('fat')}, micros });
+      const knownMicroCount = Object.values(micros).filter(val => val !== undefined).length;
+      if (knownMicroCount < 3) {
+        // OpenFoodFacts liefert kaum Mikronährstoffe — Gemini anhand von Produktname + Makros schätzen lassen.
+        const estimated = await estimateMicrosWithAI(name, offMacros);
+        if (estimated) micros = { ...estimated, ...micros }; // echte OFF-Werte haben Vorrang vor KI-Schätzung
+      }
+      onResult({ label:name, unit:'g', source:'barcode', macros:offMacros, micros });
     } catch (e:any) {
       Alert.alert(lang==='en'?'Error':'Fehler', e?.name==='AbortError'?(lang==='en'?'Timeout.':'Zeitüberschreitung.'):(lang==='en'?'Network error.':'Netzwerkfehler.'),[
         {text:lang==='en'?'Cancel':'Abbrechen',style:'cancel',onPress:()=>{ref.current=false;setScanned(false);setLoading(false);}},
@@ -396,6 +441,72 @@ function AddOptionsSheet({ onBarcode, onCamera, onGallery, onManual, onClose, lo
         </TouchableOpacity>
       </View>
     </View>
+  );
+}
+
+function AIContextModal({ food, loading, onReanalyze, onDone, lang }: {
+  food: Partial<FoodEntry>; loading: boolean;
+  onReanalyze: (context: string) => void; onDone: () => void; lang: string;
+}) {
+  const [context, setContext] = useState('');
+
+  function submit() {
+    const trimmed = context.trim();
+    if (!trimmed) { onDone(); return; }
+    onReanalyze(trimmed);
+    setContext('');
+  }
+
+  return (
+    <Modal visible animationType="slide" transparent>
+      <KeyboardAvoidingView behavior={Platform.OS==='ios'?'padding':'height'} style={{flex:1,justifyContent:'flex-end'}}>
+        <TouchableOpacity style={{flex:1}} activeOpacity={1} onPress={onDone}/>
+        <View style={{backgroundColor:c.bg,borderTopLeftRadius:28,borderTopRightRadius:28,padding:24,gap:14}}>
+          <Text style={{fontSize:18,fontWeight:'800',color:c.text,letterSpacing:-0.4}}>
+            {lang==='en'?'🍽 Meal detected':'🍽 Mahlzeit erkannt'}
+          </Text>
+
+          {loading ? (
+            <View style={{paddingVertical:24,alignItems:'center',gap:10}}>
+              <ActivityIndicator color={c.greenDark}/>
+              <Text style={{color:c.textSec,fontSize:13}}>{lang==='en'?'Re-analyzing…':'Analysiere erneut…'}</Text>
+            </View>
+          ) : (
+            <>
+              <Text style={{fontSize:16,fontWeight:'700',color:c.text}}>{food.label}</Text>
+              <View style={{flexDirection:'row',justifyContent:'space-around',backgroundColor:'rgba(58,122,192,0.08)',borderRadius:14,padding:14}}>
+                {[
+                  {l:'kcal',v:Math.round(food.macros?.kcal||0),cl:'#D97706'},
+                  {l:'Protein',v:Math.round(food.macros?.protein||0),cl:c.blue},
+                  {l:lang==='en'?'Carbs':'KH',v:Math.round(food.macros?.carbs||0),cl:c.green},
+                  {l:lang==='en'?'Fat':'Fett',v:Math.round(food.macros?.fat||0),cl:c.fat},
+                ].map(m=>(
+                  <View key={m.l} style={{alignItems:'center'}}>
+                    <Text style={{color:m.cl,fontSize:17,fontWeight:'800'}}>{m.v}</Text>
+                    <Text style={{color:c.textSec,fontSize:9,textTransform:'uppercase'}}>{m.l}</Text>
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+
+          <Text style={s.lbl}>{lang==='en'?'Anything to add?':'Noch etwas hinzufügen?'}</Text>
+          <TextInput
+            style={[s.inp,{minHeight:70,textAlignVertical:'top'}]}
+            value={context} onChangeText={setContext} multiline editable={!loading}
+            placeholder={lang==='en'?'e.g. hidden ingredients, side dishes…':'z.B. versteckte Zutaten, Beilagen…'}
+            placeholderTextColor={c.textTer}
+          />
+
+          <TouchableOpacity style={[s.darkBtn, loading && {opacity:0.5}]} onPress={submit} disabled={loading}>
+            <Text style={s.darkBtnTxt}>{context.trim() ? (lang==='en'?'Re-analyze':'Erneut analysieren') : (lang==='en'?'Continue':'Weiter')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={{paddingVertical:10,alignItems:'center'}} onPress={onDone} disabled={loading}>
+            <Text style={{color:c.textSec,fontSize:14,fontWeight:'600'}}>{lang==='en'?'Skip':'Überspringen'}</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -622,9 +733,7 @@ function MacroDetailModal({ entries, goal, onClose, lang }: { entries:FoodEntry[
                   <Text style={{fontSize:16,fontWeight:'700',color:c.text}}>{item.l}</Text>
                   <Text style={{fontSize:16,fontWeight:'800',color:item.cl}}>{Math.round(item.v)}g <Text style={{fontSize:12,color:c.textSec}}>/ {item.g}g</Text></Text>
                 </View>
-                <View style={{height:8,backgroundColor:c.border,borderRadius:4,overflow:'hidden'}}>
-                  <View style={{width:`${pct}%` as any,height:8,backgroundColor:item.cl,borderRadius:4}}/>
-                </View>
+                <GradientBar pct={pct} color={item.cl} trackColor={c.border} height={8} />
                 <Text style={{fontSize:10,color:c.textSec,marginTop:4}}>{Math.round(pct)}% {lang==='en'?'reached':'erreicht'}</Text>
               </View>
             );
@@ -794,9 +903,7 @@ function NutriVerlaufScreen({ onClose, allLogs, lang }: { onClose:()=>void; allL
                 <Text style={{fontSize:13,fontWeight:'600',color:c.text}}>{item.l}</Text>
                 <Text style={{fontSize:13,fontWeight:'800',color:item.cl}}>Ø {item.val}/100</Text>
               </View>
-              <View style={{height:6,backgroundColor:c.border,borderRadius:3,overflow:'hidden'}}>
-                <View style={{width:`${item.val}%` as any,height:6,backgroundColor:item.cl,borderRadius:3}}/>
-              </View>
+              <GradientBar pct={item.val} color={item.cl} trackColor={c.border} height={6} />
             </View>
           ))}
         </View>
@@ -839,6 +946,10 @@ export default function NutritionScreen() {
   const [activeMeal, setActiveMeal]           = useState<MealSlot|null>(null);
   const [prefill, setPrefill]                 = useState<Partial<FoodEntry>|undefined>();
   const [aiLoading, setAiLoading]             = useState(false);
+  const [showAIContext, setShowAIContext]     = useState(false);
+  const [aiFood, setAiFood]                   = useState<Partial<FoodEntry>|null>(null);
+  const [aiBase64, setAiBase64]               = useState<string|null>(null);
+  const [aiReanalyzing, setAiReanalyzing]     = useState(false);
   const [showReport, setShowReport]           = useState(false);
   const [reportText, setReportText]           = useState('');
   const [reportLoading, setReportLoading]     = useState(false);
@@ -947,30 +1058,38 @@ export default function NutritionScreen() {
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'] as any, base64: true, quality: 0.4 });
       if (result.canceled || !result.assets?.[0]?.base64) return;
       setAiLoading(true);
-      const food = await analyzeWithAI(result.assets[0].base64);
+      const base64 = result.assets[0].base64;
+      const food = await analyzeWithAI(base64);
       if (!food) { Alert.alert(lang==='en'?'Error':'Fehler', lang==='en'?'AI analysis failed.':'KI Analyse fehlgeschlagen.'); return; }
-      Alert.alert(
-        lang==='en'?'🍽 Meal detected':'🍽 Mahlzeit erkannt',
-        `${food.label}\n\n${Math.round(food.macros?.kcal||0)} kcal · ${Math.round(food.macros?.protein||0)}g Protein · ${Math.round(food.macros?.carbs||0)}g ${lang==='en'?'Carbs':'KH'} · ${Math.round(food.macros?.fat||0)}g ${lang==='en'?'Fat':'Fett'}\n\n${lang==='en'?'Is this correct?':'Stimmt das?'}`,
-        [
-          { text: lang==='en'?'Correct':'Korrigieren', onPress: () => { setPrefill(food); setShowAddModal(true); }},
-          { text: lang==='en'?'Add ✓':'Hinzufügen ✓', style: 'default', onPress: async () => {
-              const entry: any = {
-                id: Date.now().toString(), time: getTimeStr(),
-                label: food.label||(lang==='en'?'AI Analysis':'KI-Analyse'), amount: food.amount||100,
-                unit: food.unit||'g', source: 'ai', macros: food.macros, micros: food.micros,
-              };
-              await addEntry(entry);
-            }
-          },
-          { text: lang==='en'?'Cancel':'Abbrechen', style: 'cancel' },
-        ]
-      );
+      setAiBase64(base64);
+      setAiFood(food);
+      setShowAIContext(true);
     } catch (e: any) {
       Alert.alert(lang==='en'?'Error':'Fehler', e?.message || String(e) || (lang==='en'?'Unknown error':'Unbekannter Fehler'));
     } finally {
       setAiLoading(false);
     }
+  }
+
+  async function handleAIReanalyze(context: string) {
+    if (!aiBase64) return;
+    setAiReanalyzing(true);
+    try {
+      const updated = await analyzeWithAI(aiBase64, context);
+      if (updated) setAiFood(updated);
+      else Alert.alert(lang==='en'?'Error':'Fehler', lang==='en'?'AI analysis failed.':'KI Analyse fehlgeschlagen.');
+    } catch (e: any) {
+      Alert.alert(lang==='en'?'Error':'Fehler', e?.message || String(e) || (lang==='en'?'Unknown error':'Unbekannter Fehler'));
+    } finally {
+      setAiReanalyzing(false);
+    }
+  }
+
+  function handleAIContextDone() {
+    setShowAIContext(false);
+    if (aiFood) { setPrefill(aiFood); setShowAddModal(true); }
+    setAiFood(null);
+    setAiBase64(null);
   }
 
   async function saveGoals(g: Macros) {
@@ -1223,6 +1342,11 @@ export default function NutritionScreen() {
           <AddEntryModal lang={lang} prefill={prefill} onSave={addEntry} onClose={()=>{setShowAddModal(false);setPrefill(undefined);}}/>
         </View>
       </Modal>
+
+      {showAIContext && aiFood && (
+        <AIContextModal lang={lang} food={aiFood} loading={aiReanalyzing}
+          onReanalyze={handleAIReanalyze} onDone={handleAIContextDone}/>
+      )}
 
       <Modal visible={showGoals} transparent animationType="slide">
         <View style={{flex:1,backgroundColor:'rgba(0,0,0,0.3)'}}>

@@ -87,6 +87,23 @@ async function fetchLatestRestingHeartRate(): Promise<number | null> {
 }
 
 /**
+ * Apple Health führt für dieselbe Metrik oft mehrere Quellen (Garmin Connect, iPhone,
+ * Apple Watch, andere Apps). Garmin-Werte sind die verlässlichsten (Chest-Strap/Watch-
+ * Sensorik, echte nächtliche HRV-Summaries statt kurzer Spotchecks), daher bevorzugen
+ * wir explizit Samples deren Quelle "Garmin" im Namen trägt.
+ */
+function isGarminSource(sample: { sourceRevision?: { source?: { name?: string } } }): boolean {
+  const name = sample.sourceRevision?.source?.name ?? '';
+  return name.toLowerCase().includes('garmin');
+}
+
+/** Wählt aus den Garmin-Samples, falls vorhanden, sonst aus allen Samples. */
+function preferGarmin<T extends { sourceRevision?: { source?: { name?: string } } }>(samples: readonly T[]): readonly T[] {
+  const garmin = samples.filter(isGarminSource);
+  return garmin.length > 0 ? garmin : samples;
+}
+
+/**
  * HRV der letzten Nacht (12:00 Vortag bis jetzt).
  * HealthKit kennt nur den Typ HeartRateVariabilitySDNN — eine eigene RMSSD-Kennzahl
  * existiert dort nicht. Garmin berechnet seinen "HRV Status" intern aus RMSSD,
@@ -96,8 +113,9 @@ async function fetchLatestRestingHeartRate(): Promise<number | null> {
  * viele kurze (~5 Min) Tages-Spotchecks mit deutlich niedrigeren Werten — ein
  * einfacher Durchschnitt über die ganze Nacht (wie zuvor via discreteAverage)
  * wird dadurch nach unten verzerrt (z.B. auf ~33 statt dem echten nächtlichen Wert).
- * Daher: den Sample mit der längsten Dauer wählen — das ist der nächtliche
- * Summary-Wert (Garmin/Whoop/Oura-Stil), nicht ein kurzer Tages-Spotcheck.
+ * Daher: zuerst auf Garmin-Quelle filtern, dann darin (bzw. sonst über alle Quellen)
+ * den Sample mit der längsten Dauer wählen — das ist der nächtliche Summary-Wert
+ * (Garmin/Whoop/Oura-Stil), nicht ein kurzer Tages-Spotcheck.
  */
 async function fetchLatestHRV(): Promise<number | null> {
   const start = new Date();
@@ -112,7 +130,8 @@ async function fetchLatestHRV(): Promise<number | null> {
       unit: 'ms',
     });
     if (samples.length > 0) {
-      const longest = samples.reduce((a, b) =>
+      const pool = preferGarmin(samples);
+      const longest = pool.reduce((a, b) =>
         (b.endDate.getTime() - b.startDate.getTime()) > (a.endDate.getTime() - a.startDate.getTime()) ? b : a
       );
       return Math.round(longest.quantity);
@@ -125,7 +144,23 @@ async function fetchLatestHRV(): Promise<number | null> {
   return sample ? Math.round(sample.quantity) : null;
 }
 
+/** Neuester VO2max-Wert, bevorzugt von Garmin Connect (sonst neuester über alle Quellen). */
 async function fetchLatestVo2Max(): Promise<number | null> {
+  try {
+    const samples = await queryQuantitySamples('HKQuantityTypeIdentifierVO2Max', {
+      limit: 20,
+      ascending: false,
+      unit: 'ml/(kg*min)',
+    });
+    if (samples.length > 0) {
+      const pool = preferGarmin(samples);
+      // Samples sind bereits absteigend sortiert (ascending: false) — erster Treffer ist der neueste.
+      return Math.round(pool[0].quantity * 10) / 10;
+    }
+  } catch {
+    // fall through to most recent sample
+  }
+
   const sample = await getMostRecentQuantitySample('HKQuantityTypeIdentifierVO2Max', 'ml/(kg*min)');
   return sample ? Math.round(sample.quantity * 10) / 10 : null;
 }
@@ -638,7 +673,6 @@ async function syncAppleHealthWorkoutsInternal(): Promise<{ added: number }> {
   const repair = repairImplausibleDistances(existing);
   existing = repair.list;
   let refreshed = repair.changed;
-  const existingHkIds = new Set(existing.map(w => w.id));
 
   const newOnes: StoredWorkout[] = [];
   for (const w of hkWorkouts) {
