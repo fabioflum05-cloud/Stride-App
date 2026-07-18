@@ -2,9 +2,10 @@ import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { theme } from '../constants/theme';
 import { useLanguage } from '../constants/LanguageContext';
+import { saveManualHRV } from '../utils/applehealth';
 
 type LastSleep = {
   date?: string;
@@ -50,6 +51,9 @@ function formatDuration(min: number, lang: string): string {
 export default function SleepDetailsScreen() {
   const { lang } = useLanguage();
   const [sleep, setSleep] = useState<LastSleep | null>(null);
+  const [showHrvModal, setShowHrvModal] = useState(false);
+  const [hrvInput, setHrvInput] = useState('');
+  const [savingHrv, setSavingHrv] = useState(false);
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
@@ -60,6 +64,20 @@ export default function SleepDetailsScreen() {
       setSleep(isToday(s.date) ? s : null);
     } else {
       setSleep(null);
+    }
+  }
+
+  async function saveHrv() {
+    const v = parseInt(hrvInput, 10);
+    if (isNaN(v) || v <= 0 || v > 300) return;
+    setSavingHrv(true);
+    try {
+      await saveManualHRV(v);
+      setShowHrvModal(false);
+      setHrvInput('');
+      await load();
+    } finally {
+      setSavingHrv(false);
     }
   }
 
@@ -101,6 +119,7 @@ export default function SleepDetailsScreen() {
   const scoreColor = score >= 70 ? theme.green : score >= 50 ? theme.orange : theme.red;
 
   return (
+    <>
     <ScrollView style={{ flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 }} showsVerticalScrollIndicator={false}>
       <BackButton />
       <Text style={styles.headerLabel}>{lang === 'en' ? 'Sleep Details' : 'Schlafdetails'}</Text>
@@ -148,13 +167,23 @@ export default function SleepDetailsScreen() {
           {[
             { label: lang === 'en' ? 'Lowest Pulse' : 'Tiefster Puls', val: sleep.tiefsterPuls ?? sleep.restingHR, unit: 'bpm' },
             { label: lang === 'en' ? 'Avg. Pulse' : 'Ø Puls', val: sleep.avgPuls, unit: 'bpm' },
-            { label: 'HRV', val: sleep.hrv, unit: 'ms' },
           ].map(stat => (
             <View key={stat.label} style={styles.statItem}>
               <Text style={styles.statValue}>{stat.val ? `${stat.val}` : '—'}{stat.val ? <Text style={styles.statUnit}> {stat.unit}</Text> : null}</Text>
               <Text style={styles.statLabel}>{stat.label}</Text>
             </View>
           ))}
+          {sleep.hrv ? (
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{sleep.hrv}<Text style={styles.statUnit}> ms</Text></Text>
+              <Text style={styles.statLabel}>HRV</Text>
+            </View>
+          ) : (
+            <TouchableOpacity style={[styles.statItem, styles.hrvMissingItem]} onPress={() => setShowHrvModal(true)} activeOpacity={0.8}>
+              <Text style={styles.hrvMissingIcon}>+</Text>
+              <Text style={styles.hrvMissingLabel}>{lang === 'en' ? 'Add HRV' : 'HRV eintragen'}</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -170,6 +199,43 @@ export default function SleepDetailsScreen() {
 
       <View style={{ height: 80 }} />
     </ScrollView>
+
+    <Modal visible={showHrvModal} transparent animationType="slide" onRequestClose={() => setShowHrvModal(false)}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>HRV</Text>
+              <TouchableOpacity onPress={() => setShowHrvModal(false)} style={styles.modalCloseBtn}>
+                <Text style={styles.modalCloseText}>{lang === 'en' ? 'Cancel' : 'Abbrechen'}</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalHint}>
+              {lang === 'en'
+                ? 'Enter the HRV (RMSSD, ms) your smartwatch / Garmin Connect showed for last night.'
+                : 'Trage den HRV-Wert (RMSSD, ms) ein, den deine Smartwatch / Garmin Connect für letzte Nacht anzeigt.'}
+            </Text>
+            <TextInput
+              style={styles.modalInput}
+              value={hrvInput}
+              onChangeText={setHrvInput}
+              placeholder={lang === 'en' ? 'e.g. 58' : 'z. B. 58'}
+              placeholderTextColor={theme.textTertiary}
+              keyboardType="numeric"
+              autoFocus
+            />
+            <TouchableOpacity
+              onPress={saveHrv}
+              disabled={savingHrv || !hrvInput}
+              style={[styles.modalSaveBtn, (savingHrv || !hrvInput) && { opacity: 0.5 }]}
+            >
+              <Text style={styles.modalSaveText}>{savingHrv ? (lang === 'en' ? 'Saving…' : 'Speichere…') : (lang === 'en' ? 'Save' : 'Speichern')}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+    </>
   );
 }
 
@@ -204,4 +270,17 @@ const styles = StyleSheet.create({
   emptyText: { color: theme.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 20 },
   primaryBtn: { backgroundColor: theme.blue, borderRadius: 14, paddingHorizontal: 24, paddingVertical: 12 },
   primaryBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  hrvMissingItem: { backgroundColor: theme.orangeLight, borderRadius: 12, paddingVertical: 8, borderWidth: 1, borderColor: theme.orange },
+  hrvMissingIcon: { fontSize: 18, fontWeight: '800', color: theme.orange },
+  hrvMissingLabel: { color: theme.orange, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2, textAlign: 'center' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: theme.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: theme.textPrimary },
+  modalCloseBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: theme.cardSecondary },
+  modalCloseText: { color: theme.textSecondary, fontSize: 13, fontWeight: '600' },
+  modalHint: { color: theme.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 18 },
+  modalInput: { backgroundColor: theme.cardSecondary, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, color: theme.textPrimary, fontSize: 18, fontWeight: '600', textAlign: 'center', marginBottom: 20 },
+  modalSaveBtn: { backgroundColor: theme.blue, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
+  modalSaveText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 });

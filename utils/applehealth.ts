@@ -5,17 +5,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import {
-  AuthorizationRequestStatus,
-  AuthorizationStatus,
-  authorizationStatusFor,
   CategoryValueSleepAnalysis,
   enableBackgroundDelivery,
   getMostRecentQuantitySample,
-  getRequestStatusForAuthorization,
   isHealthDataAvailable,
   type ObjectTypeIdentifier,
   queryCategorySamples,
-  queryQuantitySamples,
   queryStatisticsForQuantity,
   queryWorkoutSamples,
   requestAuthorization,
@@ -24,19 +19,14 @@ import {
   WorkoutActivityType,
 } from '@kingstinct/react-native-healthkit';
 import {
-  DEBUG_LOOKBACK_DAYS,
+  clusterSleepSessions,
   getFallAsleepTime,
   getWakeTime,
-  isGarminSource,
   resolveMainSleepSession,
-  resolvePreferredQuantitySample,
-  clusterSleepSessions,
-  type SourcedSample,
 } from './healthkitResolvers';
 
 const HEALTH_KEY = 'stride_health_history';
 const SLEEP_KEY = 'lastSleep';
-const VO2_KEY = 'vo2maxData';
 const LAST_SYNC_KEY = 'appleHealthLastSync';
 const WORKOUTS_KEY = 'workouts';
 const BATTERY_KEY = 'batteryData';
@@ -79,16 +69,12 @@ function isHealthKitAvailable(): boolean {
   return Platform.OS === 'ios' && isHealthDataAvailable();
 }
 
-/**
- * Alle Read-Typen, die die App je irgendwo abfragt. Als eigene Konstante exportiert, damit
- * sowohl initHealthKit() als auch der manuelle "Berechtigung erneut anfragen"-Debug-Button
- * (app/(tabs)/health.tsx) garantiert dieselbe Liste verwenden.
- */
-export const HEALTHKIT_READ_TYPES: readonly ObjectTypeIdentifier[] = [
+/** Read-Typen, die die App tatsächlich automatisch synct. HRV und VO2max werden bewusst NICHT
+ * mehr angefragt — beide sind reine manuelle Eingabewerte (siehe saveManualHRV() und die
+ * VO2max-Eingabe in app/athlete-profile.tsx). */
+const HEALTHKIT_READ_TYPES: readonly ObjectTypeIdentifier[] = [
   'HKQuantityTypeIdentifierRestingHeartRate',
-  'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
   'HKQuantityTypeIdentifierHeartRate',
-  'HKQuantityTypeIdentifierVO2Max',
   'HKQuantityTypeIdentifierStepCount',
   'HKQuantityTypeIdentifierActiveEnergyBurned',
   'HKQuantityTypeIdentifierBasalEnergyBurned',
@@ -96,256 +82,14 @@ export const HEALTHKIT_READ_TYPES: readonly ObjectTypeIdentifier[] = [
   'HKWorkoutTypeIdentifier',
 ];
 
-/**
- * Best-effort Diagnose NACH requestAuthorization(): loggt zuerst getRequestStatusForAuthorization
- * (sagt, ob iOS für das übergebene Set überhaupt noch einen Prompt zeigen würde — "unnecessary"
- * heißt: aus iOS-Sicht wurde für ALLE Typen im Set bereits eine Entscheidung getroffen), danach
- * pro einzelnem Typ authorizationStatusFor().
- *
- * Achtung: Apple gibt aus Datenschutzgründen für reine LESE-Berechtigungen absichtlich NICHT
- * zuverlässig preis, ob der Nutzer Zugriff gewährt oder verweigert hat — authorizationStatusFor()
- * kann für "toRead"-Typen auch nach einer Ablehnung "sharingAuthorized" zurückgeben. Zuverlässig
- * unterscheidbar ist nur "notDetermined" (= wurde diesem Gerät gegenüber nie gefragt) von "schon
- * irgendeine Entscheidung getroffen".
- */
-async function debugLogAuthorizationStatus(types: readonly ObjectTypeIdentifier[]): Promise<void> {
-  try {
-    const requestStatus = await getRequestStatusForAuthorization({ toRead: types });
-    console.log(`[Stride HealthKit] getRequestStatusForAuthorization: ${AuthorizationRequestStatus[requestStatus]} (${requestStatus})`);
-  } catch (e) {
-    console.log('[Stride HealthKit] getRequestStatusForAuthorization failed:', e);
-  }
-
-  types.forEach(type => {
-    try {
-      const status = authorizationStatusFor(type);
-      console.log(`[Stride HealthKit]   ${type}: ${AuthorizationStatus[status]} (${status})`);
-    } catch (e) {
-      console.log(`[Stride HealthKit]   ${type}: authorizationStatusFor failed:`, e);
-    }
-  });
-}
-
 export async function initHealthKit(): Promise<boolean> {
-  if (!isHealthKitAvailable()) {
-    console.log('[Stride HealthKit] initHealthKit: HealthKit nicht verfügbar (falsche Plattform oder Expo Go statt Dev-Client-Build) — requestAuthorization wird NICHT aufgerufen.');
-    return false;
-  }
-
-  console.log('[Stride HealthKit] requestAuthorization toRead:', HEALTHKIT_READ_TYPES);
-  let ok = false;
-  try {
-    ok = await requestAuthorization({ toRead: HEALTHKIT_READ_TYPES });
-    console.log(`[Stride HealthKit] requestAuthorization resolved: ${ok}`);
-  } catch (e) {
-    console.log('[Stride HealthKit] requestAuthorization threw:', e);
-    throw e;
-  }
-
-  await debugLogAuthorizationStatus(HEALTHKIT_READ_TYPES);
-
-  return ok;
+  if (!isHealthKitAvailable()) return false;
+  return requestAuthorization({ toRead: HEALTHKIT_READ_TYPES });
 }
 
 async function fetchLatestRestingHeartRate(): Promise<number | null> {
   const sample = await getMostRecentQuantitySample('HKQuantityTypeIdentifierRestingHeartRate', 'count/min');
   return sample ? Math.round(sample.quantity) : null;
-}
-
-/** Debug: loggt alle Samples (Wert, Quelle, Gerät, Datum) — hilft zu sehen, was Apple Health wirklich liefert. */
-function debugLogSamples(label: string, samples: readonly (SourcedSample & { quantity: number; startDate: Date; endDate?: Date })[]): void {
-  if (samples.length === 0) {
-    console.log(`[Stride ${label}] keine Samples im Zeitfenster gefunden`);
-    return;
-  }
-  console.log(`[Stride ${label}] ${samples.length} Sample(s):`);
-  samples.forEach(s => {
-    console.log(
-      `  value=${s.quantity} source="${s.sourceRevision?.source?.name ?? '?'}" ` +
-      `bundleId="${s.sourceRevision?.source?.bundleIdentifier ?? '?'}" ` +
-      `device.manufacturer="${s.device?.manufacturer ?? '?'}" device.model="${s.device?.model ?? '?'}" ` +
-      `device.name="${s.device?.name ?? '?'}" ` +
-      `start=${s.startDate.toISOString()} end=${s.endDate?.toISOString() ?? '?'} ` +
-      `isGarmin=${isGarminSource(s)}`
-    );
-  });
-}
-
-export interface DebugQuantitySample {
-  quantity: number;
-  unit: string;
-  sourceName: string;
-  bundleId: string;
-  deviceManufacturer: string;
-  deviceModel: string;
-  deviceName: string;
-  startDate: string;
-  endDate: string;
-  isGarmin: boolean;
-}
-
-export interface DebugSleepSample {
-  type: string;
-  sourceName: string;
-  bundleId: string;
-  deviceManufacturer: string;
-  deviceModel: string;
-  startDate: string;
-  endDate: string;
-}
-
-export interface DebugHealthSamples {
-  hrv: DebugQuantitySample[];
-  vo2max: DebugQuantitySample[];
-  sleep: DebugSleepSample[];
-}
-
-function sleepValueLabel(value: CategoryValueSleepAnalysis): string {
-  switch (value) {
-    case CategoryValueSleepAnalysis.inBed: return 'InBed';
-    case CategoryValueSleepAnalysis.asleepUnspecified: return 'AsleepUnspecified';
-    case CategoryValueSleepAnalysis.awake: return 'Awake';
-    case CategoryValueSleepAnalysis.asleepCore: return 'AsleepCore';
-    case CategoryValueSleepAnalysis.asleepDeep: return 'AsleepDeep';
-    case CategoryValueSleepAnalysis.asleepREM: return 'AsleepREM';
-    default: return `Unknown(${value})`;
-  }
-}
-
-/**
- * Debug-Helfer: liest die rohen HRV-, VO2max- und Schlaf-Samples direkt aus Apple Health,
- * inklusive Quelle/Gerät/Zeitstempel — für die Debug-Ansicht im Health-Screen. HRV/VO2max nutzen
- * das DEBUG_LOOKBACK_DAYS-Fenster (Metriken, die Garmin ggf. selten schreibt); der Schlaf-Bug ist
- * ein Session-Clustering-Problem, kein Fenstergrößen-Problem, daher bleibt das Schlaf-Fenster bei
- * 3 Tagen. Keine Filterung/Aggregation, damit man sieht was HealthKit wirklich liefert.
- */
-export async function fetchDebugHealthSamples(): Promise<DebugHealthSamples> {
-  if (!isHealthKitAvailable()) return { hrv: [], vo2max: [], sleep: [] };
-  const ok = await initHealthKit();
-  if (!ok) return { hrv: [], vo2max: [], sleep: [] };
-
-  const sinceMetrics = new Date();
-  sinceMetrics.setDate(sinceMetrics.getDate() - DEBUG_LOOKBACK_DAYS);
-  sinceMetrics.setHours(0, 0, 0, 0);
-
-  const sinceSleep = new Date();
-  sinceSleep.setDate(sinceSleep.getDate() - 3);
-  sinceSleep.setHours(0, 0, 0, 0);
-
-  const [hrvSamples, vo2Samples, sleepSamples] = await Promise.all([
-    queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', {
-      filter: { date: { startDate: sinceMetrics, endDate: new Date() } },
-      limit: 0,
-      ascending: false,
-      unit: 'ms',
-    }).catch(() => []),
-    queryQuantitySamples('HKQuantityTypeIdentifierVO2Max', {
-      filter: { date: { startDate: sinceMetrics, endDate: new Date() } },
-      limit: 0,
-      ascending: false,
-      unit: 'ml/(kg*min)',
-    }).catch(() => []),
-    queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', {
-      filter: { date: { startDate: sinceSleep, endDate: new Date() } },
-      limit: 0,
-      ascending: false,
-    }).catch(() => []),
-  ]);
-
-  const mapQuantity = (s: SourcedSample & { quantity: number; unit: string; startDate: Date; endDate: Date }): DebugQuantitySample => ({
-    quantity: Math.round(s.quantity * 100) / 100,
-    unit: s.unit,
-    sourceName: s.sourceRevision?.source?.name ?? '',
-    bundleId: s.sourceRevision?.source?.bundleIdentifier ?? '',
-    deviceManufacturer: s.device?.manufacturer ?? '',
-    deviceModel: s.device?.model ?? '',
-    deviceName: s.device?.name ?? '',
-    startDate: s.startDate.toISOString(),
-    endDate: s.endDate.toISOString(),
-    isGarmin: isGarminSource(s),
-  });
-
-  return {
-    hrv: hrvSamples.map(mapQuantity),
-    vo2max: vo2Samples.map(mapQuantity),
-    sleep: sleepSamples.map(s => ({
-      type: sleepValueLabel(s.value as CategoryValueSleepAnalysis),
-      sourceName: s.sourceRevision?.source?.name ?? '',
-      bundleId: s.sourceRevision?.source?.bundleIdentifier ?? '',
-      deviceManufacturer: s.device?.manufacturer ?? '',
-      deviceModel: s.device?.model ?? '',
-      startDate: s.startDate.toISOString(),
-      endDate: s.endDate.toISOString(),
-    })),
-  };
-}
-
-/**
- * HRV der letzten Nacht (12:00 Vortag bis jetzt).
- * HealthKit kennt nur den Typ HeartRateVariabilitySDNN — eine eigene RMSSD-Kennzahl
- * existiert dort nicht. Garmin berechnet seinen "HRV Status" intern aus RMSSD,
- * schreibt das Ergebnis beim Sync nach Apple Health aber ebenfalls in dieses
- * SDNN-Feld (einziger verfügbarer HRV-Typ). Garmin liefert dafür EINEN Sample,
- * dessen Zeitspanne die gesamte Nacht abdeckt. Die Apple Watch schreibt zusätzlich
- * viele kurze (~5 Min) Tages-Spotchecks mit deutlich niedrigeren Werten — ein
- * einfacher Durchschnitt über die ganze Nacht (wie zuvor via discreteAverage)
- * wird dadurch nach unten verzerrt (z.B. auf ~33 statt dem echten nächtlichen Wert).
- * Daher: zuerst auf Garmin-Quelle filtern, dann darin (bzw. sonst über alle Quellen)
- * den Sample mit der längsten Dauer wählen — das ist der nächtliche Summary-Wert
- * (Garmin/Whoop/Oura-Stil), nicht ein kurzer Tages-Spotcheck.
- */
-async function fetchLatestHRV(): Promise<number | null> {
-  const start = new Date();
-  start.setDate(start.getDate() - 1);
-  start.setHours(12, 0, 0, 0);
-
-  try {
-    const samples = await queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', {
-      filter: { date: { startDate: start, endDate: new Date() } },
-      limit: 0,
-      ascending: false,
-      unit: 'ms',
-    });
-    debugLogSamples('HRV', samples);
-    const resolved = resolvePreferredQuantitySample(samples, pool =>
-      pool.reduce((a, b) =>
-        (b.endDate.getTime() - b.startDate.getTime()) > (a.endDate.getTime() - a.startDate.getTime()) ? b : a
-      )
-    );
-    return resolved ? Math.round(resolved.quantity) : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Neuester VO2max-Wert, bevorzugt von Garmin (gemessen) statt Apples eigener Schätzung.
- * Garmin schreibt VO2max deutlich seltener als Apple (das bei praktisch jedem Lauf neu
- * schätzt) — ohne weites Zeitfenster verdrängen Apples häufige Auto-Schätzungen Garmins
- * seltenen, aber gemessenen Wert aus den "neuesten" Samples. Daher DEBUG_LOOKBACK_DAYS
- * (90 Tage) statt nur der letzten paar Tage, und limit:0 (= unlimitiert laut Library-Typen,
- * "Specify -1, 0 or any non-positive number for fetching all samples") statt einer festen
- * Trefferzahl, die sonst genau dasselbe Verdrängungsproblem hätte.
- */
-async function fetchLatestVo2Max(): Promise<number | null> {
-  const start = new Date();
-  start.setDate(start.getDate() - DEBUG_LOOKBACK_DAYS);
-
-  try {
-    const samples = await queryQuantitySamples('HKQuantityTypeIdentifierVO2Max', {
-      filter: { date: { startDate: start, endDate: new Date() } },
-      limit: 0,
-      ascending: false,
-      unit: 'ml/(kg*min)',
-    });
-    debugLogSamples('VO2max', samples);
-    // Default-Selector von resolvePreferredQuantitySample (erstes Element) passt hier direkt:
-    // Samples sind absteigend sortiert, also ist pool[0] das neueste Sample aus der bevorzugten Quelle.
-    const resolved = resolvePreferredQuantitySample(samples);
-    return resolved ? Math.round(resolved.quantity * 10) / 10 : null;
-  } catch {
-    return null;
-  }
 }
 
 interface SleepDetails {
@@ -1025,10 +769,8 @@ export async function fetchAndImportHealthData(): Promise<{ success: boolean; me
   const ok = await initHealthKit();
   if (!ok) return { success: false, message: 'Zugriff auf Apple Health wurde nicht gewährt.' };
 
-  const [restingHR, hrv, vo2, sleep, steps, activeEnergy, basalEnergy] = await Promise.all([
+  const [restingHR, sleep, steps, activeEnergy, basalEnergy] = await Promise.all([
     fetchLatestRestingHeartRate(),
-    fetchLatestHRV(),
-    fetchLatestVo2Max(),
     fetchLastNightSleepDetails(),
     fetchTodaySteps(),
     fetchTodayActiveEnergy(),
@@ -1042,7 +784,9 @@ export async function fetchAndImportHealthData(): Promise<{ success: boolean; me
 
   const merged: DayHealth = {
     date: todayKey,
-    hrv: hrv ?? existing?.hrv ?? null,
+    // HRV kommt nicht mehr aus Apple Health, sondern ausschließlich aus der manuellen Eingabe
+    // (saveManualHRV) — hier daher nur der bereits gespeicherte Wert, nie überschrieben.
+    hrv: existing?.hrv ?? null,
     restingHR: restingHR ?? existing?.restingHR ?? null,
     sleepHours: sleep?.hours ?? existing?.sleepHours ?? 0,
     sleepQuality: existing?.sleepQuality ?? 3,
@@ -1065,20 +809,16 @@ export async function fetchAndImportHealthData(): Promise<{ success: boolean; me
   hist = existing ? hist.map(h => h.date === todayKey ? merged : h) : [merged, ...hist];
   await AsyncStorage.setItem(HEALTH_KEY, JSON.stringify(hist));
 
-  if (vo2 !== null) {
-    await AsyncStorage.setItem(VO2_KEY, JSON.stringify({ value: vo2, source: 'apple_health', updatedAt: new Date().toISOString() }));
-  }
-
   if (sleep) {
     const rawLastSleep = await AsyncStorage.getItem(SLEEP_KEY);
     const existingSleep = rawLastSleep ? JSON.parse(rawLastSleep) : {};
 
     const schlafMin = Math.round(sleep.hours * 60);
-    // Kein Fallback mehr auf existingSleep.hrv/.tiefsterPuls — das war ein sich selbst
-    // verewigender Feedback-Loop: sobald ein Sync 0 Samples zurückbekommt, wurde einfach der
-    // (irgendwann veraltete) vorherige Wert unverändert zurückgeschrieben, jeden Tag aufs Neue,
-    // ohne Ablaufdatum. Bei fehlenden Live-Daten bleibt der Wert jetzt explizit null.
-    const hrvVal: number | null = hrv ?? null;
+    // HRV ist reine manuelle Eingabe (saveManualHRV) — anders als früher (Apple-Health-Fetch)
+    // gibt es hier kein Staleness-Risiko durch einen Fallback auf den vorhandenen Wert: der Nutzer
+    // trägt ihn bewusst ein, er wird nie automatisch überschrieben. Ein Sync anderer Schlafwerte
+    // (Phasen, Puls) darf den bereits eingetragenen HRV-Wert des Tages also nicht löschen.
+    const hrvVal: number | null = existingSleep.hrv ?? null;
     const tiefsterPuls: number | null = restingHR ?? null;
     const avgPuls = sleep.avgHeartRate ?? existingSleep.avgPuls ?? null;
 
@@ -1122,8 +862,53 @@ export async function getLastHealthSync(): Promise<string | null> {
   return AsyncStorage.getItem(LAST_SYNC_KEY);
 }
 
+/**
+ * Speichert einen manuell eingetragenen HRV-Wert für heute und aktualisiert alle davon
+ * abhängigen Werte — dieselben Berechnungen, die früher beim automatischen Apple-Health-HRV-Fetch
+ * liefen (Recovery Score in der Tages-Historie, Sleep Score im letzten Schlafeintrag, Body
+ * Battery), jetzt ausgelöst durch die manuelle Eingabe statt durch einen HealthKit-Fetch.
+ */
+export async function saveManualHRV(value: number): Promise<void> {
+  const todayKey = new Date().toISOString().slice(0, 10);
+
+  const raw = await AsyncStorage.getItem(HEALTH_KEY);
+  let hist: DayHealth[] = raw ? JSON.parse(raw) : [];
+  const existing = hist.find(h => h.date === todayKey);
+  const updated: DayHealth = existing
+    ? { ...existing, hrv: value }
+    : { date: todayKey, hrv: value, restingHR: null, sleepHours: 0, sleepQuality: 3, recoveryScore: 0, bodyweight: null, notes: '' };
+
+  const hrvVals = hist.filter(h => h.hrv !== null && h.date !== todayKey).map(h => h.hrv as number);
+  const avgHRV = hrvVals.length ? hrvVals.reduce((a, b) => a + b, 0) / hrvVals.length : null;
+  updated.recoveryScore = calcRecovery(updated, avgHRV);
+
+  const { hrvBaseline, rhrBaseline } = computeBaselines(hist, todayKey);
+  updated.stressScore = calcStressScore(updated.hrv, hrvBaseline, updated.restingHR, rhrBaseline);
+
+  hist = existing ? hist.map(h => h.date === todayKey ? updated : h) : [updated, ...hist];
+  await AsyncStorage.setItem(HEALTH_KEY, JSON.stringify(hist));
+
+  const rawSleep = await AsyncStorage.getItem(SLEEP_KEY);
+  if (rawSleep) {
+    const sleep = JSON.parse(rawSleep);
+    if (isToday(sleep.date)) {
+      const schlafMin = sleep.schlafMin ?? Math.round((sleep.schlafStunden ?? 0) * 60);
+      const sleepScore = calculateSleepScore({
+        schlafMin,
+        tiefZeit: sleep.deep ?? 0,
+        remZeit: sleep.rem ?? 0,
+        hrv: value,
+        tiefsterPuls: sleep.tiefsterPuls ?? sleep.restingHR ?? null,
+        avgPuls: sleep.avgPuls ?? 0,
+      });
+      await AsyncStorage.setItem(SLEEP_KEY, JSON.stringify({ ...sleep, hrv: value, sleepScore }));
+    }
+  }
+
+  await recalcBodyBattery();
+}
+
 const BACKGROUND_TYPES = [
-  'HKQuantityTypeIdentifierHeartRateVariabilitySDNN',
   'HKQuantityTypeIdentifierRestingHeartRate',
   'HKQuantityTypeIdentifierStepCount',
   'HKQuantityTypeIdentifierActiveEnergyBurned',

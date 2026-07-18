@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  Alert, Animated, KeyboardAvoidingView, Modal, Platform,
+  Animated, KeyboardAvoidingView, Modal, Platform,
   ScrollView,
   Text, TextInput,
   TouchableOpacity, View
@@ -14,10 +14,9 @@ import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
 import {
-  DebugHealthSamples, fetchAndImportHealthData, fetchDebugHealthSamples,
-  getLastHealthSync, getStressHistory, initHealthKit, isHealthKitAvailable,
+  fetchAndImportHealthData,
+  getLastHealthSync, getStressHistory, isHealthKitAvailable,
 } from '../../utils/applehealth';
-import { DEBUG_LOOKBACK_DAYS } from '../../utils/healthkitResolvers';
 
 // ─── Storage Keys ─────────────────────────────────────────────────────────────
 const HEALTH_KEY = 'stride_health_history';
@@ -197,126 +196,6 @@ function LineChart({ data, color, minVal, maxVal, isDark }: {
             stroke={color} strokeWidth={2} />
         ) : null)}
       </Svg>
-    </View>
-  );
-}
-
-// ─── TEMP DEBUG: Apple Health raw samples (HRV/VO2max/Sleep) ──────────────────
-// Zum Aufspüren des falschen Garmin-Filters und der falschen Schlafzeit — zeigt exakt
-// was HealthKit liefert (Wert, Quelle, Gerät, Zeitstempel), ungefiltert.
-function DebugSampleRow({ lines, isDark, highlight }: { lines: string[]; isDark: boolean; highlight?: boolean }) {
-  return (
-    <View style={{
-      paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, marginBottom: 6,
-      backgroundColor: highlight ? (isDark ? 'rgba(74,222,128,0.12)' : 'rgba(74,222,128,0.1)') : (isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'),
-      borderWidth: highlight ? 1 : 0, borderColor: 'rgba(74,222,128,0.4)',
-    }}>
-      {lines.map((line, i) => (
-        <Text key={i} style={{ fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: isDark ? '#F5F0EE' : '#1A1209', lineHeight: 16 }}>
-          {line}
-        </Text>
-      ))}
-    </View>
-  );
-}
-
-function DebugSamplesSection({ isDark, text, textMuted, border, card, colors }: {
-  isDark: boolean; text: string; textMuted: string; border: string; card: string; colors: any;
-}) {
-  const [data, setData] = useState<DebugHealthSamples | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [requestingAuth, setRequestingAuth] = useState(false);
-
-  async function load() {
-    setLoading(true);
-    try {
-      setData(await fetchDebugHealthSamples());
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Ruft initHealthKit() direkt auf — unabhängig vom Onboarding-Status, ohne App neu zu
-  // installieren oder onboardingDone zurückzusetzen. initHealthKit() selbst loggt die volle
-  // toRead-Liste + Ergebnis + Autorisierungsstatus pro Typ in die Konsole (Xcode/Metro).
-  async function requestAuth() {
-    setRequestingAuth(true);
-    try {
-      const ok = await initHealthKit();
-      Alert.alert(
-        'Health-Berechtigung angefragt',
-        `requestAuthorization() -> ${ok}\n\nDetails (toRead-Liste, Status pro Typ) siehe Konsole/Metro-Log.`
-      );
-    } catch (e: any) {
-      Alert.alert('Fehler', e?.message ?? String(e));
-    } finally {
-      setRequestingAuth(false);
-    }
-  }
-
-  function fmtTime(iso: string): string {
-    const d = new Date(iso);
-    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  }
-
-  return (
-    <View style={{ backgroundColor: card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#F87171', marginBottom: 12 }}>
-      <Text style={{ color: '#F87171', fontSize: 13, fontWeight: '800', marginBottom: 4 }}>🐛 DEBUG: Apple Health Raw Samples</Text>
-      <Text style={{ color: textMuted, fontSize: 11, marginBottom: 12 }}>
-        Temporär — ungefiltert direkt aus HealthKit. HRV/VO2max: letzte {DEBUG_LOOKBACK_DAYS} Tage · Schlaf: letzte 3 Tage.
-      </Text>
-
-      <TouchableOpacity onPress={load} disabled={loading}
-        style={{ backgroundColor: '#F87171', borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginBottom: 10, opacity: loading ? 0.6 : 1 }}>
-        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>
-          {loading ? 'Lade…' : data ? 'Neu laden' : 'Debug-Samples laden'}
-        </Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity onPress={requestAuth} disabled={requestingAuth}
-        style={{ backgroundColor: 'transparent', borderWidth: 1, borderColor: '#F87171', borderRadius: 12, paddingVertical: 10, alignItems: 'center', marginBottom: 14, opacity: requestingAuth ? 0.6 : 1 }}>
-        <Text style={{ color: '#F87171', fontSize: 13, fontWeight: '700' }}>
-          {requestingAuth ? 'Frage an…' : 'Health-Berechtigung erneut anfragen'}
-        </Text>
-      </TouchableOpacity>
-
-      {data && (
-        <>
-          <Text style={{ color: text, fontSize: 12, fontWeight: '800', marginBottom: 6 }}>HRV — {data.hrv.length} Sample(s)</Text>
-          {data.hrv.length === 0 && <Text style={{ color: textMuted, fontSize: 11, marginBottom: 10 }}>Keine HRV-Samples in den letzten 3 Tagen gefunden.</Text>}
-          {data.hrv.map((s, i) => (
-            <DebugSampleRow key={i} isDark={isDark} highlight={s.isGarmin} lines={[
-              `value=${s.quantity} ${s.unit}   isGarmin=${s.isGarmin ? '✅' : '❌'}`,
-              `source="${s.sourceName || '—'}"  bundleId="${s.bundleId || '—'}"`,
-              `device.manufacturer="${s.deviceManufacturer || '—'}"  model="${s.deviceModel || '—'}"  name="${s.deviceName || '—'}"`,
-              `${fmtTime(s.startDate)} → ${fmtTime(s.endDate)}`,
-            ]} />
-          ))}
-
-          <View style={{ height: 10 }} />
-          <Text style={{ color: text, fontSize: 12, fontWeight: '800', marginBottom: 6 }}>VO2max — {data.vo2max.length} Sample(s)</Text>
-          {data.vo2max.length === 0 && <Text style={{ color: textMuted, fontSize: 11, marginBottom: 10 }}>Keine VO2max-Samples gefunden.</Text>}
-          {data.vo2max.map((s, i) => (
-            <DebugSampleRow key={i} isDark={isDark} highlight={s.isGarmin} lines={[
-              `value=${s.quantity} ${s.unit}   isGarmin=${s.isGarmin ? '✅' : '❌'}`,
-              `source="${s.sourceName || '—'}"  bundleId="${s.bundleId || '—'}"`,
-              `device.manufacturer="${s.deviceManufacturer || '—'}"  model="${s.deviceModel || '—'}"  name="${s.deviceName || '—'}"`,
-              `${fmtTime(s.startDate)} → ${fmtTime(s.endDate)}`,
-            ]} />
-          ))}
-
-          <View style={{ height: 10 }} />
-          <Text style={{ color: text, fontSize: 12, fontWeight: '800', marginBottom: 6 }}>Sleep — {data.sleep.length} Sample(s)</Text>
-          {data.sleep.length === 0 && <Text style={{ color: textMuted, fontSize: 11, marginBottom: 10 }}>Keine Sleep-Samples gefunden.</Text>}
-          {data.sleep.map((s, i) => (
-            <DebugSampleRow key={i} isDark={isDark} highlight={s.type.startsWith('Asleep')} lines={[
-              `type=${s.type}`,
-              `source="${s.sourceName || '—'}"  device="${s.deviceManufacturer || '—'} ${s.deviceModel || ''}"`,
-              `${fmtTime(s.startDate)} → ${fmtTime(s.endDate)}`,
-            ]} />
-          ))}
-        </>
-      )}
     </View>
   );
 }
@@ -814,7 +693,7 @@ export default function HealthScreen() {
             <Text style={{ color:text, fontSize:16, fontWeight:'700', marginBottom:6 }}>Apple Health</Text>
             <Text style={{ color:textMuted, fontSize:13, textAlign:'center', lineHeight:20, marginBottom:14 }}>
               {isHealthKitAvailable()
-                ? (lang === 'en' ? 'Resting HR, HRV, VO2max and sleep are synced from Apple Health.' : 'Ruhepuls, HRV, VO2max und Schlaf werden aus Apple Health synchronisiert.')
+                ? (lang === 'en' ? 'Resting HR and sleep are synced from Apple Health. HRV and VO2max are entered manually.' : 'Ruhepuls und Schlaf werden aus Apple Health synchronisiert. HRV und VO2max trägst du manuell ein.')
                 : (lang === 'en' ? 'Apple Health sync requires the iOS app build with HealthKit enabled.' : 'Apple Health Sync erfordert den iOS-Build mit aktiviertem HealthKit.')}
             </Text>
             <TouchableOpacity onPress={syncAppleHealth} disabled={syncing || !isHealthKitAvailable()}
@@ -828,10 +707,6 @@ export default function HealthScreen() {
               </Text>
             </TouchableOpacity>
           </View>
-
-          {isHealthKitAvailable() && (
-            <DebugSamplesSection isDark={isDark} text={text} textMuted={textMuted} border={border} card={card} colors={colors} />
-          )}
 
         </Animated.View>
       </ScrollView>

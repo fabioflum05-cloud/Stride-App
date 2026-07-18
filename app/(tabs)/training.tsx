@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, AppState, AppStateStatus, Dimensions, Image, Modal, PanResponder, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Svg, {
   Circle, Defs, Ellipse,
@@ -1221,6 +1221,10 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
   );
 }
 
+function formatVolume(kg: number): string {
+  return kg >= 1000 ? `${(kg / 1000).toFixed(2)} t` : `${Math.round(kg)} kg`;
+}
+
 function WorkoutDetailModal({ item, T, t, lang, onClose }: {
   item: { _kind: 'workout'; data: Workout } | { _kind: 'run'; data: RunData };
   T: any; t: (key: any) => string; lang: string; onClose: () => void;
@@ -1233,107 +1237,107 @@ function WorkoutDetailModal({ item, T, t, lang, onClose }: {
   const isAppleHealth = !isRun && w?.source === 'apple_health';
   const hasDistance = !isRun && w?.distance != null && w.distance > 0;
   const ahPace = hasDistance && w!.duration > 0 ? formatPace((w!.duration * 60) / w!.distance!) : null;
+  const isManualGym = !isRun && !hasDistance && !isAppleHealth;
+  const distanceLabel = lang === 'en' ? 'Distance' : 'Distanz';
+  const paceLabel = lang === 'en' ? 'Pace' : 'Tempo';
+
+  // Primär-/Sekundärzahl im Hero sowie die Rail darunter je nach Trainingsart bestimmen —
+  // bei manuellen Gym-Workouts ist das Gesamtvolumen (kg × Wdh.) aussagekräftiger als reine
+  // Dauer und wird daher zur Hero-Zahl; ist kein Volumen getrackt (z.B. reines Bodyweight-
+  // Training ohne Gewichtsangabe), fällt die Hero-Zahl auf die Dauer zurück.
+  let heroValue: string, heroLabel: string;
+  let secondaryValue: string | null = null, secondaryLabel = '';
+  const railItems: { value: string; label: string; color?: string }[] = [];
+
+  if (isRun && r) {
+    heroValue = `${r.distance.toFixed(2)} km`; heroLabel = distanceLabel;
+    secondaryValue = `${r.duration}'`; secondaryLabel = t('training_duration');
+    railItems.push(
+      { value: `${r.pace} /km`, label: paceLabel },
+      { value: `${r.calories} kcal`, label: 'Kcal' },
+      { value: `${r.heartRate} bpm`, label: lang === 'en' ? 'Heart Rate' : 'Herzfrequenz' },
+    );
+  } else if (hasDistance) {
+    heroValue = `${w!.distance!.toFixed(2)} km`; heroLabel = distanceLabel;
+    secondaryValue = `${w?.duration}'`; secondaryLabel = t('training_duration');
+    railItems.push(
+      { value: ahPace ? `${ahPace} /km` : '—', label: paceLabel },
+      { value: w?.calories != null ? `${w.calories} kcal` : '—', label: 'Kcal' },
+    );
+  } else if (isAppleHealth) {
+    heroValue = `${w?.duration}'`; heroLabel = t('training_duration');
+    secondaryValue = w?.calories != null ? `${w.calories} kcal` : null; secondaryLabel = 'Kcal';
+  } else if (vol > 0) {
+    heroValue = formatVolume(vol); heroLabel = t('training_volume');
+    secondaryValue = `${w?.duration}'`; secondaryLabel = t('training_duration');
+    railItems.push({ value: `${w?.exercises?.length ?? 0}`, label: t('training_exercises') });
+    if (w?.score != null) railItems.push({ value: `${w.score}`, label: lang === 'en' ? 'Score' : 'Score', color: T.green });
+  } else {
+    heroValue = `${w?.duration}'`; heroLabel = t('training_duration');
+    railItems.push({ value: `${w?.exercises?.length ?? 0}`, label: t('training_exercises') });
+    if (w?.score != null) railItems.push({ value: `${w.score}`, label: lang === 'en' ? 'Score' : 'Score', color: T.green });
+  }
 
   return (
     <Modal visible animationType="slide">
       <View style={{ flex: 1, backgroundColor: T.bg }}>
-        <View style={{ paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' }}>
+        <View style={{ paddingTop: 60, paddingHorizontal: 24, paddingBottom: 8, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.orange }}>
-                {formatDateLabel(item.data.date, t('today'))}
-              </Text>
-              {isAppleHealth && (
-                <View style={{ backgroundColor: T.redAlpha, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 1.5, borderWidth: 1, borderColor: T.redBorder }}>
-                  <Text style={{ fontSize: 8, fontWeight: '700', color: T.red }}>🍎 Apple Health</Text>
-                </View>
-              )}
-            </View>
-            <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }} numberOfLines={1}>
+            <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', color: T.text3, marginBottom: 6 }}>
+              {formatDateLabel(item.data.date, t('today'))}
+            </Text>
+            <Text style={{ fontSize: 28, fontWeight: '800', color: T.text1, letterSpacing: -0.7 }} numberOfLines={1}>
               {isRun ? t('training_run_session') : w?.name}
             </Text>
           </View>
-          <TouchableOpacity onPress={onClose} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: T.border }}>
-            <IconClose />
+          <TouchableOpacity onPress={onClose} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: T.cardAlt, alignItems: 'center', justifyContent: 'center', marginTop: 4 }}>
+            <IconClose color={T.text3} />
           </TouchableOpacity>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 16, paddingBottom: 60 }}>
-          {isRun && r ? (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-              {[
-                { v: `${r.distance.toFixed(2)} km`, l: lang === 'en' ? 'Distance' : 'Distanz' },
-                { v: `${r.pace} /km`, l: lang === 'en' ? 'Pace' : 'Tempo' },
-                { v: `${r.duration}'`, l: t('training_duration') },
-                { v: `${r.calories} kcal`, l: 'Kcal' },
-                { v: `${r.heartRate} bpm`, l: lang === 'en' ? 'Heart Rate' : 'Herzfrequenz' },
-              ].map((s, i) => (
-                <View key={i} style={{ width: '31%', backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: T.text1 }}>{s.v}</Text>
-                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2, textAlign: 'center' }}>{s.l}</Text>
-                </View>
-              ))}
-            </View>
-          ) : hasDistance ? (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-              {[
-                { v: `${w!.distance!.toFixed(2)} km`, l: lang === 'en' ? 'Distance' : 'Distanz' },
-                { v: ahPace ? `${ahPace} /km` : '—', l: lang === 'en' ? 'Pace' : 'Tempo' },
-                { v: `${w?.duration}'`, l: t('training_duration') },
-                { v: w?.calories != null ? `${w.calories} kcal` : '—', l: 'Kcal' },
-              ].map((s, i) => (
-                <View key={i} style={{ width: '48%', backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
-                  <Text style={{ fontSize: 16, fontWeight: '800', color: T.text1 }}>{s.v}</Text>
-                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2, textAlign: 'center' }}>{s.l}</Text>
-                </View>
-              ))}
-            </View>
-          ) : isAppleHealth ? (
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-              <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{`${w?.duration}'`}</Text>
-                <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{t('training_duration')}</Text>
-              </View>
-              <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{w?.calories != null ? w.calories : '—'}</Text>
-                <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>Kcal</Text>
-              </View>
-            </View>
-          ) : (
-            <>
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-                <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
-                  <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{w?.duration}'</Text>
-                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{t('training_duration')}</Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
-                  <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{w?.exercises?.length ?? 0}</Text>
-                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{t('training_exercises')}</Text>
-                </View>
-                <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
-                  <Text style={{ fontSize: 18, fontWeight: '800', color: T.text1 }}>{(vol / 1000).toFixed(1)}t</Text>
-                  <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{t('training_volume')}</Text>
-                </View>
-                {w?.score != null && (
-                  <View style={{ flex: 1, backgroundColor: T.greenAlpha, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.greenBorder }}>
-                    <Text style={{ fontSize: 18, fontWeight: '800', color: T.green }}>{w.score}</Text>
-                    <Text style={{ fontSize: 8, color: T.green, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 2 }}>{lang === 'en' ? 'Score' : 'Score'}</Text>
-                  </View>
-                )}
-              </View>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingTop: 20, paddingBottom: 60 }}>
 
-              {w?.exercises?.map(ex => (
-                <View key={ex.id} style={{ backgroundColor: T.card, borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: T.border }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <Text style={{ fontSize: 14, fontWeight: '700', color: T.text1, flex: 1 }}>{ex.name}</Text>
+          <View style={{ backgroundColor: T.cardAlt, borderRadius: 20, padding: 20, marginBottom: secondaryValue || railItems.length ? 24 : 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 38, fontWeight: '800', color: T.orange, letterSpacing: -1.2 }} numberOfLines={1} adjustsFontSizeToFit>{heroValue}</Text>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: T.text3, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>{heroLabel}</Text>
+            </View>
+            {secondaryValue != null && (
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={{ fontSize: 19, fontWeight: '700', color: T.text1 }}>{secondaryValue}</Text>
+                <Text style={{ fontSize: 10, fontWeight: '600', color: T.text3, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>{secondaryLabel}</Text>
+              </View>
+            )}
+          </View>
+
+          {railItems.length > 0 && (
+            <View style={{ flexDirection: 'row', marginBottom: 28 }}>
+              {railItems.map((s, i) => (
+                <Fragment key={s.label}>
+                  {i > 0 && <View style={{ width: 1, backgroundColor: T.borderSoft }} />}
+                  <View style={{ flex: 1, alignItems: 'center' }}>
+                    <Text style={{ fontSize: 17, fontWeight: '800', color: s.color ?? T.text1 }}>{s.value}</Text>
+                    <Text style={{ fontSize: 9, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3, fontWeight: '600' }}>{s.label}</Text>
+                  </View>
+                </Fragment>
+              ))}
+            </View>
+          )}
+
+          {isManualGym && w?.exercises && w.exercises.length > 0 && (
+            <View style={{ gap: 18 }}>
+              {w.exercises.map(ex => (
+                <View key={ex.id}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: T.text1, flex: 1 }}>{ex.name}</Text>
                     {ex.muscleGroup ? (
-                      <View style={{ backgroundColor: (MUSCLE_COLORS[ex.muscleGroup] ?? T.orange) + '22', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 }}>
+                      <View style={{ backgroundColor: (MUSCLE_COLORS[ex.muscleGroup] ?? T.orange) + '1A', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 }}>
                         <Text style={{ fontSize: 10, fontWeight: '600', color: MUSCLE_COLORS[ex.muscleGroup] ?? T.orange }}>{translateMuscle(ex.muscleGroup, lang)}</Text>
                       </View>
                     ) : null}
                   </View>
                   {ex.sets.map((s, i) => (
-                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: T.borderSoft }}>
+                    <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderTopWidth: i > 0 ? 1 : 0, borderTopColor: T.borderSoft }}>
                       <Text style={{ fontSize: 12, color: T.text3 }}>{lang === 'en' ? 'Set' : 'Satz'} {i + 1}</Text>
                       <Text style={{ fontSize: 13, fontWeight: '600', color: T.text1 }}>
                         {s.weight || '–'} kg × {s.reps || '–'}
@@ -1342,7 +1346,15 @@ function WorkoutDetailModal({ item, T, t, lang, onClose }: {
                   ))}
                 </View>
               ))}
-            </>
+            </View>
+          )}
+
+          {isAppleHealth && (
+            <View style={{ alignSelf: 'center', backgroundColor: T.redAlpha, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, marginTop: 4 }}>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: T.red }}>
+                {lang === 'en' ? 'Synced from Apple Health' : 'Aus Apple Health synchronisiert'}
+              </Text>
+            </View>
           )}
         </ScrollView>
       </View>
