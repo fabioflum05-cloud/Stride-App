@@ -72,22 +72,6 @@ export default function ProfileScreen() {
     const rawWorkouts = await AsyncStorage.getItem('workouts');
     if (rawWorkouts) setWorkoutCount(JSON.parse(rawWorkouts).length);
 
-    const rawHabits = await AsyncStorage.getItem('habits');
-    if (rawHabits) {
-      const habits = JSON.parse(rawHabits);
-      let s = 0;
-      const today = new Date();
-      for (let i = 0; i < 365; i++) {
-        const d = new Date(today); d.setDate(d.getDate() - i);
-        const anyDone = habits.some((h: any) => h.completedDates?.some((cd: string) => {
-          const dd = new Date(cd);
-          return dd.getDate() === d.getDate() && dd.getMonth() === d.getMonth() && dd.getFullYear() === d.getFullYear();
-        }));
-        if (anyDone) s++; else break;
-      }
-      setStreak(s);
-    }
-
     const rawCheckinHistory = await AsyncStorage.getItem('checkinHistory');
     if (rawCheckinHistory) {
       const history = JSON.parse(rawCheckinHistory);

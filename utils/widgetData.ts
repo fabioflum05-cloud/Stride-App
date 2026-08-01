@@ -214,7 +214,7 @@ async function buildWidgetData(lang: Lang): Promise<Record<WidgetMetricKey, Widg
   let sleepScore: number | null = null;
   if (rawSleep) {
     const s = JSON.parse(rawSleep);
-    if (typeof s.sleepScore === 'number') sleepScore = s.sleepScore;
+    if (isToday(s.date) && typeof s.sleepScore === 'number') sleepScore = s.sleepScore;
   }
 
   // --- Stress score ---

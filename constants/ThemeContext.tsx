@@ -22,7 +22,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [themeIndex, setThemeIndex] = useState(0);
 
   useEffect(() => {
-    AsyncStorage.removeItem('selectedTheme');
     AsyncStorage.getItem('selectedTheme').then(v => {
       if (v !== null) {
         const i = parseInt(v);

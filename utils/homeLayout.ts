@@ -5,10 +5,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type HomeCardId =
-  | 'performance' | 'sleep' | 'energy' | 'nutrition' | 'readiness' | 'habits' | 'journal' | 'todo';
+  | 'performance' | 'sleep' | 'energy' | 'nutrition' | 'readiness' | 'journal' | 'todo';
 
 export const HOME_CARDS: HomeCardId[] = [
-  'performance', 'sleep', 'energy', 'nutrition', 'readiness', 'habits', 'journal', 'todo',
+  'performance', 'sleep', 'energy', 'nutrition', 'readiness', 'journal', 'todo',
 ];
 
 export interface HomeCardConfig {

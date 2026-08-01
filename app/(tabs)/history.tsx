@@ -1,6 +1,7 @@
 // app/(tabs)/history.tsx
 // History Screen — Theme-aware, SVG charts, Oura-Stil
 
+import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
@@ -11,8 +12,10 @@ import {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
+import { EditHomeCardsModal } from '../../components/EditHomeCardsModal';
 import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
+import { DEFAULT_HISTORY_TILES, getHistoryTilesLayout, HistoryTileConfig, HistoryTileId, saveHistoryTilesLayout } from '../../utils/historyTiles';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface DayData {
@@ -198,6 +201,8 @@ export default function HistoryScreen() {
   const [selected, setSelected]= useState<MetricKey[]>(['perfScore', 'sleepScore', 'hrv']);
   const [range,    setRange]   = useState<Range>(14);
   const [loaded,   setLoaded]  = useState(false);
+  const [tilesLayout, setTilesLayout] = useState<HistoryTileConfig[]>(DEFAULT_HISTORY_TILES);
+  const [editTilesOpen, setEditTilesOpen] = useState(false);
   const fade = useRef(new Animated.Value(0)).current;
 
   const isDark     = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
@@ -265,6 +270,7 @@ export default function HistoryScreen() {
       new Date(a.date).getTime() - new Date(b.date).getTime()
     );
     setDays(sorted);
+    setTilesLayout(await getHistoryTilesLayout());
     setLoaded(true);
   }, []);
 
@@ -296,20 +302,35 @@ export default function HistoryScreen() {
 
   const ranged = days.slice(-range);
 
-  // Summary stats
-  const totalWorkouts = days.reduce((s, d) => s + (d.workouts ?? 0), 0);
-  const avgPerf = (() => {
-    const v = days.filter(d => d.perfScore).map(d => d.perfScore!);
-    return v.length ? Math.round(v.reduce((a,b)=>a+b)/v.length) : null;
-  })();
-  const avgSleep = (() => {
-    const v = days.filter(d => d.sleepHours).map(d => d.sleepHours!);
-    return v.length ? Math.round(v.reduce((a,b)=>a+b)/v.length * 10) / 10 : null;
-  })();
-  const avgHRV = (() => {
-    const v = days.filter(d => d.hrv).map(d => d.hrv!);
-    return v.length ? Math.round(v.reduce((a,b)=>a+b)/v.length) : null;
-  })();
+  // Summary stats — computed over the currently selected period (ranged), not the full history
+  const rangedAvg = (key: 'perfScore' | 'workoutScore' | 'sleepScore' | 'sleepHours' | 'hrv' | 'restingHR' | 'battLevel' | 'recovery', decimals = 0) => {
+    const v = ranged.filter(d => d[key]).map(d => d[key] as number);
+    if (!v.length) return null;
+    const factor = 10 ** decimals;
+    return Math.round((v.reduce((a, b) => a + b, 0) / v.length) * factor) / factor;
+  };
+  const rangedWorkouts = ranged.reduce((s, d) => s + (d.workouts ?? 0), 0);
+  const rAvgPerf = rangedAvg('perfScore');
+  const rAvgWorkoutScore = rangedAvg('workoutScore');
+  const rAvgSleepScore = rangedAvg('sleepScore');
+  const rAvgSleepHours = rangedAvg('sleepHours', 1);
+  const rAvgHRV = rangedAvg('hrv');
+  const rAvgRestingHR = rangedAvg('restingHR');
+  const rAvgBattLevel = rangedAvg('battLevel');
+  const rAvgRecovery = rangedAvg('recovery');
+
+  const tileCatalog: Record<HistoryTileId, { label: string; value: string; color: string }> = {
+    workouts:     { label: lang === 'en' ? 'Workouts' : 'Trainings', value: rangedWorkouts.toString(), color: colors.accent },
+    perfScore:    { label: lang === 'en' ? 'Avg Performance' : 'Ø Performance', value: rAvgPerf !== null ? `${rAvgPerf}` : '—', color: '#818CF8' },
+    workoutScore: { label: lang === 'en' ? 'Avg Training Score' : 'Ø Trainings-Score', value: rAvgWorkoutScore !== null ? `${rAvgWorkoutScore}` : '—', color: '#C084FC' },
+    sleepScore:   { label: lang === 'en' ? 'Avg Sleep Score' : 'Ø Sleep Score', value: rAvgSleepScore !== null ? `${rAvgSleepScore}` : '—', color: '#60A5FA' },
+    sleepHours:   { label: lang === 'en' ? 'Avg Sleep' : 'Ø Schlaf', value: rAvgSleepHours !== null ? `${rAvgSleepHours}h` : '—', color: '#818CF8' },
+    hrv:          { label: 'Ø HRV', value: rAvgHRV !== null ? `${rAvgHRV}ms` : '—', color: '#4ADE80' },
+    restingHR:    { label: lang === 'en' ? 'Avg Resting HR' : 'Ø Ruhepuls', value: rAvgRestingHR !== null ? `${rAvgRestingHR}bpm` : '—', color: '#F87171' },
+    battLevel:    { label: lang === 'en' ? 'Avg Energy' : 'Ø Energie', value: rAvgBattLevel !== null ? `${rAvgBattLevel}%` : '—', color: '#FBBF24' },
+    recovery:     { label: lang === 'en' ? 'Avg Recovery' : 'Ø Erholung', value: rAvgRecovery !== null ? `${rAvgRecovery}` : '—', color: '#34D399' },
+  };
+  const visibleTiles = tilesLayout.filter(c => c.visible);
 
   const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: border, marginBottom: 12 };
 
@@ -321,8 +342,10 @@ export default function HistoryScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: bg }}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 60, paddingBottom: 120 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}>
         <Animated.View style={{ opacity: fade }}>
+
+          <BackButton />
 
           {/* ── Header ── */}
           <View style={{ marginBottom: 24 }}>
@@ -333,18 +356,27 @@ export default function HistoryScreen() {
           </View>
 
           {/* ── Summary ── */}
-          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
-            {[
-              { label: lang === 'en' ? 'Workouts' : 'Trainings', value: totalWorkouts.toString(), color: colors.accent },
-              { label: lang === 'en' ? 'Avg Performance' : 'Ø Performance', value: avgPerf ? `${avgPerf}` : '—', color: '#818CF8' },
-              { label: lang === 'en' ? 'Avg Sleep' : 'Ø Schlaf', value: avgSleep ? `${avgSleep}h` : '—', color: '#60A5FA' },
-              { label: 'Ø HRV', value: avgHRV ? `${avgHRV}ms` : '—', color: '#4ADE80' },
-            ].map(s => (
-              <View key={s.label} style={{ flex: 1, backgroundColor: card, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: border, alignItems: 'center' }}>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: s.color, letterSpacing: -0.5 }}>{s.value}</Text>
-                <Text style={{ fontSize: 9, color: textDim, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4, textAlign: 'center', fontWeight: '600' }}>{s.label}</Text>
-              </View>
-            ))}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim }}>
+              {lang === 'en' ? `Overview · last ${range} days` : `Übersicht · letzte ${range} Tage`}
+            </Text>
+            <TouchableOpacity onPress={() => setEditTilesOpen(true)} activeOpacity={0.6}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={{ fontSize: 11 }}>⚙️</Text>
+              <Text style={{ fontSize: 11, fontWeight: '600', color: textMuted }}>{lang === 'en' ? 'Customize' : 'Anpassen'}</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+            {visibleTiles.map(c => {
+              const tile = tileCatalog[c.id];
+              const w = visibleTiles.length <= 4 ? (100 / visibleTiles.length) : 48;
+              return (
+                <View key={c.id} style={{ flexBasis: `${w}%` as any, flexGrow: 1, backgroundColor: card, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: border, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: tile.color, letterSpacing: -0.5 }}>{tile.value}</Text>
+                  <Text style={{ fontSize: 9, color: textDim, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4, textAlign: 'center', fontWeight: '600' }}>{tile.label}</Text>
+                </View>
+              );
+            })}
           </View>
 
           {/* ── Range Selector ── */}
@@ -528,6 +560,29 @@ export default function HistoryScreen() {
 
         </Animated.View>
       </ScrollView>
+
+      <EditHomeCardsModal
+        visible={editTilesOpen}
+        layout={tilesLayout}
+        labels={{
+          workouts: tileCatalog.workouts.label,
+          perfScore: tileCatalog.perfScore.label,
+          workoutScore: tileCatalog.workoutScore.label,
+          sleepScore: tileCatalog.sleepScore.label,
+          sleepHours: tileCatalog.sleepHours.label,
+          hrv: tileCatalog.hrv.label,
+          restingHR: tileCatalog.restingHR.label,
+          battLevel: tileCatalog.battLevel.label,
+          recovery: tileCatalog.recovery.label,
+        }}
+        accent={colors.accent}
+        isDark={isDark}
+        title={lang === 'en' ? 'Customize Overview' : 'Übersicht anpassen'}
+        subtitle={lang === 'en' ? 'Show/hide tiles and drag to reorder.' : 'Kacheln ein-/ausblenden und per Ziehen neu anordnen.'}
+        doneLabel={lang === 'en' ? 'Done' : 'Fertig'}
+        onChangeLayout={(next) => { setTilesLayout(next); saveHistoryTilesLayout(next); }}
+        onClose={() => setEditTilesOpen(false)}
+      />
     </View>
   );
 }

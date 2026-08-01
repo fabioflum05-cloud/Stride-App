@@ -204,7 +204,6 @@ export default function HomeScreen() {
   const [sleep,     setSleep]     = useState<any>(null);
   const [battery,   setBattery]   = useState<any>(null);
   const [profile,   setProfile]   = useState<any>(null);
-  const [habits,    setHabits]    = useState<any[]>([]);
   const [nutrition, setNutrition] = useState<any>(null);
   const [muscles,   setMuscles]   = useState<any>({});
   const [journal,   setJournal]   = useState<JournalEntry | null>(null);
@@ -247,12 +246,11 @@ export default function HomeScreen() {
 
       await recalcBodyBattery();
 
-      const [rc, rs, rb, rp, rh, rn, effectiveGoal, rj, rm] = await Promise.all([
+      const [rc, rs, rb, rp, rn, effectiveGoal, rj, rm] = await Promise.all([
         AsyncStorage.getItem('lastCheckin'),
         AsyncStorage.getItem('lastSleep'),
         AsyncStorage.getItem('batteryData'),
         AsyncStorage.getItem('profile'),
-        AsyncStorage.getItem('habits'),
         AsyncStorage.getItem(`nutrition_${today}`),
         getEffectiveNutritionGoal(),
         AsyncStorage.getItem(`journal_${today}`),
@@ -280,10 +278,6 @@ export default function HomeScreen() {
       });
       if (rj) setJournal(JSON.parse(rj));
       if (rm) setMuscles(JSON.parse(rm));
-      if (rh) {
-        const h = JSON.parse(rh);
-        setHabits(h.map((hh: any) => ({ ...hh, completedToday: hh.completedDates?.some(isToday) ?? false })));
-      }
       setReadiness(await getTrainingReadiness(lang));
       syncWidgetData(lang).catch(() => {});
     } catch {}
@@ -318,8 +312,6 @@ export default function HomeScreen() {
   const initial    = name.charAt(0).toUpperCase();
   const sleepScore = sleep?.sleepScore ?? 0;
   const battLevel  = battery?.level ?? 0;
-  const habDone    = habits.filter(h => h.completedToday).length;
-  const habTotal   = habits.length;
   const isDark     = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
   const textPrimary = isDark ? '#F5F0EE' : '#1A1209';
   const textMuted   = isDark ? 'rgba(245,240,238,0.45)' : 'rgba(26,18,9,0.45)';
@@ -435,8 +427,6 @@ export default function HomeScreen() {
                   <StatPill label={lang === 'en' ? 'Sleep' : 'Schlaf'} value={sleepScore ? `${sleepScore}` : '—'} color={sleepScore >= 70 ? '#4ADE80' : sleepScore >= 50 ? '#FBBF24' : textMuted} light={isDark} />
                   <PillDivider light={isDark} />
                   <StatPill label="Energy" value={battLevel ? `${battLevel}%` : '—'} color={battColor} light={isDark} />
-                  <PillDivider light={isDark} />
-                  <StatPill label="Habits" value={habTotal > 0 ? `${habDone}/${habTotal}` : '—'} color={habDone === habTotal && habTotal > 0 ? '#4ADE80' : textMuted} light={isDark} />
                 </View>
               </View>
             </View>
@@ -605,45 +595,6 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
           </View>
-          );
-
-          /* HABITS */
-          if (habTotal > 0) cards.habits = (
-            <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <View>
-                  <SectionLabel label={t('home_habits')} light={isDark} />
-                  <Text style={{ fontSize: 22, fontWeight: '800', color: textPrimary, letterSpacing: -0.5 }}>
-                    {habDone}<Text style={{ fontSize: 14, color: textMuted, fontWeight: '600' }}>/{habTotal}</Text>
-                  </Text>
-                </View>
-                <Ring value={(habDone / habTotal) * 100} size={56} stroke={5} color={habDone === habTotal ? '#4ADE80' : colors.accent} track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: textPrimary }}>{Math.round((habDone/habTotal)*100)}%</Text>
-                </Ring>
-              </View>
-              <View style={{ height: 4, backgroundColor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)', borderRadius: 2, overflow: 'hidden', marginBottom: 14 }}>
-                <View style={{ height: 4, width: `${(habDone/habTotal)*100}%`, backgroundColor: habDone === habTotal ? '#4ADE80' : colors.accent, borderRadius: 2 }} />
-              </View>
-              {habits.slice(0, 4).map((h, i) => (
-                <View key={h.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10,
-                  borderBottomWidth: i < Math.min(habits.length, 4) - 1 ? 1 : 0,
-                  borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}>
-                  <View style={{ width: 22, height: 22, borderRadius: 11,
-                    backgroundColor: h.completedToday ? colors.accent : 'transparent',
-                    borderWidth: 1.5, borderColor: h.completedToday ? colors.accent : isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
-                    alignItems: 'center', justifyContent: 'center' }}>
-                    {h.completedToday && (
-                      <Svg width={10} height={10} viewBox="0 0 24 24" fill="none">
-                        <Path d="M20 6L9 17l-5-5" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
-                      </Svg>
-                    )}
-                  </View>
-                  <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: h.completedToday ? textDim : textPrimary,
-                    textDecorationLine: h.completedToday ? 'line-through' : 'none' }}>{h.name}</Text>
-                  {h.streak > 0 && <Text style={{ fontSize: 11, color: colors.accent, fontWeight: '700' }}>🔥 {h.streak}</Text>}
-                </View>
-              ))}
-            </View>
           );
 
           /* DAILY JOURNAL */
@@ -839,7 +790,6 @@ export default function HomeScreen() {
           energy: t('home_card_energy'),
           nutrition: t('home_card_nutrition'),
           readiness: t('home_card_readiness'),
-          habits: t('home_card_habits'),
           journal: t('home_card_journal'),
           todo: t('home_card_todo'),
         }}

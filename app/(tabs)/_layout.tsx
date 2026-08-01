@@ -117,7 +117,7 @@ function MainTabBar({ pathname }: { pathname: string }) {
     if (pathname.includes('/nutrition')) return 2;
     if (pathname.includes('/health') || pathname.includes('/sleep') ||
         pathname.includes('/checkin') || pathname.includes('/battery') ||
-        pathname.includes('/habits') || pathname.includes('/weight')) return 3;
+        pathname.includes('/weight')) return 3;
     return 0;
   }
 

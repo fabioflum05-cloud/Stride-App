@@ -5,14 +5,13 @@ import { useEffect, useState } from 'react';
 import { Modal, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { HomeCardConfig, HomeCardId } from '../utils/homeLayout';
 
 const ROW_H = 60;
 
-function Row({ config, index, total, label, accent, isDark, onToggle, onReorder, onDragEnd }: {
-  config: HomeCardConfig; index: number; total: number; label: string; accent: string; isDark: boolean;
-  onToggle: (id: HomeCardId) => void;
-  onReorder: (id: HomeCardId, newIndex: number) => void;
+function Row<T extends string>({ config, index, total, label, accent, isDark, onToggle, onReorder, onDragEnd }: {
+  config: { id: T; visible: boolean }; index: number; total: number; label: string; accent: string; isDark: boolean;
+  onToggle: (id: T) => void;
+  onReorder: (id: T, newIndex: number) => void;
   onDragEnd: () => void;
 }) {
   const topY = useSharedValue(index * ROW_H);
@@ -75,23 +74,23 @@ function Row({ config, index, total, label, accent, isDark, onToggle, onReorder,
   );
 }
 
-export function EditHomeCardsModal({ visible, layout, labels, accent, isDark, onChangeLayout, onClose, title, subtitle, doneLabel }: {
+export function EditHomeCardsModal<T extends string>({ visible, layout, labels, accent, isDark, onChangeLayout, onClose, title, subtitle, doneLabel }: {
   visible: boolean;
-  layout: HomeCardConfig[];
-  labels: Record<HomeCardId, string>;
+  layout: { id: T; visible: boolean }[];
+  labels: Record<T, string>;
   accent: string;
   isDark: boolean;
-  onChangeLayout: (layout: HomeCardConfig[]) => void;
+  onChangeLayout: (layout: { id: T; visible: boolean }[]) => void;
   onClose: () => void;
   title: string;
   subtitle: string;
   doneLabel: string;
 }) {
-  const [order, setOrder] = useState<HomeCardConfig[]>(layout);
+  const [order, setOrder] = useState<{ id: T; visible: boolean }[]>(layout);
 
   useEffect(() => { if (visible) setOrder(layout); }, [visible]);
 
-  function toggle(id: HomeCardId) {
+  function toggle(id: T) {
     setOrder(prev => {
       const next = prev.map(c => c.id === id ? { ...c, visible: !c.visible } : c);
       onChangeLayout(next);
@@ -99,7 +98,7 @@ export function EditHomeCardsModal({ visible, layout, labels, accent, isDark, on
     });
   }
 
-  function reorder(id: HomeCardId, newIndex: number) {
+  function reorder(id: T, newIndex: number) {
     setOrder(prev => {
       const oldIndex = prev.findIndex(c => c.id === id);
       if (oldIndex === -1 || oldIndex === newIndex) return prev;

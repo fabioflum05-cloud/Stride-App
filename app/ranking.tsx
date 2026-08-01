@@ -17,9 +17,7 @@ const XP_REWARDS = [
   { action: 'Training absolvieren', xp: '+25', icon: '💪', positive: true },
   { action: 'Schlaf loggen', xp: '+15', icon: '🌙', positive: true },
   { action: 'Check-in ausfüllen', xp: '+10', icon: '✓', positive: true },
-  { action: 'Habit erledigen', xp: '+5', icon: '⚡', positive: true },
   { action: 'Performance Score > 70', xp: '+20', icon: '🎯', positive: true },
-  { action: '7-Tage Streak', xp: '+50', icon: '🔥', positive: true },
   { action: 'Check-in verpasst', xp: '-5', icon: '✗', positive: false },
   { action: 'Schlaf verpasst', xp: '-5', icon: '✗', positive: false },
 ];
@@ -54,7 +52,6 @@ function XPRing({ xp, currentLevel, nextLevel }: { xp: number, currentLevel: typ
 
 export default function RankingScreen() {
   const [xp, setXp] = useState(0);
-  const [streak, setStreak] = useState(0);
   const [lostXP, setLostXP] = useState(0);
   const [stats, setStats] = useState({ totalWorkouts: 0, totalCheckins: 0, totalSleepLogs: 0, avgScore: 0 });
 
@@ -63,14 +60,11 @@ export default function RankingScreen() {
       const rawWorkouts = await AsyncStorage.getItem('workouts');
       const rawCheckins = await AsyncStorage.getItem('checkinHistory');
       const rawSleep = await AsyncStorage.getItem('sleepHistory');
-      const rawHabits = await AsyncStorage.getItem('habits');
 
       const workouts = rawWorkouts ? JSON.parse(rawWorkouts) : [];
       const checkins = rawCheckins ? JSON.parse(rawCheckins) : [];
       const sleepLogs = rawSleep ? JSON.parse(rawSleep) : [];
-      const habits: any[] = rawHabits ? JSON.parse(rawHabits) : [];
 
-      const totalHabitsCompleted = habits.reduce((sum, h) => sum + (h.completedDates?.length ?? 0), 0);
       const avgScore = checkins.length > 0 ? Math.round(checkins.reduce((s: number, c: any) => s + c.score, 0) / checkins.length) : 0;
       const highScoreCheckins = checkins.filter((c: any) => c.score > 70).length;
 
@@ -84,16 +78,14 @@ export default function RankingScreen() {
       const missedCheckins = last7Days.filter(d => !checkinDays.has(d)).length;
       const sleepDays = new Set(sleepLogs.map((s: any) => new Date(s.date).toDateString()));
       const missedSleep = last7Days.filter(d => !sleepDays.has(d)).length;
-      const maxStreak = habits.reduce((max, h) => Math.max(max, h.streak ?? 0), 0);
 
       const earnedXP = workouts.length * 25 + checkins.length * 10 + sleepLogs.length * 15 +
-        totalHabitsCompleted * 5 + highScoreCheckins * 20 + (maxStreak >= 7 ? 50 : 0);
+        highScoreCheckins * 20;
       const lost = missedCheckins * 5 + missedSleep * 5;
       const totalXP = Math.max(0, earnedXP - lost);
 
       setXp(totalXP);
       setLostXP(lost);
-      setStreak(maxStreak);
       setStats({ totalWorkouts: workouts.length, totalCheckins: checkins.length, totalSleepLogs: sleepLogs.length, avgScore });
     }
     load();
@@ -129,12 +121,6 @@ export default function RankingScreen() {
       {lostXP > 0 && (
         <View style={styles.lostXPCard}>
           <Text style={styles.lostXPText}>⚠ -{lostXP} XP diese Woche durch verpasste Einträge</Text>
-        </View>
-      )}
-
-      {streak >= 7 && (
-        <View style={styles.streakBadge}>
-          <Text style={styles.streakBadgeText}>🔥 {streak}-Tage Streak – +50 Bonus XP!</Text>
         </View>
       )}
 
@@ -193,8 +179,6 @@ const styles = StyleSheet.create({
   nextLevelText: { color: '#5B4A8A', fontSize: 11 },
   lostXPCard: { backgroundColor: 'rgba(251,113,133,0.08)', borderRadius: 12, borderWidth: 0.5, borderColor: 'rgba(251,113,133,0.2)', padding: 12, alignItems: 'center', marginBottom: 12 },
   lostXPText: { color: '#FB7185', fontSize: 12, fontWeight: '500' },
-  streakBadge: { backgroundColor: 'rgba(245,158,11,0.1)', borderRadius: 12, borderWidth: 0.5, borderColor: 'rgba(245,158,11,0.3)', padding: 12, alignItems: 'center', marginBottom: 16 },
-  streakBadgeText: { color: '#F59E0B', fontSize: 13, fontWeight: '500' },
   sectionTitle: { color: '#5B4A8A', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10, marginTop: 8 },
   rewardsCard: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.07)', padding: 16, marginBottom: 16, gap: 12 },
   rewardRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },

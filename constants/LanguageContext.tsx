@@ -51,7 +51,6 @@ const translations = {
     home_muscles_ready: 'Muskelgruppen erholt',
     home_start_training: 'Training starten',
     home_recovery: 'Recovery',
-    home_habits: 'Habits heute',
     home_journal: 'Tagesnotiz schreiben',
     home_journal_title: 'Tagesnotiz',
     home_journal_placeholder: 'Wie war dein Tag?',
@@ -83,7 +82,6 @@ const translations = {
     home_card_energy: 'Body Battery',
     home_card_nutrition: 'Ernährung',
     home_card_readiness: 'Trainingsbereitschaft',
-    home_card_habits: 'Habits',
     home_card_journal: 'Tagesnotiz',
     home_card_todo: 'Heute erledigen',
 
@@ -458,7 +456,6 @@ const translations = {
     home_muscles_ready: 'muscle groups recovered',
     home_start_training: 'Start Training',
     home_recovery: 'Recovery',
-    home_habits: 'Today\'s Habits',
     home_journal: 'Write daily note',
     home_journal_title: 'Daily Note',
     home_journal_placeholder: 'How was your day?',
@@ -490,7 +487,6 @@ const translations = {
     home_card_energy: 'Body Battery',
     home_card_nutrition: 'Nutrition',
     home_card_readiness: 'Training Readiness',
-    home_card_habits: 'Habits',
     home_card_journal: 'Daily Note',
     home_card_todo: "Today's Tasks",
 

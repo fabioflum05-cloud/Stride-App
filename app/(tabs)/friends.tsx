@@ -1,6 +1,7 @@
 // app/friends.tsx
 // Friends Screen — Streak & Score Vergleich via Firebase
 
+import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import { signInAnonymously } from 'firebase/auth';
@@ -259,8 +260,10 @@ export default function FriendsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: bg }}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 60, paddingBottom: 100 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}>
         <Animated.View style={{ opacity: fade }}>
+
+          <BackButton />
 
           {/* ── Header ── */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>

@@ -814,11 +814,10 @@ export async function fetchAndImportHealthData(): Promise<{ success: boolean; me
     const existingSleep = rawLastSleep ? JSON.parse(rawLastSleep) : {};
 
     const schlafMin = Math.round(sleep.hours * 60);
-    // HRV ist reine manuelle Eingabe (saveManualHRV) — anders als früher (Apple-Health-Fetch)
-    // gibt es hier kein Staleness-Risiko durch einen Fallback auf den vorhandenen Wert: der Nutzer
-    // trägt ihn bewusst ein, er wird nie automatisch überschrieben. Ein Sync anderer Schlafwerte
-    // (Phasen, Puls) darf den bereits eingetragenen HRV-Wert des Tages also nicht löschen.
-    const hrvVal: number | null = existingSleep.hrv ?? null;
+    // HRV ist reine manuelle Eingabe (saveManualHRV) und gilt nur für den Tag, an dem sie
+    // eingetragen wurde — ein Sync anderer Schlafwerte (Phasen, Puls) darf den HRV-Wert eines
+    // VERGANGENEN Tages nicht auf den neuen Tag übertragen, sonst "klebt" der Wert für immer.
+    const hrvVal: number | null = isToday(existingSleep.date) ? (existingSleep.hrv ?? null) : null;
     const tiefsterPuls: number | null = restingHR ?? null;
     const avgPuls = sleep.avgHeartRate ?? existingSleep.avgPuls ?? null;
 

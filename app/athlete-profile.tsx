@@ -56,7 +56,6 @@ export default function AthleteProfileScreen() {
   const [healthHistory, setHealthHistory] = useState<DayHealth[]>([]);
   const [vo2, setVo2] = useState<Vo2Data | null>(null);
   const [totalSessions, setTotalSessions] = useState(0);
-  const [streak, setStreak] = useState(0);
   const [prs, setPrs] = useState<PR[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
@@ -81,12 +80,11 @@ export default function AthleteProfileScreen() {
 
   const load = useCallback(async () => {
     try {
-      const [rawProfile, rawWeight, rawHealth, rawWorkouts, rawHabits, rawVo2] = await Promise.all([
+      const [rawProfile, rawWeight, rawHealth, rawWorkouts, rawVo2] = await Promise.all([
         AsyncStorage.getItem('profile'),
         AsyncStorage.getItem('weightHistory'),
         AsyncStorage.getItem(HEALTH_KEY),
         AsyncStorage.getItem('workouts'),
-        AsyncStorage.getItem('habits'),
         AsyncStorage.getItem(VO2_KEY),
       ]);
 
@@ -111,21 +109,6 @@ export default function AthleteProfileScreen() {
           });
         });
         setPrs(Object.values(prMap).sort((a, b) => b.oneRM - a.oneRM).slice(0, 5));
-      }
-
-      if (rawHabits) {
-        const habits = JSON.parse(rawHabits);
-        let s = 0;
-        const today = new Date();
-        for (let i = 0; i < 365; i++) {
-          const d = new Date(today); d.setDate(d.getDate() - i);
-          const anyDone = habits.some((h: any) => h.completedDates?.some((cd: string) => {
-            const dd = new Date(cd);
-            return dd.getDate() === d.getDate() && dd.getMonth() === d.getMonth() && dd.getFullYear() === d.getFullYear();
-          }));
-          if (anyDone) s++; else break;
-        }
-        setStreak(s);
       }
 
       setLastSync(await getLastHealthSync());
@@ -330,7 +313,6 @@ export default function AthleteProfileScreen() {
             <View style={{ flexDirection: 'row', marginBottom: prs.length ? 18 : 0 }}>
               {[
                 { label: lang === 'en' ? 'Total Sessions' : 'Gesamte Sessions', value: String(totalSessions) },
-                { label: lang === 'en' ? 'Streak' : 'Streak', value: `${streak} ${lang === 'en' ? 'd' : 'T'}` },
               ].map((s, i) => (
                 <React.Fragment key={s.label}>
                   {i > 0 && <View style={{ width: 1, backgroundColor: border }} />}
