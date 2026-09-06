@@ -10,7 +10,7 @@ import {
   Text, TouchableOpacity, View
 } from 'react-native';
 import BackButton from '@/components/BackButton';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { fetchAndImportHealthData } from '../utils/applehealth';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -24,6 +24,9 @@ const redirectUri = AuthSession.makeRedirectUri({ scheme: 'performanceapp', path
 type PolarToken = { access_token: string; token_type: string; x_user_id: number };
 type SyncResult = { sleep?: any; activity?: any; recharge?: any };
 function AppleHealthCard() {
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
 
@@ -65,6 +68,9 @@ function AppleHealthCard() {
   );
 }
 export default function DevicesScreen() {
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [polarToken, setPolarToken] = useState<PolarToken | null>(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -398,28 +404,30 @@ export default function DevicesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', marginBottom: 20 },
-  deviceCard: { backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 12, ...theme.shadow },
-  deviceHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
-  deviceIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  deviceIconText: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  deviceName: { color: theme.textPrimary, fontSize: 16, fontWeight: '600' },
-  deviceStatus: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
-  connectBtn: { backgroundColor: theme.blue, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 8 },
-  connectBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  disconnectBtn: { backgroundColor: theme.cardSecondary, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 8 },
-  disconnectBtnText: { color: theme.red, fontSize: 13, fontWeight: '500' },
-  deviceDesc: { color: theme.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 4 },
-  lastSync: { color: theme.textTertiary, fontSize: 11, marginBottom: 10 },
-  syncBtn: { backgroundColor: theme.blue, borderRadius: 12, padding: 12, alignItems: 'center', marginBottom: 12 },
-  syncBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  dataSection: { borderTopWidth: 0.5, borderTopColor: theme.borderLight, paddingTop: 12, marginTop: 4, marginBottom: 8 },
-  dataSectionTitle: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, fontWeight: '600' },
-  dataRow: { flexDirection: 'row', gap: 16 },
-  dataStat: { alignItems: 'center' },
-  dataVal: { fontSize: 18, fontWeight: '700' },
-  dataLbl: { color: theme.textSecondary, fontSize: 10, marginTop: 2 },
-});
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', marginBottom: 20 },
+    deviceCard: { backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 12, ...theme.shadow },
+    deviceHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
+    deviceIcon: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    deviceIconText: { color: '#fff', fontSize: 18, fontWeight: '700' },
+    deviceName: { color: theme.textPrimary, fontSize: 16, fontWeight: '600' },
+    deviceStatus: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
+    connectBtn: { backgroundColor: theme.blue, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 8 },
+    connectBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+    disconnectBtn: { backgroundColor: theme.cardSecondary, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 8 },
+    disconnectBtnText: { color: theme.red, fontSize: 13, fontWeight: '500' },
+    deviceDesc: { color: theme.textSecondary, fontSize: 13, lineHeight: 20, marginTop: 4 },
+    lastSync: { color: theme.textTertiary, fontSize: 11, marginBottom: 10 },
+    syncBtn: { backgroundColor: theme.blue, borderRadius: 12, padding: 12, alignItems: 'center', marginBottom: 12 },
+    syncBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    dataSection: { borderTopWidth: 0.5, borderTopColor: theme.borderLight, paddingTop: 12, marginTop: 4, marginBottom: 8 },
+    dataSectionTitle: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, fontWeight: '600' },
+    dataRow: { flexDirection: 'row', gap: 16 },
+    dataStat: { alignItems: 'center' },
+    dataVal: { fontSize: 18, fontWeight: '700' },
+    dataLbl: { color: theme.textSecondary, fontSize: 10, marginTop: 2 },
+  });
+}

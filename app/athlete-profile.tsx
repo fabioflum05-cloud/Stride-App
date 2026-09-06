@@ -69,7 +69,7 @@ export default function AthleteProfileScreen() {
   const fade = useRef(new Animated.Value(0)).current;
   const slide = useRef(new Animated.Value(20)).current;
 
-  const isDark = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
+  const isDark = colors.isDark;
   const bg = isDark ? '#0F0E0D' : colors.bg;
   const card = isDark ? '#1C1917' : colors.card;
   const cardAlt = isDark ? '#242120' : colors.cardSecondary;

@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Animated, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
 
 const SW = Dimensions.get('window').width;
@@ -29,12 +29,14 @@ type SeasonChallenge = {
   progress: number; total: number; daysLeft: number;
 };
 
+// Rang-Farben sind bewusst fest (wie die Tier-/Badge-Farben unten) — sie identifizieren den
+// Levelrang selbst, nicht die App-Oberfläche, und bleiben deshalb unabhängig vom gewählten Theme.
 const LEVELS = [
   { name: 'Rookie', nameEn: 'Rookie', minXP: 0, color: '#8E8E93' },
-  { name: 'Amateur', nameEn: 'Amateur', minXP: 150, color: theme.blue },
-  { name: 'Athlet', nameEn: 'Athlete', minXP: 400, color: theme.green },
-  { name: 'Pro', nameEn: 'Pro', minXP: 800, color: theme.orange },
-  { name: 'Elite', nameEn: 'Elite', minXP: 1500, color: theme.purple },
+  { name: 'Amateur', nameEn: 'Amateur', minXP: 150, color: '#1A73E8' },
+  { name: 'Athlet', nameEn: 'Athlete', minXP: 400, color: '#34C759' },
+  { name: 'Pro', nameEn: 'Pro', minXP: 800, color: '#FF9500' },
+  { name: 'Elite', nameEn: 'Elite', minXP: 1500, color: '#7C3AED' },
   { name: 'Champion', nameEn: 'Champion', minXP: 2500, color: '#FF2D55' },
   { name: 'Legend', nameEn: 'Legend', minXP: 5000, color: '#FFD700' },
 ];
@@ -129,7 +131,7 @@ function getBadgeIcon(id: string, color: string) {
   return <IconTarget color={color} />;
 }
 
-function LevelRing({ xp, size = 96 }: { xp: number; size?: number }) {
+function LevelRing({ xp, size = 96, theme }: { xp: number; size?: number; theme: ReturnType<typeof getFullPalette> }) {
   const level = getLevel(xp);
   const next = getNextLevel(xp);
   const prevXP = level.minXP;
@@ -142,14 +144,14 @@ function LevelRing({ xp, size = 96 }: { xp: number; size?: number }) {
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <Circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#F2F2F7" strokeWidth={7} />
+        <Circle cx={size/2} cy={size/2} r={r} fill="none" stroke={theme.cardSecondary} strokeWidth={7} />
         <Circle cx={size/2} cy={size/2} r={r} fill="none" stroke={level.color}
           strokeWidth={7} strokeDasharray={`${filled} ${circ - filled}`}
           strokeLinecap="round" rotation={-90} origin={`${size/2},${size/2}`} />
       </Svg>
       <View style={{ position: 'absolute', alignItems: 'center' }}>
-        <Text style={{ fontSize: size * 0.18, fontWeight: '800', color: '#000', letterSpacing: -0.5 }}>{xp}</Text>
-        <Text style={{ fontSize: size * 0.09, color: '#8E8E93', textTransform: 'uppercase', letterSpacing: 0.5 }}>XP</Text>
+        <Text style={{ fontSize: size * 0.18, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.5 }}>{xp}</Text>
+        <Text style={{ fontSize: size * 0.09, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 }}>XP</Text>
       </View>
     </View>
   );
@@ -157,6 +159,9 @@ function LevelRing({ xp, size = 96 }: { xp: number; size?: number }) {
 
 export default function AchievementsScreen() {
   const { lang } = useLanguage();
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [badges, setBadges] = useState<Badge[]>([]);
   const [totalXP, setTotalXP] = useState(0);
   const [activeTab, setActiveTab] = useState<'badges' | 'quests' | 'season'>('badges');
@@ -324,7 +329,7 @@ export default function AchievementsScreen() {
 
         {/* Level Card */}
         <View style={styles.levelCard}>
-          <LevelRing xp={totalXP} size={96} />
+          <LevelRing xp={totalXP} size={96} theme={theme} />
           <View style={styles.levelInfo}>
             <View style={[styles.levelPill, { backgroundColor: level.color }]}>
               <Text style={styles.levelPillText}>{lang === 'en' ? level.nameEn : level.name}</Text>
@@ -386,8 +391,8 @@ export default function AchievementsScreen() {
               const tier = TIER_COLORS[next.tier];
               return (
                 <View key={next.id} style={[styles.nextCard, { borderLeftColor: next.color }]}>
-                  <View style={[styles.nextIconWrap, { backgroundColor: '#F2F2F7', borderColor: '#E5E5EA' }]}>
-                    {getBadgeIcon(next.id, '#C7C7CC')}
+                  <View style={[styles.nextIconWrap, { backgroundColor: theme.cardSecondary, borderColor: theme.border }]}>
+                    {getBadgeIcon(next.id, theme.textTertiary)}
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
@@ -440,17 +445,17 @@ export default function AchievementsScreen() {
                       </View>
                     )}
                     <View style={[styles.badgeIconWrap, {
-                      backgroundColor: badge.unlocked ? badge.bg : '#F2F2F7',
-                      borderColor: badge.unlocked ? badge.color + '50' : '#E5E5EA',
+                      backgroundColor: badge.unlocked ? badge.bg : theme.cardSecondary,
+                      borderColor: badge.unlocked ? badge.color + '50' : theme.border,
                     }]}>
-                      {getBadgeIcon(badge.id, badge.unlocked ? badge.color : '#C7C7CC')}
+                      {getBadgeIcon(badge.id, badge.unlocked ? badge.color : theme.textTertiary)}
                       {badge.unlocked && (
                         <View style={[styles.checkDot, { backgroundColor: badge.color }]}>
                           <Text style={{ color: '#fff', fontSize: 7, fontWeight: '800' }}>✓</Text>
                         </View>
                       )}
                     </View>
-                    <Text style={[styles.badgeTitle, !badge.unlocked && { color: '#8E8E93' }]}>{lang === 'en' ? badge.titleEn : badge.title}</Text>
+                    <Text style={[styles.badgeTitle, !badge.unlocked && { color: theme.textSecondary }]}>{lang === 'en' ? badge.titleEn : badge.title}</Text>
                     <Text style={styles.badgeDesc}>{lang === 'en' ? badge.descEn : badge.desc}</Text>
                     {!badge.unlocked && badge.progress !== undefined && badge.total && (
                       <View style={{ width: '100%', gap: 2 }}>
@@ -463,8 +468,8 @@ export default function AchievementsScreen() {
                     {badge.unlocked && badge.unlockedAt && (
                       <Text style={styles.unlockedAt}>{lang === 'en' ? badge.unlockedAtEn : badge.unlockedAt}</Text>
                     )}
-                    <View style={[styles.xpChip, { backgroundColor: badge.unlocked ? badge.bg : '#F2F2F7' }]}>
-                      <Text style={[styles.xpChipText, { color: badge.unlocked ? badge.color : '#C7C7CC' }]}>+{badge.xp} XP</Text>
+                    <View style={[styles.xpChip, { backgroundColor: badge.unlocked ? badge.bg : theme.cardSecondary }]}>
+                      <Text style={[styles.xpChipText, { color: badge.unlocked ? badge.color : theme.textTertiary }]}>+{badge.xp} XP</Text>
                     </View>
                   </View>
                 );
@@ -486,7 +491,7 @@ export default function AchievementsScreen() {
 
             {dailyQuests.map(quest => (
               <View key={quest.id} style={[styles.questCard, quest.completed && { borderLeftColor: quest.color, borderLeftWidth: 3 }]}>
-                <View style={[styles.questIconWrap, { backgroundColor: quest.completed ? quest.bg : '#F2F2F7' }]}>
+                <View style={[styles.questIconWrap, { backgroundColor: quest.completed ? quest.bg : theme.cardSecondary }]}>
                   {quest.completed
                     ? <View style={[styles.questCheck, { backgroundColor: quest.color }]}><Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>✓</Text></View>
                     : <View style={{ opacity: 0.4 }}><IconCheck color={quest.color} /></View>
@@ -504,8 +509,8 @@ export default function AchievementsScreen() {
                     </View>
                   )}
                 </View>
-                <View style={[styles.xpPill, { backgroundColor: quest.completed ? quest.bg : '#F2F2F7' }]}>
-                  <Text style={[styles.xpPillText, { color: quest.completed ? quest.color : '#C7C7CC' }]}>+{quest.xp} XP</Text>
+                <View style={[styles.xpPill, { backgroundColor: quest.completed ? quest.bg : theme.cardSecondary }]}>
+                  <Text style={[styles.xpPillText, { color: quest.completed ? quest.color : theme.textTertiary }]}>+{quest.xp} XP</Text>
                 </View>
               </View>
             ))}
@@ -535,8 +540,8 @@ export default function AchievementsScreen() {
               return (
                 <View key={challenge.id} style={[styles.seasonCard, done && { borderLeftColor: challenge.color, borderLeftWidth: 3 }]}>
                   <View style={styles.seasonCardTop}>
-                    <View style={[styles.seasonIconWrap, { backgroundColor: done ? challenge.bg : '#F2F2F7' }]}>
-                      {getBadgeIcon('t1', done ? challenge.color : '#C7C7CC')}
+                    <View style={[styles.seasonIconWrap, { backgroundColor: done ? challenge.bg : theme.cardSecondary }]}>
+                      {getBadgeIcon('t1', done ? challenge.color : theme.textTertiary)}
                     </View>
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -549,8 +554,8 @@ export default function AchievementsScreen() {
                       </View>
                       <Text style={styles.seasonCardDesc}>{lang === 'en' ? challenge.descEn : challenge.desc}</Text>
                     </View>
-                    <View style={[styles.xpPill, { backgroundColor: done ? challenge.bg : '#F2F2F7' }]}>
-                      <Text style={[styles.xpPillText, { color: done ? challenge.color : '#C7C7CC' }]}>+{challenge.xp}</Text>
+                    <View style={[styles.xpPill, { backgroundColor: done ? challenge.bg : theme.cardSecondary }]}>
+                      <Text style={[styles.xpPillText, { color: done ? challenge.color : theme.textTertiary }]}>+{challenge.xp}</Text>
                     </View>
                   </View>
                   <View style={styles.seasonProgressWrap}>
@@ -571,103 +576,107 @@ export default function AchievementsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F2F2F7' },
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg },
 
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14, backgroundColor: '#fff', borderBottomWidth: 0.5, borderBottomColor: '#E5E5EA' },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#000', letterSpacing: -0.3 },
+    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14, backgroundColor: theme.card, borderBottomWidth: 0.5, borderBottomColor: theme.border },
+    headerTitle: { fontSize: 17, fontWeight: '700', color: theme.textPrimary, letterSpacing: -0.3 },
 
-  levelCard: { backgroundColor: '#fff', margin: 16, borderRadius: 20, padding: 20, flexDirection: 'row', gap: 16, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3 },
-  levelInfo: { flex: 1, gap: 5 },
-  levelPill: { alignSelf: 'flex-start', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
-  levelPillText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
-  levelXP: { fontSize: 26, fontWeight: '800', color: '#000', letterSpacing: -0.8 },
-  levelNextText: { fontSize: 12, color: '#8E8E93' },
-  levelProgressBar: { height: 4, backgroundColor: '#F2F2F7', borderRadius: 2, overflow: 'hidden', marginTop: 2 },
-  levelProgressFill: { height: '100%', borderRadius: 2 },
-  levelMeta: { flexDirection: 'row', gap: 0, marginTop: 6 },
-  levelMetaItem: { flex: 1 },
-  levelMetaBorder: { borderLeftWidth: 0.5, borderLeftColor: '#E5E5EA', paddingLeft: 12 },
-  levelMetaVal: { fontSize: 16, fontWeight: '700', color: '#000' },
-  levelMetaLbl: { fontSize: 9, color: '#C7C7CC', textTransform: 'uppercase', letterSpacing: 0.5 },
+    levelCard: { backgroundColor: theme.card, margin: 16, borderRadius: 20, padding: 20, flexDirection: 'row', gap: 16, alignItems: 'center', ...theme.shadow },
+    levelInfo: { flex: 1, gap: 5 },
+    levelPill: { alignSelf: 'flex-start', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4 },
+    levelPillText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+    levelXP: { fontSize: 26, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.8 },
+    levelNextText: { fontSize: 12, color: theme.textSecondary },
+    levelProgressBar: { height: 4, backgroundColor: theme.cardSecondary, borderRadius: 2, overflow: 'hidden', marginTop: 2 },
+    levelProgressFill: { height: '100%', borderRadius: 2 },
+    levelMeta: { flexDirection: 'row', gap: 0, marginTop: 6 },
+    levelMetaItem: { flex: 1 },
+    levelMetaBorder: { borderLeftWidth: 0.5, borderLeftColor: theme.border, paddingLeft: 12 },
+    levelMetaVal: { fontSize: 16, fontWeight: '700', color: theme.textPrimary },
+    levelMetaLbl: { fontSize: 9, color: theme.textTertiary, textTransform: 'uppercase', letterSpacing: 0.5 },
 
-  tabBar: { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 0.5, borderBottomColor: '#E5E5EA', marginBottom: 0 },
-  tabBtn: { flex: 1, paddingVertical: 13, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabBtnActive: { borderBottomColor: '#000' },
-  tabBtnText: { fontSize: 13, fontWeight: '500', color: '#8E8E93' },
-  tabBtnTextActive: { color: '#000', fontWeight: '700' },
+    tabBar: { flexDirection: 'row', backgroundColor: theme.card, borderBottomWidth: 0.5, borderBottomColor: theme.border, marginBottom: 0 },
+    tabBtn: { flex: 1, paddingVertical: 13, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
+    tabBtnActive: { borderBottomColor: theme.blue },
+    tabBtnText: { fontSize: 13, fontWeight: '500', color: theme.textSecondary },
+    tabBtnTextActive: { color: theme.blue, fontWeight: '700' },
 
-  nextCard: { backgroundColor: '#fff', margin: 16, marginBottom: 8, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderLeftWidth: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  nextIconWrap: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
-  nextLabel: { fontSize: 10, fontWeight: '600', color: '#8E8E93', textTransform: 'uppercase', letterSpacing: 0.8 },
-  nextTitle: { fontSize: 15, fontWeight: '700', color: '#000', marginTop: 1 },
-  nextDesc: { fontSize: 12, color: '#8E8E93', marginTop: 1 },
-  nextProgressWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  nextProgressTrack: { flex: 1, height: 4, backgroundColor: '#F2F2F7', borderRadius: 2, overflow: 'hidden' },
-  nextProgressFill: { height: '100%', borderRadius: 2 },
-  nextProgressText: { fontSize: 11, fontWeight: '700', minWidth: 30 },
+    nextCard: { backgroundColor: theme.card, margin: 16, marginBottom: 8, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, borderLeftWidth: 3, ...theme.shadow },
+    nextIconWrap: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
+    nextLabel: { fontSize: 10, fontWeight: '600', color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: 0.8 },
+    nextTitle: { fontSize: 15, fontWeight: '700', color: theme.textPrimary, marginTop: 1 },
+    nextDesc: { fontSize: 12, color: theme.textSecondary, marginTop: 1 },
+    nextProgressWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
+    nextProgressTrack: { flex: 1, height: 4, backgroundColor: theme.cardSecondary, borderRadius: 2, overflow: 'hidden' },
+    nextProgressFill: { height: '100%', borderRadius: 2 },
+    nextProgressText: { fontSize: 11, fontWeight: '700', minWidth: 30 },
 
-  tierPill: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1 },
-  tierPillText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
+    tierPill: { borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1 },
+    tierPillText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.3 },
 
-  catScroll: { marginVertical: 12 },
-  catChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: '#fff', borderWidth: 0.5, borderColor: '#E5E5EA' },
-  catChipActive: { backgroundColor: '#000', borderColor: '#000' },
-  catChipText: { fontSize: 12, fontWeight: '500', color: '#8E8E93' },
-  catChipTextActive: { color: '#fff' },
+    catScroll: { marginVertical: 12 },
+    catChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, backgroundColor: theme.card, borderWidth: 0.5, borderColor: theme.border },
+    catChipActive: { backgroundColor: theme.blue, borderColor: theme.blue },
+    catChipText: { fontSize: 12, fontWeight: '500', color: theme.textSecondary },
+    catChipTextActive: { color: '#fff' },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, gap: 10, marginBottom: 20 },
-  badgeCard: { width: (SW - 44) / 2, backgroundColor: '#fff', borderRadius: 18, padding: 16, alignItems: 'center', gap: 7, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2, position: 'relative' },
-  badgeCardLocked: { opacity: 0.65 },
-  tierTag: { position: 'absolute', top: 10, left: 10, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1 },
-  tierTagText: { fontSize: 8, fontWeight: '700', letterSpacing: 0.3 },
-  badgeIconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, position: 'relative' },
-  checkDot: { position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: '#fff' },
-  badgeTitle: { fontSize: 12, fontWeight: '700', color: '#000', textAlign: 'center', letterSpacing: -0.2 },
-  badgeDesc: { fontSize: 10, color: '#8E8E93', textAlign: 'center', lineHeight: 14 },
-  badgeProgressTrack: { height: 3, backgroundColor: '#F2F2F7', borderRadius: 2, overflow: 'hidden', width: '100%' },
-  badgeProgressFill: { height: '100%', borderRadius: 2 },
-  badgeProgressMeta: { fontSize: 9, color: '#C7C7CC', textAlign: 'right' },
-  unlockedAt: { fontSize: 9, color: '#C7C7CC', fontStyle: 'italic' },
-  xpChip: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
-  xpChipText: { fontSize: 10, fontWeight: '700' },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 12, gap: 10, marginBottom: 20 },
+    badgeCard: { width: (SW - 44) / 2, backgroundColor: theme.card, borderRadius: 18, padding: 16, alignItems: 'center', gap: 7, ...theme.shadow, position: 'relative' },
+    badgeCardLocked: { opacity: 0.65 },
+    tierTag: { position: 'absolute', top: 10, left: 10, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1 },
+    tierTagText: { fontSize: 8, fontWeight: '700', letterSpacing: 0.3 },
+    badgeIconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, position: 'relative' },
+    checkDot: { position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: theme.card },
+    badgeTitle: { fontSize: 12, fontWeight: '700', color: theme.textPrimary, textAlign: 'center', letterSpacing: -0.2 },
+    badgeDesc: { fontSize: 10, color: theme.textSecondary, textAlign: 'center', lineHeight: 14 },
+    badgeProgressTrack: { height: 3, backgroundColor: theme.cardSecondary, borderRadius: 2, overflow: 'hidden', width: '100%' },
+    badgeProgressFill: { height: '100%', borderRadius: 2 },
+    badgeProgressMeta: { fontSize: 9, color: theme.textTertiary, textAlign: 'right' },
+    unlockedAt: { fontSize: 9, color: theme.textTertiary, fontStyle: 'italic' },
+    xpChip: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
+    xpChipText: { fontSize: 10, fontWeight: '700' },
 
-  section: { padding: 16 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: '#000', letterSpacing: -0.5 },
-  sectionSub: { fontSize: 13, color: '#8E8E93', marginBottom: 16, lineHeight: 18 },
+    section: { padding: 16 },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+    sectionTitle: { fontSize: 18, fontWeight: '800', color: theme.textPrimary, letterSpacing: -0.5 },
+    sectionSub: { fontSize: 13, color: theme.textSecondary, marginBottom: 16, lineHeight: 18 },
 
-  questCard: { backgroundColor: '#fff', borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  questIconWrap: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  questCheck: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  questTitle: { fontSize: 14, fontWeight: '700', color: '#000', marginBottom: 2 },
-  questDesc: { fontSize: 12, color: '#8E8E93' },
-  questProgressWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
-  questProgressTrack: { flex: 1, height: 3, backgroundColor: '#F2F2F7', borderRadius: 2, overflow: 'hidden' },
-  questProgressFill: { height: '100%', borderRadius: 2 },
-  questProgressText: { fontSize: 10, fontWeight: '600', minWidth: 25 },
-  questInfoCard: { backgroundColor: '#EFF6FF', borderRadius: 14, padding: 14, marginTop: 8 },
-  questInfoTitle: { fontSize: 13, fontWeight: '700', color: '#1E40AF', marginBottom: 4 },
-  questInfoText: { fontSize: 12, color: '#3B82F6', lineHeight: 18 },
+    questCard: { backgroundColor: theme.card, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10, ...theme.shadow },
+    questIconWrap: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+    questCheck: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+    questTitle: { fontSize: 14, fontWeight: '700', color: theme.textPrimary, marginBottom: 2 },
+    questDesc: { fontSize: 12, color: theme.textSecondary },
+    questProgressWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
+    questProgressTrack: { flex: 1, height: 3, backgroundColor: theme.cardSecondary, borderRadius: 2, overflow: 'hidden' },
+    questProgressFill: { height: '100%', borderRadius: 2 },
+    questProgressText: { fontSize: 10, fontWeight: '600', minWidth: 25 },
+    questInfoCard: { backgroundColor: theme.blueLight, borderRadius: 14, padding: 14, marginTop: 8 },
+    questInfoTitle: { fontSize: 13, fontWeight: '700', color: theme.blue, marginBottom: 4 },
+    questInfoText: { fontSize: 12, color: theme.blue, lineHeight: 18, opacity: 0.8 },
 
-  seasonHero: { backgroundColor: '#000', borderRadius: 20, padding: 20, marginBottom: 16, alignItems: 'center' },
-  seasonMonth: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1 },
-  seasonTitle: { fontSize: 24, fontWeight: '800', color: '#fff', letterSpacing: -0.8, marginTop: 4 },
-  seasonSub: { fontSize: 13, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
+    // Season-Hero bleibt bewusst fest dunkel (Premium-/Feature-Karte, wie proCard in
+    // profile.tsx) statt dem Theme zu folgen — kein Dark-Mode-Bug, sondern Design-Entscheidung.
+    seasonHero: { backgroundColor: '#000', borderRadius: 20, padding: 20, marginBottom: 16, alignItems: 'center' },
+    seasonMonth: { fontSize: 11, fontWeight: '600', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1 },
+    seasonTitle: { fontSize: 24, fontWeight: '800', color: '#fff', letterSpacing: -0.8, marginTop: 4 },
+    seasonSub: { fontSize: 13, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
 
-  seasonCard: { backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
-  seasonCardTop: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
-  seasonIconWrap: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-  seasonCardTitle: { fontSize: 14, fontWeight: '700', color: '#000' },
-  seasonCardDesc: { fontSize: 12, color: '#8E8E93', marginTop: 2 },
-  seasonProgressWrap: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  seasonProgressTrack: { flex: 1, height: 5, backgroundColor: '#F2F2F7', borderRadius: 3, overflow: 'hidden' },
-  seasonProgressFill: { height: '100%', borderRadius: 3 },
-  seasonProgressText: { fontSize: 11, fontWeight: '700', minWidth: 35, textAlign: 'right' },
+    seasonCard: { backgroundColor: theme.card, borderRadius: 16, padding: 14, marginBottom: 10, ...theme.shadow },
+    seasonCardTop: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+    seasonIconWrap: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+    seasonCardTitle: { fontSize: 14, fontWeight: '700', color: theme.textPrimary },
+    seasonCardDesc: { fontSize: 12, color: theme.textSecondary, marginTop: 2 },
+    seasonProgressWrap: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    seasonProgressTrack: { flex: 1, height: 5, backgroundColor: theme.cardSecondary, borderRadius: 3, overflow: 'hidden' },
+    seasonProgressFill: { height: '100%', borderRadius: 3 },
+    seasonProgressText: { fontSize: 11, fontWeight: '700', minWidth: 35, textAlign: 'right' },
 
-  doneBadge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
-  doneBadgeText: { fontSize: 10, fontWeight: '700' },
+    doneBadge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+    doneBadgeText: { fontSize: 10, fontWeight: '700' },
 
-  xpPill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
-  xpPillText: { fontSize: 11, fontWeight: '700' },
-});
+    xpPill: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+    xpPillText: { fontSize: 11, fontWeight: '700' },
+  });
+}

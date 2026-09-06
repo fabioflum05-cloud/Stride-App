@@ -2,13 +2,22 @@ import BackButton from '@/components/BackButton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { Animated, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { theme } from '../constants/theme';
+import { Alert, Animated, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
-import { calculateSleepScore, recalcBodyBattery } from '../utils/applehealth';
+import { calcSleepDebt, calculateSleepScore, recalcBodyBattery } from '../utils/applehealth';
+
+function debtBand(hours: number, lang: string) {
+  if (hours <= 1)  return { label: lang === 'en' ? 'Balanced' : 'Ausgeglichen', color: '#4ADE80' };
+  if (hours <= 5)  return { label: lang === 'en' ? 'Mild deficit' : 'Leichtes Defizit', color: '#FBBF24' };
+  return             { label: lang === 'en' ? 'High deficit' : 'Hohes Defizit', color: '#F87171' };
+}
 
 export default function SleepScreen() {
   const { lang } = useLanguage();
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [bedHour, setBedHour] = useState('22');
   const [bedMinute, setBedMinute] = useState('30');
   const [wakeHour, setWakeHour] = useState('06');
@@ -20,6 +29,8 @@ export default function SleepScreen() {
   const [deepZeit, setDeepZeit] = useState('');
   const [saved, setSaved] = useState(false);
   const [lastScore, setLastScore] = useState<number | null>(null);
+  const [sleepDebt7, setSleepDebt7] = useState<number | null>(null);
+  const [sleepDebt28, setSleepDebt28] = useState<number | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -47,6 +58,12 @@ export default function SleepScreen() {
         setSaved(true);
       }
     }
+
+    const rawHistory = await AsyncStorage.getItem('sleepHistory');
+    const history = rawHistory ? JSON.parse(rawHistory) : [];
+    const entries = history.map((h: any) => ({ date: h.date, hours: h.schlafStunden ?? 0 }));
+    setSleepDebt7(calcSleepDebt(entries, 7));
+    setSleepDebt28(calcSleepDebt(entries, 28));
   }
 
   async function save() {
@@ -129,6 +146,38 @@ export default function SleepScreen() {
           <BackButton />
           <Text style={styles.headerLabel}>{lang === 'en' ? 'Sleep Log' : 'Schlaf Log'}</Text>
           <Text style={styles.title}>{lang === 'en' ? 'How did you' : 'Wie hast du'}{'\n'}{lang === 'en' ? 'sleep?' : 'geschlafen?'}</Text>
+
+          {sleepDebt7 !== null && (
+            <View style={[styles.card, { paddingVertical: 16 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 }}>
+                  <Text style={{ color: theme.textSecondary, fontSize: 12, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase' }}>
+                    {lang === 'en' ? 'Sleep Debt' : 'Schlafschuld'}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => Alert.alert(
+                      lang === 'en' ? 'Sleep Debt' : 'Schlafschuld',
+                      lang === 'en'
+                        ? 'A running total of how far your logged sleep has fallen short of a 7h/night reference over the period, day by day. Surplus nights reduce it, but it never goes below 0. A simple deficit tracker, not a clinical sleep-debt measurement.'
+                        : 'Eine laufende Summe, wie weit dein geloggter Schlaf im Zeitraum Tag für Tag unter einer 7h-Nacht-Referenz lag. Überschuss-Nächte verringern sie, aber sie geht nie unter 0. Ein einfacher Defizit-Tracker, keine klinische Schlafschuld-Messung.'
+                    )}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={{ color: theme.textTertiary, fontSize: 13, fontWeight: '700' }}>ⓘ</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
+                  <Text style={{ color: debtBand(sleepDebt7, lang).color, fontSize: 20, fontWeight: '800' }}>-{sleepDebt7}h</Text>
+                  <Text style={{ color: debtBand(sleepDebt7, lang).color, fontSize: 12, fontWeight: '700' }}>{debtBand(sleepDebt7, lang).label}</Text>
+                </View>
+              </View>
+              {sleepDebt28 !== null && (
+                <Text style={{ color: theme.textTertiary, fontSize: 12, marginTop: 8 }}>
+                  {lang === 'en' ? '28-day' : '28 Tage'}: -{sleepDebt28}h
+                </Text>
+              )}
+            </View>
+          )}
 
           {saved && lastScore !== null && (
             <View style={styles.savedCard}>
@@ -219,33 +268,35 @@ export default function SleepScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 24 },
-  savedCard: { backgroundColor: theme.card, borderRadius: 20, padding: 28, alignItems: 'center', gap: 6, ...theme.shadow, marginBottom: 20 },
-  savedEmoji: { width: 52, height: 52, borderRadius: 26, backgroundColor: theme.greenLight, textAlign: 'center', lineHeight: 52, fontSize: 22, color: theme.green, fontWeight: '700', overflow: 'hidden' },
-  savedTitle: { color: theme.textSecondary, fontSize: 14, marginTop: 8 },
-  savedScore: { color: theme.textPrimary, fontSize: 56, fontWeight: '300', letterSpacing: -2 },
-  savedScoreLabel: { color: theme.textSecondary, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: -8 },
-  editBtn: { marginTop: 8, backgroundColor: theme.cardSecondary, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  editBtnText: { color: theme.blue, fontSize: 13, fontWeight: '500' },
-  card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, gap: 12, ...theme.shadow },
-  cardTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: '600' },
-  cardSub: { color: theme.textSecondary, fontSize: 12, marginTop: -8 },
-  timeRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  timeGroup: { gap: 8 },
-  timeLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
-  timeInputs: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  timeInput: { width: 56, backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 12, color: theme.textPrimary, fontSize: 22, textAlign: 'center', fontWeight: '500' },
-  timeSep: { color: theme.textSecondary, fontSize: 22, fontWeight: '500' },
-  inputGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  inputItem: { width: '48%', gap: 6 },
-  inputLabel: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 },
-  input: { backgroundColor: theme.cardSecondary, borderRadius: 10, padding: 12, color: theme.textPrimary, fontSize: 16, textAlign: 'center' },
-  infoCard: { backgroundColor: theme.blueLight, borderRadius: 12, padding: 14, marginBottom: 16 },
-  infoTitle: { color: theme.blue, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: '600' },
-  infoText: { color: theme.blue, fontSize: 12, lineHeight: 18, opacity: 0.8 },
-  saveBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', ...theme.shadow },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-});
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 24 },
+    savedCard: { backgroundColor: theme.card, borderRadius: 20, padding: 28, alignItems: 'center', gap: 6, ...theme.shadow, marginBottom: 20 },
+    savedEmoji: { width: 52, height: 52, borderRadius: 26, backgroundColor: theme.greenLight, textAlign: 'center', lineHeight: 52, fontSize: 22, color: theme.green, fontWeight: '700', overflow: 'hidden' },
+    savedTitle: { color: theme.textSecondary, fontSize: 14, marginTop: 8 },
+    savedScore: { color: theme.textPrimary, fontSize: 56, fontWeight: '300', letterSpacing: -2 },
+    savedScoreLabel: { color: theme.textSecondary, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: -8 },
+    editBtn: { marginTop: 8, backgroundColor: theme.cardSecondary, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+    editBtnText: { color: theme.blue, fontSize: 13, fontWeight: '500' },
+    card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, gap: 12, ...theme.shadow },
+    cardTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: '600' },
+    cardSub: { color: theme.textSecondary, fontSize: 12, marginTop: -8 },
+    timeRow: { flexDirection: 'row', justifyContent: 'space-between' },
+    timeGroup: { gap: 8 },
+    timeLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
+    timeInputs: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    timeInput: { width: 56, backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 12, color: theme.textPrimary, fontSize: 22, textAlign: 'center', fontWeight: '500' },
+    timeSep: { color: theme.textSecondary, fontSize: 22, fontWeight: '500' },
+    inputGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    inputItem: { width: '48%', gap: 6 },
+    inputLabel: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 },
+    input: { backgroundColor: theme.cardSecondary, borderRadius: 10, padding: 12, color: theme.textPrimary, fontSize: 16, textAlign: 'center' },
+    infoCard: { backgroundColor: theme.blueLight, borderRadius: 12, padding: 14, marginBottom: 16 },
+    infoTitle: { color: theme.blue, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: '600' },
+    infoText: { color: theme.blue, fontSize: 12, lineHeight: 18, opacity: 0.8 },
+    saveBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', ...theme.shadow },
+    saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  });
+}

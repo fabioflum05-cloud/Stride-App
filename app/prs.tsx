@@ -6,7 +6,7 @@ import {
   Alert, Animated, Modal, ScrollView, StyleSheet,
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
 
 type PREntry = { date: string; weight: number; reps: number; estimated1RM: number; };
@@ -19,7 +19,9 @@ function calculate1RM(weight: number, reps: number): number {
   return Math.round(weight * (1 + reps / 30));
 }
 
-function getMuscleColor(mg: string): string {
+// Muskelgruppen-Farben sind bewusst fest (wie MUSCLE_COLORS in training.tsx) — sie
+// identifizieren die Muskelgruppe selbst, nicht die App-Oberfläche.
+function getMuscleColor(mg: string, theme: ReturnType<typeof getFullPalette>): string {
   const colors: Record<string, string> = {
     'Brust': '#EC4899', 'Rücken': '#7C3AED', 'Schultern': '#06B6D4', 'Bizeps': '#10B981',
     'Trizeps': '#F59E0B', 'Quadrizeps': '#FB7185', 'Hamstrings': '#A78BFA', 'Gluteus': '#F472B6',
@@ -30,6 +32,9 @@ function getMuscleColor(mg: string): string {
 
 export default function PRScreen() {
   const { t, lang } = useLanguage();
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [prHistory, setPRHistory] = useState<PRHistory>({});
   const [userMaxes, setUserMaxes] = useState<UserMaxes>({});
   const [exerciseMuscles, setExerciseMuscles] = useState<Record<string, string>>({});
@@ -208,7 +213,7 @@ export default function PRScreen() {
             const best = Math.max(...entries.map(e => e.estimated1RM));
             const isOpen = selectedEx === exName;
             const mg = exerciseMuscles[exName];
-            const mgColor = mg ? getMuscleColor(mg) : theme.blue;
+            const mgColor = mg ? getMuscleColor(mg, theme) : theme.blue;
             const trend = entries.length >= 2
               ? entries[entries.length - 1].estimated1RM - entries[entries.length - 2].estimated1RM
               : null;
@@ -391,54 +396,56 @@ export default function PRScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 16 },
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 16 },
 
-  searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.card, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 16, ...theme.shadow },
-  searchIcon: { fontSize: 14 },
-  searchInput: { flex: 1, color: theme.textPrimary, fontSize: 15 },
+    searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.card, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 16, ...theme.shadow },
+    searchIcon: { fontSize: 14 },
+    searchInput: { flex: 1, color: theme.textPrimary, fontSize: 15 },
 
-  empty: { alignItems: 'center', paddingVertical: 60, gap: 10 },
-  emptyEmoji: { fontSize: 48 },
-  emptyTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: '600' },
-  emptySub: { color: theme.textSecondary, fontSize: 13, textAlign: 'center' },
+    empty: { alignItems: 'center', paddingVertical: 60, gap: 10 },
+    emptyEmoji: { fontSize: 48 },
+    emptyTitle: { color: theme.textPrimary, fontSize: 18, fontWeight: '600' },
+    emptySub: { color: theme.textSecondary, fontSize: 13, textAlign: 'center' },
 
-  prCard: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 10, ...theme.shadow },
-  prHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  rankBadge: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
-  prName: { color: theme.textPrimary, fontSize: 15, fontWeight: '600' },
-  mgLabel: { fontSize: 10, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 1 },
-  prMax: { fontSize: 18, fontWeight: '700' },
-  prMaxLabel: { color: theme.textSecondary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8 },
-  chevron: { fontSize: 14, marginLeft: 4 },
-  compactRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, paddingTop: 8, borderTopWidth: 0.5, borderTopColor: theme.borderLight },
-  compactStat: { flex: 1, color: theme.textSecondary, fontSize: 12 },
-  trendBadge: { fontSize: 12, fontWeight: '600' },
-  compactDate: { color: theme.textTertiary, fontSize: 11 },
+    prCard: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 10, ...theme.shadow },
+    prHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    rankBadge: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+    prName: { color: theme.textPrimary, fontSize: 15, fontWeight: '600' },
+    mgLabel: { fontSize: 10, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 1 },
+    prMax: { fontSize: 18, fontWeight: '700' },
+    prMaxLabel: { color: theme.textSecondary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8 },
+    chevron: { fontSize: 14, marginLeft: 4 },
+    compactRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, paddingTop: 8, borderTopWidth: 0.5, borderTopColor: theme.borderLight },
+    compactStat: { flex: 1, color: theme.textSecondary, fontSize: 12 },
+    trendBadge: { fontSize: 12, fontWeight: '600' },
+    compactDate: { color: theme.textTertiary, fontSize: 11 },
 
-  chartWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, height: 88, marginBottom: 14, paddingHorizontal: 4 },
+    chartWrap: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, height: 88, marginBottom: 14, paddingHorizontal: 4 },
 
-  entryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
-  entryDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  entryMain: { color: theme.textPrimary, fontSize: 13 },
-  entryDate: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
-  editBtn: { padding: 6, borderRadius: 8, backgroundColor: theme.cardSecondary },
+    entryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
+    entryDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+    entryMain: { color: theme.textPrimary, fontSize: 13 },
+    entryDate: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
+    editBtn: { padding: 6, borderRadius: 8, backgroundColor: theme.cardSecondary },
 
-  addEntryBtn: { marginTop: 12, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
-  addEntryText: { fontSize: 13, fontWeight: '600' },
+    addEntryBtn: { marginTop: 12, padding: 12, borderRadius: 12, borderWidth: 1, alignItems: 'center' },
+    addEntryText: { fontSize: 13, fontWeight: '600' },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modalCard: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
-  modalTitle: { color: theme.textPrimary, fontSize: 20, fontWeight: '600' },
-  inputLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
-  input: { backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 14, color: theme.textPrimary, fontSize: 15 },
-  estimate: { backgroundColor: theme.blueLight, borderRadius: 12, padding: 14, alignItems: 'center' },
-  estimateLabel: { color: theme.blue, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
-  estimateVal: { color: theme.blue, fontSize: 28, fontWeight: '700', marginTop: 2 },
-  saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center' },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  cancelBtn: { padding: 14, alignItems: 'center' },
-  cancelBtnText: { color: theme.textSecondary, fontSize: 14 },
-});
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+    modalCard: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
+    modalTitle: { color: theme.textPrimary, fontSize: 20, fontWeight: '600' },
+    inputLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
+    input: { backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 14, color: theme.textPrimary, fontSize: 15 },
+    estimate: { backgroundColor: theme.blueLight, borderRadius: 12, padding: 14, alignItems: 'center' },
+    estimateLabel: { color: theme.blue, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 },
+    estimateVal: { color: theme.blue, fontSize: 28, fontWeight: '700', marginTop: 2 },
+    saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center' },
+    saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    cancelBtn: { padding: 14, alignItems: 'center' },
+    cancelBtnText: { color: theme.textSecondary, fontSize: 14 },
+  });
+}

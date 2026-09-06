@@ -4,10 +4,13 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLanguage } from '../constants/LanguageContext';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 
 export default function CheckinScreen() {
   const { t } = useLanguage();
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const LEVELS = [
     { value: 1, emoji: '😴', label: t('checkin_energy_1') },
     { value: 2, emoji: '😕', label: t('checkin_energy_2') },
@@ -150,34 +153,36 @@ export default function CheckinScreen() {
 }
 
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 24 },
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 24 },
 
-  savedCard: { backgroundColor: theme.card, borderRadius: 20, padding: 28, alignItems: 'center', gap: 6, ...theme.shadow, marginBottom: 20 },
-  savedIconWrap: { width: 52, height: 52, borderRadius: 26, backgroundColor: theme.blueLight, alignItems: 'center', justifyContent: 'center' },
-  savedIcon: { color: theme.blue, fontSize: 22, fontWeight: '700' },
-  savedTitle: { color: theme.textSecondary, fontSize: 14, marginTop: 8 },
-  savedScore: { color: theme.textPrimary, fontSize: 56, fontWeight: '300', letterSpacing: -2 },
-  savedScoreLabel: { color: theme.textSecondary, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: -8 },
-  editBtn: { marginTop: 8, backgroundColor: theme.cardSecondary, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
-  editBtnText: { color: theme.blue, fontSize: 13, fontWeight: '500' },
+    savedCard: { backgroundColor: theme.card, borderRadius: 20, padding: 28, alignItems: 'center', gap: 6, ...theme.shadow, marginBottom: 20 },
+    savedIconWrap: { width: 52, height: 52, borderRadius: 26, backgroundColor: theme.blueLight, alignItems: 'center', justifyContent: 'center' },
+    savedIcon: { color: theme.blue, fontSize: 22, fontWeight: '700' },
+    savedTitle: { color: theme.textSecondary, fontSize: 14, marginTop: 8 },
+    savedScore: { color: theme.textPrimary, fontSize: 56, fontWeight: '300', letterSpacing: -2 },
+    savedScoreLabel: { color: theme.textSecondary, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, marginTop: -8 },
+    editBtn: { marginTop: 8, backgroundColor: theme.cardSecondary, borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8 },
+    editBtnText: { color: theme.blue, fontSize: 13, fontWeight: '500' },
 
-  card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, gap: 14, ...theme.shadow },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  cardIconWrap: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  cardEmoji: { fontSize: 22 },
-  cardTitle: { fontSize: 15, fontWeight: '600' },
-  cardLevel: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
-  valueBadge: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
-  valueText: { fontSize: 13, fontWeight: '600' },
+    card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, gap: 14, ...theme.shadow },
+    cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    cardIconWrap: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+    cardEmoji: { fontSize: 22 },
+    cardTitle: { fontSize: 15, fontWeight: '600' },
+    cardLevel: { color: theme.textSecondary, fontSize: 12, marginTop: 2 },
+    valueBadge: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+    valueText: { fontSize: 13, fontWeight: '600' },
 
-  btnRow: { flexDirection: 'row', gap: 8 },
-  levelBtn: { flex: 1, borderRadius: 12, backgroundColor: theme.cardSecondary, padding: 10, alignItems: 'center', gap: 4 },
-  levelEmoji: { fontSize: 18 },
-  levelNum: { color: theme.textSecondary, fontSize: 11, fontWeight: '500' },
+    btnRow: { flexDirection: 'row', gap: 8 },
+    levelBtn: { flex: 1, borderRadius: 12, backgroundColor: theme.cardSecondary, padding: 10, alignItems: 'center', gap: 4 },
+    levelEmoji: { fontSize: 18 },
+    levelNum: { color: theme.textSecondary, fontSize: 11, fontWeight: '500' },
 
-  saveBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', ...theme.shadow },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-});
+    saveBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', ...theme.shadow },
+    saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  });
+}

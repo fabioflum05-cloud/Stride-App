@@ -1,8 +1,12 @@
 import { router } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 
 export default function BackButton() {
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
+
   return (
     <TouchableOpacity
       style={styles.btn}
@@ -18,9 +22,11 @@ export default function BackButton() {
   );
 }
 
-const styles = StyleSheet.create({
-  btn: { marginTop: 56, marginBottom: 8, alignSelf: 'flex-start' },
-  inner: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: theme.card, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, ...theme.shadow },
-  arrow: { color: theme.blue, fontSize: 20, fontWeight: '500', lineHeight: 22 },
-  label: { color: theme.blue, fontSize: 14, fontWeight: '500' },
-});
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    btn: { marginTop: 56, marginBottom: 8, alignSelf: 'flex-start' },
+    inner: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: theme.card, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, ...theme.shadow },
+    arrow: { color: theme.blue, fontSize: 20, fontWeight: '500', lineHeight: 22 },
+    label: { color: theme.blue, fontSize: 14, fontWeight: '500' },
+  });
+}

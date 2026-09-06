@@ -3,7 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useLanguage } from '../constants/LanguageContext';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import {
     DEFAULT_WIDGET_CONFIG,
     getWidgetConfig,
@@ -32,6 +32,9 @@ const SIZES: { key: SizeKey; titleKey: 'widget_size_small' | 'widget_size_medium
 
 export default function WidgetSettingsScreen() {
   const { t } = useLanguage();
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [config, setConfig] = useState<WidgetConfig>(DEFAULT_WIDGET_CONFIG);
   const [saved, setSaved] = useState(false);
   const [picker, setPicker] = useState<{ size: SizeKey; slot: number } | null>(null);
@@ -140,36 +143,40 @@ export default function WidgetSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', marginBottom: 8 },
-  infoText: { color: theme.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 20 },
-  card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, ...theme.shadow },
-  sizeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  sizeEmoji: { fontSize: 18 },
-  sizeTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: '700' },
-  chooseLabel: { color: theme.textSecondary, fontSize: 11, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 },
-  slotRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
-  slotRowBorder: { borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
-  slotLabel: { color: theme.textSecondary, fontSize: 13, fontWeight: '500' },
-  slotValue: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  slotValueText: { color: theme.blue, fontSize: 14, fontWeight: '700' },
-  chevron: { color: theme.textTertiary, fontSize: 14 },
-  previewLabel: { color: theme.textSecondary, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 8, marginBottom: 10 },
-  previewWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
-  previewBox: { backgroundColor: widgetPreview.card, borderRadius: 16, padding: 12, width: 100, minHeight: 100, justifyContent: 'flex-start', borderWidth: 1, borderColor: widgetPreview.border },
-  previewBoxMedium: { width: 210 },
-  previewBoxLarge: { width: '100%' },
-  previewEmoji: { fontSize: 14, marginBottom: 6 },
-  previewRow: { paddingVertical: 3 },
-  previewMetricLabel: { color: widgetPreview.textSecondary, fontSize: 10, fontWeight: '600' },
-  saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 8 },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
-  modalSheet: { backgroundColor: theme.card, borderRadius: 20, padding: 16, maxHeight: '70%' },
-  modalTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: '700', marginBottom: 12, paddingHorizontal: 4 },
-  modalOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 8, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
-  modalOptionText: { color: theme.textPrimary, fontSize: 15, fontWeight: '500' },
-  modalCheck: { color: theme.blue, fontSize: 16, fontWeight: '700' },
-});
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', marginBottom: 8 },
+    infoText: { color: theme.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 20 },
+    card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, ...theme.shadow },
+    sizeHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+    sizeEmoji: { fontSize: 18 },
+    sizeTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: '700' },
+    chooseLabel: { color: theme.textSecondary, fontSize: 11, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 },
+    slotRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12 },
+    slotRowBorder: { borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
+    slotLabel: { color: theme.textSecondary, fontSize: 13, fontWeight: '500' },
+    slotValue: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    slotValueText: { color: theme.blue, fontSize: 14, fontWeight: '700' },
+    chevron: { color: theme.textTertiary, fontSize: 14 },
+    previewLabel: { color: theme.textSecondary, fontSize: 11, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 8, marginBottom: 10 },
+    previewWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 16 },
+    // widgetPreview bleibt bewusst fest hell — es zeigt, wie das echte iOS-Homescreen-Widget
+    // aussieht (eigene, native Oberfläche außerhalb der App), nicht die App-UI selbst.
+    previewBox: { backgroundColor: widgetPreview.card, borderRadius: 16, padding: 12, width: 100, minHeight: 100, justifyContent: 'flex-start', borderWidth: 1, borderColor: widgetPreview.border },
+    previewBoxMedium: { width: 210 },
+    previewBoxLarge: { width: '100%' },
+    previewEmoji: { fontSize: 14, marginBottom: 6 },
+    previewRow: { paddingVertical: 3 },
+    previewMetricLabel: { color: widgetPreview.textSecondary, fontSize: 10, fontWeight: '600' },
+    saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 8 },
+    saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
+    modalSheet: { backgroundColor: theme.card, borderRadius: 20, padding: 16, maxHeight: '70%' },
+    modalTitle: { color: theme.textPrimary, fontSize: 16, fontWeight: '700', marginBottom: 12, paddingHorizontal: 4 },
+    modalOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14, paddingHorizontal: 8, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
+    modalOptionText: { color: theme.textPrimary, fontSize: 15, fontWeight: '500' },
+    modalCheck: { color: theme.blue, fontSize: 16, fontWeight: '700' },
+  });
+}

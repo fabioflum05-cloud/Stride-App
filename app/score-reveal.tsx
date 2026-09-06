@@ -2,9 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 
 export default function ScoreRevealScreen() {
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [score, setScore] = useState<number | null>(null);
   const [type, setType] = useState<'sleep' | 'checkin'>('sleep');
 
@@ -52,7 +55,7 @@ export default function ScoreRevealScreen() {
   }
 
   const color = score && score >= 70 ? theme.green : score && score >= 50 ? theme.orange : theme.red;
-  const bg = score && score >= 70 ? theme.greenLight : score && score >= 50 ? theme.orangeLight : '#FFEBEE';
+  const bg = score && score >= 70 ? theme.greenLight : score && score >= 50 ? theme.orangeLight : theme.redLight;
   const label = type === 'sleep' ? 'Sleep Score' : 'Check-in Score';
   const emoji = score && score >= 70 ? '🎉' : score && score >= 50 ? '⚡' : '💪';
   const message = score && score >= 70
@@ -96,18 +99,20 @@ export default function ScoreRevealScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
-  content: { alignItems: 'center', gap: 20, width: '100%' },
-  emoji: { fontSize: 60 },
-  scoreWrap: { alignItems: 'center', borderRadius: 24, paddingHorizontal: 40, paddingVertical: 24, width: '100%' },
-  scoreLabel: { color: theme.textSecondary, fontSize: 13, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 },
-  score: { fontSize: 80, fontWeight: '300', letterSpacing: -4 },
-  scoreMax: { color: theme.textSecondary, fontSize: 16, marginTop: -10 },
-  message: { color: theme.textSecondary, fontSize: 15, textAlign: 'center', lineHeight: 22 },
-  btnRow: { width: '100%', gap: 10, marginTop: 10 },
-  primaryBtn: { borderRadius: 16, padding: 16, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  secondaryBtn: { borderRadius: 16, padding: 14, alignItems: 'center', backgroundColor: theme.cardSecondary },
-  secondaryBtnText: { color: theme.textSecondary, fontSize: 15, fontWeight: '500' },
-});
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
+    content: { alignItems: 'center', gap: 20, width: '100%' },
+    emoji: { fontSize: 60 },
+    scoreWrap: { alignItems: 'center', borderRadius: 24, paddingHorizontal: 40, paddingVertical: 24, width: '100%' },
+    scoreLabel: { color: theme.textSecondary, fontSize: 13, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 4 },
+    score: { fontSize: 80, fontWeight: '300', letterSpacing: -4 },
+    scoreMax: { color: theme.textSecondary, fontSize: 16, marginTop: -10 },
+    message: { color: theme.textSecondary, fontSize: 15, textAlign: 'center', lineHeight: 22 },
+    btnRow: { width: '100%', gap: 10, marginTop: 10 },
+    primaryBtn: { borderRadius: 16, padding: 16, alignItems: 'center' },
+    primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+    secondaryBtn: { borderRadius: 16, padding: 14, alignItems: 'center', backgroundColor: theme.cardSecondary },
+    secondaryBtnText: { color: theme.textSecondary, fontSize: 15, fontWeight: '500' },
+  });
+}

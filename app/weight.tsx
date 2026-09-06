@@ -4,12 +4,20 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Alert, Animated, Dimensions, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 
 const screenWidth = Dimensions.get('window').width - 40;
 
 type WeightEntry = { date: string; weight: number; note?: string; };
 type Profile = { weight: string; targetWeight: string; name: string; };
+
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace('#', '');
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+  const num = parseInt(full, 16);
+  const r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
+  return `rgba(${r},${g},${b},${alpha})`;
+}
 
 function formatDate(dateString: string) {
   const date = new Date(dateString);
@@ -25,6 +33,9 @@ function isToday(dateString: string) {
 }
 
 export default function WeightScreen() {
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [entries, setEntries] = useState<WeightEntry[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -144,7 +155,7 @@ export default function WeightScreen() {
                   backgroundGradientFrom: theme.card,
                   backgroundGradientTo: theme.card,
                   decimalPlaces: 1,
-                  color: (opacity = 1) => `rgba(26,115,232,${opacity})`,
+                  color: (opacity = 1) => hexToRgba(theme.blue, opacity),
                   labelColor: () => theme.textSecondary,
                   propsForDots: { r: '4', strokeWidth: '2', stroke: theme.blue, fill: theme.blue },
                   propsForBackgroundLines: { stroke: theme.borderLight },
@@ -240,39 +251,41 @@ export default function WeightScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 24 },
-  statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  statCard: { width: '48%', backgroundColor: theme.card, borderRadius: 14, padding: 14, ...theme.shadow },
-  statVal: { fontSize: 24, fontWeight: '600' },
-  statLbl: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3 },
-  chartCard: { backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 16, ...theme.shadow },
-  chartTitle: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 12, fontWeight: '600' },
-  chart: { borderRadius: 12, marginLeft: -16 },
-  chartLegend: { flexDirection: 'row', gap: 16, marginTop: 8 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { color: theme.textSecondary, fontSize: 11 },
-  logBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', marginBottom: 20, ...theme.shadow },
-  logBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  editBtn: { backgroundColor: theme.blueLight, borderRadius: 16, padding: 14, alignItems: 'center', marginBottom: 20 },
-  editBtnText: { color: theme.blue, fontSize: 14, fontWeight: '500' },
-  sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 10 },
-  entryRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight, gap: 12 },
-  entryLeft: { flex: 1 },
-  entryDate: { color: theme.textPrimary, fontSize: 14, fontWeight: '500' },
-  entryNote: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
-  entryWeight: { color: theme.blue, fontSize: 16, fontWeight: '600' },
-  deleteBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#FFEBEE', alignItems: 'center', justifyContent: 'center' },
-  deleteBtnText: { color: theme.red, fontSize: 18 },
-  modalCard: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
-  modalTitle: { color: theme.textPrimary, fontSize: 20, fontWeight: '600' },
-  inputLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
-  input: { backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 14, color: theme.textPrimary, fontSize: 15 },
-  saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center' },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  cancelBtn: { padding: 14, alignItems: 'center' },
-  cancelBtnText: { color: theme.textSecondary, fontSize: 14 },
-});
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 24 },
+    statsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+    statCard: { width: '48%', backgroundColor: theme.card, borderRadius: 14, padding: 14, ...theme.shadow },
+    statVal: { fontSize: 24, fontWeight: '600' },
+    statLbl: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3 },
+    chartCard: { backgroundColor: theme.card, borderRadius: 18, padding: 16, marginBottom: 16, ...theme.shadow },
+    chartTitle: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 12, fontWeight: '600' },
+    chart: { borderRadius: 12, marginLeft: -16 },
+    chartLegend: { flexDirection: 'row', gap: 16, marginTop: 8 },
+    legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    legendDot: { width: 8, height: 8, borderRadius: 4 },
+    legendText: { color: theme.textSecondary, fontSize: 11 },
+    logBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', marginBottom: 20, ...theme.shadow },
+    logBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    editBtn: { backgroundColor: theme.blueLight, borderRadius: 16, padding: 14, alignItems: 'center', marginBottom: 20 },
+    editBtnText: { color: theme.blue, fontSize: 14, fontWeight: '500' },
+    sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 10 },
+    entryRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight, gap: 12 },
+    entryLeft: { flex: 1 },
+    entryDate: { color: theme.textPrimary, fontSize: 14, fontWeight: '500' },
+    entryNote: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
+    entryWeight: { color: theme.blue, fontSize: 16, fontWeight: '600' },
+    deleteBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: theme.redLight, alignItems: 'center', justifyContent: 'center' },
+    deleteBtnText: { color: theme.red, fontSize: 18 },
+    modalCard: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
+    modalTitle: { color: theme.textPrimary, fontSize: 20, fontWeight: '600' },
+    inputLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
+    input: { backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 14, color: theme.textPrimary, fontSize: 15 },
+    saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center' },
+    saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    cancelBtn: { padding: 14, alignItems: 'center' },
+    cancelBtnText: { color: theme.textSecondary, fontSize: 14 },
+  });
+}

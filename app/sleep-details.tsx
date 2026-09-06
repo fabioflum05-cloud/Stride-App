@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
 import { saveManualHRV } from '../utils/applehealth';
 
@@ -50,6 +50,9 @@ function formatDuration(min: number, lang: string): string {
 
 export default function SleepDetailsScreen() {
   const { lang } = useLanguage();
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [sleep, setSleep] = useState<LastSleep | null>(null);
   const [showHrvModal, setShowHrvModal] = useState(false);
   const [hrvInput, setHrvInput] = useState('');
@@ -239,48 +242,50 @@ export default function SleepDetailsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 20 },
-  scoreCard: { backgroundColor: theme.card, borderRadius: 16, padding: 18, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', ...theme.shadow },
-  scoreValue: { fontSize: 40, fontWeight: '800', letterSpacing: -1 },
-  scoreLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 },
-  durationValue: { color: theme.textPrimary, fontSize: 20, fontWeight: '700' },
-  timeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
-  timeText: { color: theme.textSecondary, fontSize: 13, fontWeight: '600' },
-  timeSep: { color: theme.textTertiary, fontSize: 13 },
-  card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, ...theme.shadow },
-  cardTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: '600', marginBottom: 12 },
-  barRow: { flexDirection: 'row', height: 12, borderRadius: 6, overflow: 'hidden', backgroundColor: theme.cardSecondary },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendLabel: { flex: 1, color: theme.textPrimary, fontSize: 13, fontWeight: '500' },
-  legendValue: { color: theme.textSecondary, fontSize: 12, fontWeight: '600' },
-  legendPct: { color: theme.textTertiary, fontSize: 12, width: 40, textAlign: 'right' },
-  statsGrid: { flexDirection: 'row', justifyContent: 'space-between' },
-  statItem: { alignItems: 'center', flex: 1 },
-  statValue: { color: theme.textPrimary, fontSize: 20, fontWeight: '700' },
-  statUnit: { fontSize: 11, fontWeight: '500', color: theme.textSecondary },
-  statLabel: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4, textAlign: 'center' },
-  sourceBadge: { alignSelf: 'center', backgroundColor: theme.blueLight, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 16 },
-  sourceText: { color: theme.blue, fontSize: 11, fontWeight: '600' },
-  editBtn: { backgroundColor: theme.cardSecondary, borderRadius: 16, padding: 16, alignItems: 'center' },
-  editBtnText: { color: theme.blue, fontSize: 14, fontWeight: '600' },
-  emptyCard: { backgroundColor: theme.card, borderRadius: 16, padding: 20, alignItems: 'center', gap: 16, ...theme.shadow },
-  emptyText: { color: theme.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 20 },
-  primaryBtn: { backgroundColor: theme.blue, borderRadius: 14, paddingHorizontal: 24, paddingVertical: 12 },
-  primaryBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  hrvMissingItem: { backgroundColor: theme.orangeLight, borderRadius: 12, paddingVertical: 8, borderWidth: 1, borderColor: theme.orange },
-  hrvMissingIcon: { fontSize: 18, fontWeight: '800', color: theme.orange },
-  hrvMissingLabel: { color: theme.orange, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2, textAlign: 'center' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
-  modalSheet: { backgroundColor: theme.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  modalTitle: { fontSize: 20, fontWeight: '800', color: theme.textPrimary },
-  modalCloseBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: theme.cardSecondary },
-  modalCloseText: { color: theme.textSecondary, fontSize: 13, fontWeight: '600' },
-  modalHint: { color: theme.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 18 },
-  modalInput: { backgroundColor: theme.cardSecondary, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, color: theme.textPrimary, fontSize: 18, fontWeight: '600', textAlign: 'center', marginBottom: 20 },
-  modalSaveBtn: { backgroundColor: theme.blue, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
-  modalSaveText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-});
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 20 },
+    scoreCard: { backgroundColor: theme.card, borderRadius: 16, padding: 18, marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', ...theme.shadow },
+    scoreValue: { fontSize: 40, fontWeight: '800', letterSpacing: -1 },
+    scoreLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 },
+    durationValue: { color: theme.textPrimary, fontSize: 20, fontWeight: '700' },
+    timeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+    timeText: { color: theme.textSecondary, fontSize: 13, fontWeight: '600' },
+    timeSep: { color: theme.textTertiary, fontSize: 13 },
+    card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, ...theme.shadow },
+    cardTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: '600', marginBottom: 12 },
+    barRow: { flexDirection: 'row', height: 12, borderRadius: 6, overflow: 'hidden', backgroundColor: theme.cardSecondary },
+    legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    legendDot: { width: 8, height: 8, borderRadius: 4 },
+    legendLabel: { flex: 1, color: theme.textPrimary, fontSize: 13, fontWeight: '500' },
+    legendValue: { color: theme.textSecondary, fontSize: 12, fontWeight: '600' },
+    legendPct: { color: theme.textTertiary, fontSize: 12, width: 40, textAlign: 'right' },
+    statsGrid: { flexDirection: 'row', justifyContent: 'space-between' },
+    statItem: { alignItems: 'center', flex: 1 },
+    statValue: { color: theme.textPrimary, fontSize: 20, fontWeight: '700' },
+    statUnit: { fontSize: 11, fontWeight: '500', color: theme.textSecondary },
+    statLabel: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4, textAlign: 'center' },
+    sourceBadge: { alignSelf: 'center', backgroundColor: theme.blueLight, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 16 },
+    sourceText: { color: theme.blue, fontSize: 11, fontWeight: '600' },
+    editBtn: { backgroundColor: theme.cardSecondary, borderRadius: 16, padding: 16, alignItems: 'center' },
+    editBtnText: { color: theme.blue, fontSize: 14, fontWeight: '600' },
+    emptyCard: { backgroundColor: theme.card, borderRadius: 16, padding: 20, alignItems: 'center', gap: 16, ...theme.shadow },
+    emptyText: { color: theme.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 20 },
+    primaryBtn: { backgroundColor: theme.blue, borderRadius: 14, paddingHorizontal: 24, paddingVertical: 12 },
+    primaryBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    hrvMissingItem: { backgroundColor: theme.orangeLight, borderRadius: 12, paddingVertical: 8, borderWidth: 1, borderColor: theme.orange },
+    hrvMissingIcon: { fontSize: 18, fontWeight: '800', color: theme.orange },
+    hrvMissingLabel: { color: theme.orange, fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2, textAlign: 'center' },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+    modalSheet: { backgroundColor: theme.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 24, paddingBottom: 40 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    modalTitle: { fontSize: 20, fontWeight: '800', color: theme.textPrimary },
+    modalCloseBtn: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, backgroundColor: theme.cardSecondary },
+    modalCloseText: { color: theme.textSecondary, fontSize: 13, fontWeight: '600' },
+    modalHint: { color: theme.textSecondary, fontSize: 13, lineHeight: 19, marginBottom: 18 },
+    modalInput: { backgroundColor: theme.cardSecondary, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, color: theme.textPrimary, fontSize: 18, fontWeight: '600', textAlign: 'center', marginBottom: 20 },
+    modalSaveBtn: { backgroundColor: theme.blue, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
+    modalSaveText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  });
+}

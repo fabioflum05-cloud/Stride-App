@@ -117,12 +117,20 @@ const MICRO_REFS: Record<string, number> = {
   folate:200, calcium:1000, iron:14, magnesium:375, zinc:10,
   potassium:2000, phosphorus:700, sodium:2300,
 };
+// Symmetrische Abweichungs-Bestrafung wie calcKcalScore, statt bei 100% zu deckeln — sonst
+// bekommt z.B. das Doppelte des Kohlenhydrat-/Fett-Ziels denselben (vollen) Teil-Score wie exakt
+// das Ziel, und massives Überessen bleibt im Makro-Anteil des Nutrition Scores unsichtbar.
+function macroComponentScore(actual: number, goal: number): number {
+  if (goal <= 0) return 0;
+  const dev = Math.abs(actual - goal) / goal * 100;
+  return Math.max(0, 100 - dev * 2);
+}
 function calcMacroScore(entries: FoodEntry[], goal: Macros): number {
   if (entries.length === 0) return 0;
   const tot = sumMacros(entries);
-  const prot = Math.min(100, (tot.protein / goal.protein) * 100);
-  const carb = Math.min(100, (tot.carbs / goal.carbs) * 100);
-  const fat  = Math.min(100, (tot.fat / goal.fat) * 100);
+  const prot = macroComponentScore(tot.protein, goal.protein);
+  const carb = macroComponentScore(tot.carbs, goal.carbs);
+  const fat  = macroComponentScore(tot.fat, goal.fat);
   return Math.round(prot * 0.5 + carb * 0.25 + fat * 0.25);
 }
 function calcMicroScore(entries: FoodEntry[]): number {

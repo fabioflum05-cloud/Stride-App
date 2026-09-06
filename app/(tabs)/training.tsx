@@ -9,7 +9,8 @@ import Svg, {
 } from 'react-native-svg';
 import { useAppTheme } from '../../constants/ThemeContext';
 import { translateMuscle, useLanguage } from '../../constants/LanguageContext';
-import { getTrainingReadiness, syncAppleHealthWorkouts, TrainingReadiness } from '../../utils/applehealth';
+import { calcTrainingMonotony, DayHealth, getTrainingReadiness, syncAppleHealthWorkouts, TrainingMonotonyResult, TrainingReadiness } from '../../utils/applehealth';
+import { calculateMuscleRecovery, MUSCLE_GROUPS, MuscleMap } from '../../utils/muscleRecovery';
 import { scheduleNutritionReminder } from '../../utils/notifications';
 
 function getT(colors: any) {
@@ -239,41 +240,12 @@ const ALL_EXERCISES = [
 // ─── Types ────────────────────────────────────────────────────
 type WorkoutSet   = { reps: string; weight: string };
 type Exercise     = { id: string; name: string; muscleGroup: string; equipment?: string; sets: WorkoutSet[] };
-type Workout      = { id: string; date: string; name: string; exercises: Exercise[]; duration: number; intensity: number; type: 'gym' | 'run' | 'manual' | 'judo' | 'cardio'; source?: 'manual' | 'apple_health'; activityType?: number; calories?: number; distance?: number; score?: number };
+type Workout      = { id: string; date: string; name: string; exercises: Exercise[]; duration: number; intensity: number; type: 'gym' | 'run' | 'manual' | 'judo' | 'cardio'; source?: 'manual' | 'apple_health'; activityType?: number; calories?: number; distance?: number; score?: number; avgHeartRate?: number | null };
 type RunData      = { id: string; distance: number; duration: number; pace: string; calories: number; heartRate: number; date: string };
 type PREntry      = { date: string; weight: number; reps: number; estimated1RM: number };
 type PRHistory    = Record<string, PREntry[]>;
 type UserMaxes    = Record<string, number>;
 type Routine      = { id: string; name: string; exercises: { name: string; muscleGroup: string; defaultSets: number; equipment?: string }[] };
-type MuscleState  = { level: number; lastTrained: string | null };
-type MuscleMap    = Record<string, MuscleState>;
-
-// ─── Exercise Database ────────────────────────────────────────
-type ExerciseData = { name: string; muscleGroup: string; secondary: { muscle: string; weight: number }[]; equipment: string[] };
-
-const EXERCISE_DB: ExerciseData[] = [
-  { name: 'Bankdrücken',       muscleGroup: 'Brust',      secondary: [{ muscle: 'Trizeps', weight: 0.45 }, { muscle: 'Schultern', weight: 0.25 }], equipment: ['Langhantel', 'Kurzhantel', 'Maschine', 'Smith'] },
-  { name: 'Schrägbankdrücken', muscleGroup: 'Brust',      secondary: [{ muscle: 'Trizeps', weight: 0.40 }, { muscle: 'Schultern', weight: 0.30 }], equipment: ['Langhantel', 'Kurzhantel', 'Kabelzug'] },
-  { name: 'Fliegende',         muscleGroup: 'Brust',      secondary: [{ muscle: 'Schultern', weight: 0.15 }], equipment: ['Kurzhantel', 'Kabelzug', 'Maschine'] },
-  { name: 'Dips',              muscleGroup: 'Brust',      secondary: [{ muscle: 'Trizeps', weight: 0.55 }, { muscle: 'Schultern', weight: 0.20 }], equipment: ['Körpergewicht', 'Gewichtsgürtel'] },
-  { name: 'Klimmzüge',         muscleGroup: 'Rücken',     secondary: [{ muscle: 'Bizeps', weight: 0.50 }], equipment: ['Körpergewicht', 'Gewichtsgürtel'] },
-  { name: 'Rudern',            muscleGroup: 'Rücken',     secondary: [{ muscle: 'Bizeps', weight: 0.40 }, { muscle: 'Schultern', weight: 0.15 }], equipment: ['Langhantel', 'Kurzhantel', 'Kabelzug', 'Maschine'] },
-  { name: 'Kreuzheben',        muscleGroup: 'Rücken',     secondary: [{ muscle: 'Hamstrings', weight: 0.55 }, { muscle: 'Gluteus', weight: 0.40 }, { muscle: 'Core', weight: 0.30 }], equipment: ['Langhantel', 'Sumo'] },
-  { name: 'Latzug',            muscleGroup: 'Rücken',     secondary: [{ muscle: 'Bizeps', weight: 0.45 }], equipment: ['Kabelzug breit', 'Kabelzug eng'] },
-  { name: 'Schulterdrücken',   muscleGroup: 'Schultern',  secondary: [{ muscle: 'Trizeps', weight: 0.40 }], equipment: ['Langhantel', 'Kurzhantel', 'Maschine'] },
-  { name: 'Seitheben',         muscleGroup: 'Schultern',  secondary: [], equipment: ['Kurzhantel', 'Kabelzug'] },
-  { name: 'Curls',             muscleGroup: 'Bizeps',     secondary: [], equipment: ['Kurzhantel', 'Langhantel', 'Kabelzug'] },
-  { name: 'Hammer Curls',      muscleGroup: 'Bizeps',     secondary: [], equipment: ['Kurzhantel'] },
-  { name: 'Trizepsdrücken',    muscleGroup: 'Trizeps',    secondary: [], equipment: ['Kabelzug', 'Kurzhantel'] },
-  { name: 'Skull Crushers',    muscleGroup: 'Trizeps',    secondary: [], equipment: ['Langhantel', 'EZ-Stange'] },
-  { name: 'Kniebeugen',        muscleGroup: 'Quadrizeps', secondary: [{ muscle: 'Hamstrings', weight: 0.30 }, { muscle: 'Gluteus', weight: 0.45 }, { muscle: 'Core', weight: 0.20 }], equipment: ['Langhantel (High Bar)', 'Langhantel (Low Bar)', 'Smith'] },
-  { name: 'Beinpresse',        muscleGroup: 'Quadrizeps', secondary: [{ muscle: 'Gluteus', weight: 0.30 }], equipment: ['Maschine 45°'] },
-  { name: 'Romanian Deadlift', muscleGroup: 'Hamstrings', secondary: [{ muscle: 'Gluteus', weight: 0.45 }], equipment: ['Langhantel', 'Kurzhantel'] },
-  { name: 'Hip Thrust',        muscleGroup: 'Gluteus',    secondary: [{ muscle: 'Hamstrings', weight: 0.25 }], equipment: ['Langhantel', 'Maschine'] },
-  { name: 'Wadenheben',        muscleGroup: 'Waden',      secondary: [], equipment: ['Maschine stehend', 'Körpergewicht'] },
-  { name: 'Plank',             muscleGroup: 'Core',       secondary: [], equipment: ['Körpergewicht'] },
-  { name: 'Crunches',          muscleGroup: 'Core',       secondary: [], equipment: ['Körpergewicht', 'Kabelzug'] },
-];
 
 const IconEdit = ({ size = 16, color = '#B0A89E' }: { size?: number; color?: string }) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -283,17 +255,10 @@ const IconEdit = ({ size = 16, color = '#B0A89E' }: { size?: number; color?: str
 );
 
 
-const MUSCLE_GROUPS = ['Brust', 'Rücken', 'Schultern', 'Bizeps', 'Trizeps', 'Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden', 'Core'];
-
 const MUSCLE_COLORS: Record<string, string> = {
   Brust: '#EC4899', Rücken: '#7C3AED', Schultern: '#06B6D4',
   Bizeps: '#10B981', Trizeps: '#F59E0B', Quadrizeps: '#FB7185',
   Hamstrings: '#A78BFA', Gluteus: '#F472B6', Waden: '#67E8F9', Core: '#FB923C',
-};
-
-const MUSCLE_RECOVERY_HOURS: Record<string, number> = {
-  Brust: 48, Rücken: 48, Schultern: 36, Bizeps: 36,
-  Trizeps: 36, Quadrizeps: 72, Hamstrings: 72, Gluteus: 48, Waden: 24, Core: 24,
 };
 
 const COMMUNITY_ROUTINES: Routine[] = [
@@ -320,149 +285,6 @@ const COMMUNITY_ROUTINES: Routine[] = [
     { name: 'Wadenheben', muscleGroup: 'Waden', defaultSets: 4, equipment: 'Maschine stehend' },
   ]},
 ];
-
-const MAX_SETS_FOR_FULL_FATIGUE = 6;
-
-// Maps ALL_EXERCISES categories (and other muscleGroup labels) to the
-// canonical MUSCLE_GROUPS used for recovery tracking.
-const MUSCLE_GROUP_ALIASES: Record<string, string> = {
-  'Rücken (Breite)': 'Rücken',
-  'Rücken (Dicke)': 'Rücken',
-  'Rücken (Unterer)': 'Rücken',
-  'Trapez': 'Rücken',
-  'Gesäß': 'Gluteus',
-  'Bauch': 'Core',
-  'Obliques': 'Core',
-  'Adduktoren': 'Quadrizeps',
-  'Abduktoren': 'Gluteus',
-  'Olympic Lifts': 'Quadrizeps',
-};
-function resolveMuscleGroup(mg: string | undefined): string | null {
-  if (!mg) return null;
-  if (MUSCLE_GROUPS.includes(mg)) return mg;
-  return MUSCLE_GROUP_ALIASES[mg] ?? null;
-}
-
-// Muskel-Belastung für Workouts ohne Übungsliste (Cardio, Apple Health Imports).
-// Gewichtung wird zusätzlich mit der Trainingsdauer skaliert (45 Min = volle Wirkung).
-const CARDIO_MUSCLE_IMPACT: Record<string, { muscle: string; weight: number }[]> = {
-  run: [
-    { muscle: 'Quadrizeps', weight: 0.50 },
-    { muscle: 'Hamstrings', weight: 0.45 },
-    { muscle: 'Waden', weight: 0.60 },
-    { muscle: 'Gluteus', weight: 0.35 },
-    { muscle: 'Core', weight: 0.20 },
-  ],
-  judo: [
-    { muscle: 'Core', weight: 0.50 },
-    { muscle: 'Schultern', weight: 0.40 },
-    { muscle: 'Rücken', weight: 0.35 },
-    { muscle: 'Bizeps', weight: 0.25 },
-    { muscle: 'Trizeps', weight: 0.25 },
-    { muscle: 'Quadrizeps', weight: 0.30 },
-    { muscle: 'Hamstrings', weight: 0.25 },
-  ],
-  gym: [
-    { muscle: 'Brust', weight: 0.25 },
-    { muscle: 'Rücken', weight: 0.25 },
-    { muscle: 'Schultern', weight: 0.20 },
-    { muscle: 'Quadrizeps', weight: 0.30 },
-    { muscle: 'Hamstrings', weight: 0.25 },
-    { muscle: 'Core', weight: 0.30 },
-  ],
-  cardio: [
-    { muscle: 'Quadrizeps', weight: 0.30 },
-    { muscle: 'Waden', weight: 0.30 },
-    { muscle: 'Core', weight: 0.20 },
-    { muscle: 'Schultern', weight: 0.10 },
-  ],
-  manual: [
-    { muscle: 'Quadrizeps', weight: 0.25 },
-    { muscle: 'Core', weight: 0.20 },
-  ],
-};
-
-function calculateMuscleRecovery(workouts: Workout[]): MuscleMap {
-  const cutoff = Date.now() - 7 * 24 * 3600000;
-  const hitMap: Record<string, { date: string; fatigue: number }[]> = {};
-
-  workouts
-    .filter(w => new Date(w.date).getTime() > cutoff)
-    .forEach(w => {
-      if (!w.exercises || w.exercises.length === 0) {
-        const durationFactor = Math.min(1, (w.duration || 0) / 45);
-        if (durationFactor <= 0) return;
-        const impacts = CARDIO_MUSCLE_IMPACT[w.type] ?? CARDIO_MUSCLE_IMPACT.cardio;
-        impacts.forEach(({ muscle, weight }) => {
-          if (!hitMap[muscle]) hitMap[muscle] = [];
-          hitMap[muscle].push({ date: w.date, fatigue: Math.min(1, weight * durationFactor) });
-        });
-        return;
-      }
-
-      w.exercises.forEach(ex => {
-        const setCount = ex.sets.filter(
-          s => parseFloat(s.reps || '0') > 0 && parseFloat(s.weight || '0') > 0
-        ).length || ex.sets.length;
-
-        const primaryFatigue = Math.min(1.0, setCount / MAX_SETS_FOR_FULL_FATIGUE);
-
-        const exData = EXERCISE_DB.find(e => e.name === ex.name);
-        if (exData) {
-          if (!hitMap[exData.muscleGroup]) hitMap[exData.muscleGroup] = [];
-          hitMap[exData.muscleGroup].push({ date: w.date, fatigue: primaryFatigue });
-
-          exData.secondary.forEach(sec => {
-            const secFatigue = Math.min(1.0, (setCount / MAX_SETS_FOR_FULL_FATIGUE) * sec.weight);
-            if (!hitMap[sec.muscle]) hitMap[sec.muscle] = [];
-            hitMap[sec.muscle].push({ date: w.date, fatigue: secFatigue });
-          });
-          return;
-        }
-
-        // Exercise picked from ALL_EXERCISES (not in EXERCISE_DB) — fall back
-        // to the muscleGroup/category stored on the exercise itself.
-        const mg = resolveMuscleGroup(ex.muscleGroup);
-        if (mg) {
-          if (!hitMap[mg]) hitMap[mg] = [];
-          hitMap[mg].push({ date: w.date, fatigue: primaryFatigue });
-        }
-      });
-    });
-
-  const result: MuscleMap = {};
-
-  MUSCLE_GROUPS.forEach(m => {
-    const hits = hitMap[m] ?? [];
-    if (hits.length === 0) {
-      result[m] = { level: 100, lastTrained: null };
-      return;
-    }
-
-    const recoveryHours = MUSCLE_RECOVERY_HOURS[m] ?? 48;
-    const now = Date.now();
-    let totalRemainingFatigue = 0;
-
-    hits.forEach(hit => {
-      const hoursElapsed = (now - new Date(hit.date).getTime()) / 3600000;
-      const recoveredFraction = Math.min(1.0, hoursElapsed / recoveryHours);
-      totalRemainingFatigue += hit.fatigue * (1 - recoveredFraction);
-    });
-
-    totalRemainingFatigue = Math.min(1.0, totalRemainingFatigue);
-
-    const lastTrained = hits.sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    )[0].date;
-
-    result[m] = {
-      level: Math.round((1 - totalRemainingFatigue) * 100),
-      lastTrained,
-    };
-  });
-
-  return result;
-}
 
 // ─── Helpers ──────────────────────────────────────────────────
 function calc1RM(weight: number, reps: number): number {
@@ -526,6 +348,11 @@ function calcWorkoutScore(workout: Workout, userMaxes: UserMaxes): number {
   const durScore = Math.min(1, (workout.duration || 30) / 90);
   const setsScore = Math.min(1, workout.exercises.reduce((s, ex) => s + ex.sets.length, 0) / 20);
   return Math.round((avgIntensity * 0.4 + volScore * 0.3 + durScore * 0.15 + setsScore * 0.15) * 100);
+}
+function monotonyBand(monotony: number, lang: string) {
+  if (monotony <= 1.5) return { label: lang === 'en' ? 'Fine' : 'Unauffällig', color: '#4ADE80' };
+  if (monotony <= 2.0) return { label: lang === 'en' ? 'Elevated' : 'Erhöht', color: '#FBBF24' };
+  return             { label: lang === 'en' ? 'High' : 'Hoch', color: '#F87171' };
 }
 function getNutritionAdvice(score: number, duration: number, bodyWeight: number) {
   const w = bodyWeight || 75;
@@ -2298,6 +2125,7 @@ const [completedWorkoutData, setCompletedWorkoutData] = useState<{
   const [muscles, setMuscles] = useState<MuscleMap>({});
   const [bodyView, setBodyView] = useState<'front' | 'back'>('front');
   const [readiness, setReadiness] = useState<TrainingReadiness | null>(null);
+  const [monotony7, setMonotony7] = useState<TrainingMonotonyResult | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useFocusEffect(useCallback(() => {
@@ -2309,8 +2137,9 @@ const [completedWorkoutData, setCompletedWorkoutData] = useState<{
   async function loadAll() {
     await syncAppleHealthWorkouts().catch(() => {});
     const rawW = await AsyncStorage.getItem('workouts');
+    let ws: Workout[] = [];
     if (rawW) {
-      const ws: Workout[] = JSON.parse(rawW);
+      ws = JSON.parse(rawW);
       setWorkouts(ws);
       const lastData: Record<string, WorkoutSet[]> = {};
       [...ws].reverse().forEach(w => w.exercises?.forEach(ex => { if (!lastData[ex.name]) lastData[ex.name] = ex.sets; }));
@@ -2325,6 +2154,18 @@ const [completedWorkoutData, setCompletedWorkoutData] = useState<{
       await AsyncStorage.setItem('muscleRecovery', JSON.stringify(def));
     }
     setReadiness(await getTrainingReadiness(lang));
+    const [rawHealth, rawProfile] = await Promise.all([
+      AsyncStorage.getItem('stride_health_history'),
+      AsyncStorage.getItem('profile'),
+    ]);
+    const health: DayHealth[] = rawHealth ? JSON.parse(rawHealth) : [];
+    const profileAge = rawProfile ? parseInt(JSON.parse(rawProfile).age, 10) : NaN;
+    setMonotony7(calcTrainingMonotony(
+      ws.map(w => ({ date: w.date, duration: w.duration, score: w.score, avgHeartRate: w.avgHeartRate })),
+      health,
+      Number.isFinite(profileAge) && profileAge > 0 ? profileAge : null,
+      7
+    ));
     const rawActive = await AsyncStorage.getItem('activeWorkout');
     if (rawActive) {
       const w: Workout = JSON.parse(rawActive);
@@ -2667,6 +2508,68 @@ await loadAll();
                   </View>
                   <Text style={{ fontSize: 12, fontWeight: '600', color: T.text2 }}>{readiness.recommendation}</Text>
                 </View>
+              </View>
+            </View>
+          )}
+
+          {/* TRAININGSMONOTONIE & STRAIN */}
+          {monotony7 && monotony7.totalWorkouts > 0 && (
+            <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
+              <View style={{ backgroundColor: T.cardAlt, borderRadius: 22, padding: 16, borderWidth: 1, borderColor: T.border }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4 }}>
+                      {lang === 'en' ? 'Training Monotony' : 'Trainingsmonotonie'}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => Alert.alert(
+                        lang === 'en' ? 'Monotony & Strain' : 'Monotonie & Strain',
+                        lang === 'en'
+                          ? 'Monotony compares how much your daily training load varies over the last 7 days (mean ÷ standard deviation) — high values mean similarly hard days back to back with little variation, which research (Foster et al.) associates with a higher illness/injury risk over time. Strain is monotony × total load. Load per session comes from your workout score where available, or from average heart rate relative to your resting HR and estimated max HR otherwise. A statistical pattern from your own data, not a diagnosis or training prescription.'
+                          : 'Monotonie vergleicht, wie stark deine tägliche Trainingsbelastung über die letzten 7 Tage schwankt (Mittelwert ÷ Standardabweichung) — hohe Werte bedeuten ähnlich harte Tage ohne viel Abwechslung, was in der Forschung (Foster et al.) langfristig mit einem höheren Krankheits-/Verletzungsrisiko in Verbindung gebracht wird. Strain ist Monotonie × Gesamtbelastung. Die Belastung pro Einheit stammt, wo vorhanden, aus deinem Workout-Score, sonst aus dem Durchschnittspuls im Verhältnis zu Ruhepuls und geschätztem Maximalpuls. Ein statistisches Muster aus deinen eigenen Daten, keine Diagnose und keine Trainingsvorgabe.'
+                      )}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Text style={{ color: T.text4, fontSize: 13, fontWeight: '700' }}>ⓘ</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {monotony7.monotony !== null && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: monotonyBand(monotony7.monotony, lang).color }} />
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: monotonyBand(monotony7.monotony, lang).color }}>{monotonyBand(monotony7.monotony, lang).label}</Text>
+                    </View>
+                  )}
+                </View>
+                {monotony7.monotony !== null ? (
+                  <View style={{ flexDirection: 'row', gap: 24, marginTop: 10 }}>
+                    <View>
+                      <Text style={{ fontSize: 22, fontWeight: '800', color: T.text1 }}>{monotony7.monotony}</Text>
+                      <Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{lang === 'en' ? 'Monotony' : 'Monotonie'}</Text>
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 22, fontWeight: '800', color: T.text1 }}>{monotony7.strain}</Text>
+                      <Text style={{ fontSize: 11, color: T.text3, marginTop: 2 }}>{lang === 'en' ? 'Strain' : 'Strain'}</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <Text style={{ fontSize: 12, color: T.text3, marginTop: 10 }}>
+                    {lang === 'en' ? 'Not enough load variation yet this week.' : 'Diese Woche noch nicht genug Belastungs-Schwankung.'}
+                  </Text>
+                )}
+                {monotony7.missingHRWorkouts > 0 && (
+                  <Text style={{ fontSize: 11, color: T.text4, marginTop: 8 }}>
+                    {lang === 'en'
+                      ? `Load based on ${monotony7.countedWorkouts} of ${monotony7.totalWorkouts} workouts this week — ${monotony7.missingHRWorkouts} without intensity data from Apple Health.`
+                      : `Load basiert auf ${monotony7.countedWorkouts} von ${monotony7.totalWorkouts} Trainings diese Woche — ${monotony7.missingHRWorkouts} ohne Intensitätsdaten von Apple Health.`}
+                  </Text>
+                )}
+                {monotony7.missingAgeWorkouts > 0 && (
+                  <Text style={{ fontSize: 11, color: T.text4, marginTop: 4 }}>
+                    {lang === 'en'
+                      ? `Add your age in your profile for more accurate load values (affects ${monotony7.missingAgeWorkouts} workout${monotony7.missingAgeWorkouts === 1 ? '' : 's'}).`
+                      : `Trag dein Alter im Profil ein für genauere Belastungswerte (betrifft ${monotony7.missingAgeWorkouts} Training${monotony7.missingAgeWorkouts === 1 ? '' : 's'}).`}
+                  </Text>
+                )}
               </View>
             </View>
           )}

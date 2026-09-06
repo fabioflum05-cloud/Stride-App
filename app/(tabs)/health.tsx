@@ -5,6 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated, KeyboardAvoidingView, Modal, Platform,
   ScrollView,
   Text, TextInput,
@@ -14,6 +15,8 @@ import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 import { useLanguage } from '../../constants/LanguageContext';
 import { useAppTheme } from '../../constants/ThemeContext';
 import {
+  calcHRVCoefficientOfVariation,
+  checkEarlyWarningSignal,
   fetchAndImportHealthData,
   getLastHealthSync, getStressHistory, isHealthKitAvailable,
 } from '../../utils/applehealth';
@@ -97,6 +100,11 @@ function hrvZone(v: number, lang: string) {
   if (v >= 60) return { label: 'Normal',     color: '#818CF8' };
   if (v >= 40) return { label: 'Niedrig',    color: '#FBBF24' };
   return             { label: 'Kritisch',   color: '#F87171' };
+}
+function hrvCVBand(cv: number, lang: string) {
+  if (cv < 8)  return { label: lang === 'en' ? 'Stable'   : 'Stabil',  color: '#4ADE80' };
+  if (cv <= 15) return { label: lang === 'en' ? 'Moderate' : 'Moderat', color: '#FBBF24' };
+  return             { label: lang === 'en' ? 'Elevated' : 'Erhöht',  color: '#F87171' };
 }
 function stressColor(s: number): string {
   if (s <= 25) return '#4ADE80';
@@ -435,6 +443,11 @@ export default function HealthScreen() {
   const avgHR7  = (() => { const v=last14.slice(-7).map(d=>d.restingHR).filter(Boolean) as number[]; return v.length?Math.round(v.reduce((a,b)=>a+b)/v.length):null; })();
   const last14Stress = getStressHistory(history).slice(-14);
   const todayStress = last14Stress.length ? last14Stress[last14Stress.length - 1].stress : null;
+  const hrvCV7  = calcHRVCoefficientOfVariation(history, 7);
+  const hrvCV28 = calcHRVCoefficientOfVariation(history, 28);
+  const earlyWarning = todayData
+    ? checkEarlyWarningSignal(history, { hrv: todayData.hrv, restingHR: todayData.restingHR, date: todayData.date })
+    : null;
   const recovery = todayData?.recoveryScore ?? 0;
   const rc = recColor(recovery, colors);
   const dateLabel = new Date().toLocaleDateString(lang === 'en' ? 'en-US' : 'de-DE', { weekday:'long', day:'numeric', month:'long' });
@@ -523,6 +536,47 @@ export default function HealthScreen() {
             </TouchableOpacity>
           )}
 
+          {/* Early Warning Signal */}
+          {earlyWarning?.active && (
+            <View style={[cardStyle, { borderWidth:1, borderColor:'#FBBF2440', backgroundColor: isDark ? '#2A230F' : '#FFFBEB' }]}>
+              <View style={{ flexDirection:'row', alignItems:'flex-start', gap:10 }}>
+                <Text style={{ fontSize:18 }}>⚠️</Text>
+                <View style={{ flex:1 }}>
+                  <View style={{ flexDirection:'row', alignItems:'center', gap:6 }}>
+                    <Text style={{ color:text, fontSize:14, fontWeight:'700', flexShrink:1 }}>
+                      {lang === 'en'
+                        ? 'HRV lower & resting HR higher than your usual baseline'
+                        : 'HRV niedriger & Ruhepuls höher als deine übliche Baseline'}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => Alert.alert(
+                        lang === 'en' ? 'What does this mean?' : 'Was bedeutet das?',
+                        lang === 'en'
+                          ? 'When fatigue accumulates or an infection is starting, many people show this pattern: HRV drops while resting HR rises at the same time, reflecting a more sympathetically-activated autonomic nervous system. This is a statistical pattern from your own last 7 days, not a diagnosis and not a substitute for medical advice.'
+                          : 'Bei zunehmender Ermüdung oder einem beginnenden Infekt zeigen viele Menschen dieses Muster: Die HRV sinkt, während der Ruhepuls gleichzeitig steigt — ein Zeichen für ein stärker sympathisch aktiviertes autonomes Nervensystem. Das ist ein statistisches Muster aus deinen eigenen letzten 7 Tagen, keine Diagnose und kein Ersatz für ärztlichen Rat.'
+                      )}
+                      hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+                    >
+                      <Text style={{ color:textMuted, fontSize:13, fontWeight:'700' }}>ⓘ</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ color:textMuted, fontSize:12, lineHeight:17, marginTop:4 }}>
+                    {lang === 'en'
+                      ? 'A sign your body might need more recovery today. Not a medical value.'
+                      : 'Ein Hinweis, dass dein Körper heute mehr Erholung brauchen könnte. Kein medizinischer Wert.'}
+                  </Text>
+                  {(earlyWarning.hrvDeltaPct !== null || earlyWarning.rhrDeltaBpm !== null) && (
+                    <Text style={{ color:'#FBBF24', fontSize:12, fontWeight:'700', marginTop:6 }}>
+                      {earlyWarning.hrvDeltaPct !== null ? `HRV ${earlyWarning.hrvDeltaPct}%` : ''}
+                      {earlyWarning.hrvDeltaPct !== null && earlyWarning.rhrDeltaBpm !== null ? '  ·  ' : ''}
+                      {earlyWarning.rhrDeltaBpm !== null ? `${lang === 'en' ? 'Resting HR' : 'Ruhepuls'} +${earlyWarning.rhrDeltaBpm} bpm` : ''}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Stress Score */}
           {last14Stress.length > 0 && (
             <View style={cardStyle}>
@@ -599,6 +653,27 @@ export default function HealthScreen() {
                   </View>
                 ))}
               </View>
+              {hrvCV7 !== null && (
+                <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between', marginTop:12, paddingTop:12, borderTopWidth:1, borderTopColor:border }}>
+                  <View style={{ flexDirection:'row', alignItems:'center', gap:6, flexShrink:1 }}>
+                    <Text style={{ color:textMuted, fontSize:12 }}>
+                      {lang === 'en' ? '7d fluctuation' : '7T Schwankung'}: <Text style={{ color:hrvCVBand(hrvCV7, lang).color, fontWeight:'700' }}>{hrvCV7}% · {hrvCVBand(hrvCV7, lang).label}</Text>
+                      {hrvCV28 !== null ? `  ·  28T: ${hrvCV28}%` : ''}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => Alert.alert(
+                        lang === 'en' ? 'HRV Fluctuation (CV)' : 'HRV-Schwankung (CV)',
+                        lang === 'en'
+                          ? 'The coefficient of variation shows how much your HRV fluctuates day to day. Higher values can indicate accumulating fatigue or stress, but this is a rough orientation, not a clinical cutoff — individual baselines vary widely.'
+                          : 'Der Variationskoeffizient zeigt, wie stark deine HRV von Tag zu Tag schwankt. Höhere Werte können auf zunehmende Ermüdung oder Stress hindeuten, das ist aber eine grobe Orientierung, kein klinischer Cutoff — individuelle Baselines schwanken stark.'
+                      )}
+                      hitSlop={{ top:8, bottom:8, left:8, right:8 }}
+                    >
+                      <Text style={{ color:textDim, fontSize:13, fontWeight:'700' }}>ⓘ</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
             </View>
           )}
 

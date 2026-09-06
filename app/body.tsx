@@ -5,18 +5,12 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { Animated, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Defs, Ellipse, G, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
-import { theme } from '../constants/theme';
-type MuscleState = { level: number; lastTrained: string | null; };
-type MuscleMap = Record<string, MuscleState>;
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
+import { calculateMuscleRecovery, MUSCLE_GROUPS as MUSCLES, MUSCLE_RECOVERY_HOURS, MuscleMap } from '../utils/muscleRecovery';
 
-const MUSCLES = ['Brust', 'Rücken', 'Schultern', 'Bizeps', 'Trizeps', 'Quadrizeps', 'Hamstrings', 'Gluteus', 'Waden', 'Core'];
+type Palette = ReturnType<typeof getFullPalette>;
 
-const MUSCLE_RECOVERY_HOURS: Record<string, number> = {
-  'Brust': 48, 'Rücken': 48, 'Schultern': 36, 'Bizeps': 36,
-  'Trizeps': 36, 'Quadrizeps': 72, 'Hamstrings': 72, 'Gluteus': 48, 'Waden': 24, 'Core': 24,
-};
-
-function getMuscleColor(level: number) {
+function getMuscleColor(level: number, theme: Palette) {
   if (level >= 80) return theme.green;
   if (level >= 60) return theme.blue;
   if (level >= 40) return theme.orange;
@@ -24,20 +18,14 @@ function getMuscleColor(level: number) {
   return theme.red;
 }
 
-function calculateRecovery(lastTrained: string | null, recoveryHours: number): number {
-  if (!lastTrained) return 100;
-  const hours = (Date.now() - new Date(lastTrained).getTime()) / 3600000;
-  return Math.min(100, Math.round((hours / recoveryHours) * 100));
-}
-
 // Skin tone base
 const SKIN = '#C8956C';
 const SKIN_DARK = '#A8754C';
 const SKIN_SHADOW = '#8B5E3C';
 
-function muscleFill(muscles: MuscleMap, name: string): string {
+function muscleFill(muscles: MuscleMap, name: string, theme: Palette): string {
   const level = muscles[name]?.level ?? 100;
-  const color = getMuscleColor(level);
+  const color = getMuscleColor(level, theme);
   return color;
 }
 
@@ -47,9 +35,9 @@ function muscleOpacity(muscles: MuscleMap, name: string): number {
 }
 
 // ─── Realistic Front Body ─────────────────────────────────────
-function BodyFront({ muscles }: { muscles: MuscleMap }) {
+function BodyFront({ muscles, theme }: { muscles: MuscleMap; theme: Palette }) {
   const mc = (n: string) => muscleOpacity(muscles, n);
-  const mf = (n: string) => muscleFill(muscles, n);
+  const mf = (n: string) => muscleFill(muscles, n, theme);
 
   return (
     <Svg width={170} height={380} viewBox="0 0 170 380">
@@ -196,14 +184,14 @@ function BodyFront({ muscles }: { muscles: MuscleMap }) {
 }
 
 // ─── Realistic Back Body ──────────────────────────────────────
-function BodyBack({ muscles }: { muscles: MuscleMap }) {
+function BodyBack({ muscles, theme }: { muscles: MuscleMap; theme: Palette }) {
   const mc = (n: string) => muscleOpacity(muscles, n);
   const mf = (n: string) => muscleOpacity(muscles, n);
   const fill = (n: string) => muscleOpacity(muscles, n);
 
   // shortcut
   const clr = (n: string) => muscleOpacity(muscles, n);
-  const col = (n: string) => getMuscleColor(muscles[n]?.level ?? 100);
+  const col = (n: string) => getMuscleColor(muscles[n]?.level ?? 100, theme);
 
   return (
     <Svg width={170} height={380} viewBox="0 0 170 380">
@@ -324,6 +312,9 @@ function BodyBack({ muscles }: { muscles: MuscleMap }) {
 
 export default function BodyScreen() {
   const { t, lang } = useLanguage();
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [muscles, setMuscles] = useState<MuscleMap>({});
   const [view, setView] = useState<'front' | 'back'>('front');
 
@@ -341,14 +332,10 @@ export default function BodyScreen() {
 }, []));
 
   async function load() {
-  // Zuerst gecachte Muscle Recovery laden (von training.tsx gesetzt)
-  const rawCached = await AsyncStorage.getItem('muscleRecovery');
-  if (rawCached) {
-    setMuscles(JSON.parse(rawCached));
-    return;
-  }
-
-  // Fallback: selbst berechnen
+  // Live mit derselben Funktion berechnen, die auch training.tsx nutzt (utils/muscleRecovery.ts)
+  // — kein Cache-Umweg mehr, damit beide Screens für denselben Muskel am selben Tag garantiert
+  // denselben Wert zeigen, statt hier ggf. einen veralteten oder mit einer einfacheren Formel
+  // berechneten Wert anzuzeigen.
   const rawWorkouts = await AsyncStorage.getItem('workouts');
   if (!rawWorkouts) {
     const def: MuscleMap = {};
@@ -357,21 +344,7 @@ export default function BodyScreen() {
     return;
   }
   const workouts = JSON.parse(rawWorkouts);
-  const lastTrainedMap: Record<string, string> = {};
-  workouts.forEach((w: any) => {
-    w.exercises?.forEach((ex: any) => {
-      const mg = ex.muscleGroup;
-      if (!lastTrainedMap[mg] || new Date(w.date) > new Date(lastTrainedMap[mg])) {
-        lastTrainedMap[mg] = w.date;
-      }
-    });
-  });
-  const newMuscles: MuscleMap = {};
-  MUSCLES.forEach(m => {
-    const lastTrained = lastTrainedMap[m] ?? null;
-    newMuscles[m] = { level: calculateRecovery(lastTrained, MUSCLE_RECOVERY_HOURS[m]), lastTrained };
-  });
-  setMuscles(newMuscles);
+  setMuscles(calculateMuscleRecovery(workouts));
 }
 
   const warnings = MUSCLES.filter(m => (muscles[m]?.level ?? 100) < 40);
@@ -401,7 +374,7 @@ export default function BodyScreen() {
 
         <View style={styles.bodyWrap}>
           <View style={styles.figureContainer}>
-            {view === 'front' ? <BodyFront muscles={muscles} /> : <BodyBack muscles={muscles} />}
+            {view === 'front' ? <BodyFront muscles={muscles} theme={theme} /> : <BodyBack muscles={muscles} theme={theme} />}
           </View>
           <View style={styles.legend}>
             <Text style={styles.legendTitle}>{t('body_legend')}</Text>
@@ -441,7 +414,7 @@ export default function BodyScreen() {
         {MUSCLES.map(m => {
           const muscle = muscles[m];
           if (!muscle) return null;
-          const color = getMuscleColor(muscle.level);
+          const color = getMuscleColor(muscle.level, theme);
           const hoursLeft = muscle.lastTrained
             ? Math.max(0, MUSCLE_RECOVERY_HOURS[m] - (Date.now() - new Date(muscle.lastTrained).getTime()) / 3600000)
             : 0;
@@ -467,35 +440,37 @@ export default function BodyScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 20 },
-  viewToggle: { flexDirection: 'row', gap: 8, marginBottom: 20 },
-  toggleBtn: { flex: 1, padding: 10, borderRadius: 12, alignItems: 'center', backgroundColor: theme.card, ...theme.shadow },
-  toggleBtnActive: { backgroundColor: theme.blueLight },
-  toggleText: { color: theme.textSecondary, fontSize: 13, fontWeight: '500' },
-  toggleTextActive: { color: theme.blue, fontWeight: '600' },
-  bodyWrap: { flexDirection: 'row', gap: 12, marginBottom: 20, alignItems: 'flex-start', justifyContent: 'center' },
-  figureContainer: { backgroundColor: theme.card, borderRadius: 20, padding: 10, ...theme.shadow },
-  legend: { gap: 12, paddingTop: 20, justifyContent: 'center', flex: 1 },
-  legendTitle: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { color: theme.textPrimary, fontSize: 12, fontWeight: '500' },
-  legendSub: { color: theme.textSecondary, fontSize: 10 },
-  warningCard: { backgroundColor: '#FFEBEE', borderRadius: 14, padding: 14, marginBottom: 10 },
-  warningTitle: { color: theme.red, fontSize: 13, fontWeight: '600', marginBottom: 4 },
-  warningText: { color: theme.red, fontSize: 12, opacity: 0.8 },
-  readyCard: { backgroundColor: theme.greenLight, borderRadius: 14, padding: 14, marginBottom: 20 },
-  readyTitle: { color: theme.green, fontSize: 13, fontWeight: '600', marginBottom: 4 },
-  readyText: { color: theme.green, fontSize: 12, opacity: 0.8 },
-  sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 12 },
-  muscleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
-  muscleLeft: { width: 110 },
-  muscleName: { color: theme.textPrimary, fontSize: 13, fontWeight: '500' },
-  muscleTime: { color: theme.textSecondary, fontSize: 10, marginTop: 2 },
-  muscleBarWrap: { flex: 1, height: 4, backgroundColor: theme.cardSecondary, borderRadius: 2, overflow: 'hidden' },
-  muscleBar: { height: '100%', borderRadius: 2 },
-  muscleLevel: { fontSize: 12, fontWeight: '500', width: 36, textAlign: 'right' },
-});
+function getStyles(theme: Palette) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 20 },
+    viewToggle: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+    toggleBtn: { flex: 1, padding: 10, borderRadius: 12, alignItems: 'center', backgroundColor: theme.card, ...theme.shadow },
+    toggleBtnActive: { backgroundColor: theme.blueLight },
+    toggleText: { color: theme.textSecondary, fontSize: 13, fontWeight: '500' },
+    toggleTextActive: { color: theme.blue, fontWeight: '600' },
+    bodyWrap: { flexDirection: 'row', gap: 12, marginBottom: 20, alignItems: 'flex-start', justifyContent: 'center' },
+    figureContainer: { backgroundColor: theme.card, borderRadius: 20, padding: 10, ...theme.shadow },
+    legend: { gap: 12, paddingTop: 20, justifyContent: 'center', flex: 1 },
+    legendTitle: { color: theme.textSecondary, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
+    legendItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    legendDot: { width: 10, height: 10, borderRadius: 5 },
+    legendText: { color: theme.textPrimary, fontSize: 12, fontWeight: '500' },
+    legendSub: { color: theme.textSecondary, fontSize: 10 },
+    warningCard: { backgroundColor: theme.redLight, borderRadius: 14, padding: 14, marginBottom: 10 },
+    warningTitle: { color: theme.red, fontSize: 13, fontWeight: '600', marginBottom: 4 },
+    warningText: { color: theme.red, fontSize: 12, opacity: 0.8 },
+    readyCard: { backgroundColor: theme.greenLight, borderRadius: 14, padding: 14, marginBottom: 20 },
+    readyTitle: { color: theme.green, fontSize: 13, fontWeight: '600', marginBottom: 4 },
+    readyText: { color: theme.green, fontSize: 12, opacity: 0.8 },
+    sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 12 },
+    muscleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
+    muscleLeft: { width: 110 },
+    muscleName: { color: theme.textPrimary, fontSize: 13, fontWeight: '500' },
+    muscleTime: { color: theme.textSecondary, fontSize: 10, marginTop: 2 },
+    muscleBarWrap: { flex: 1, height: 4, backgroundColor: theme.cardSecondary, borderRadius: 2, overflow: 'hidden' },
+    muscleBar: { height: '100%', borderRadius: 2 },
+    muscleLevel: { fontSize: 12, fontWeight: '500', width: 36, textAlign: 'right' },
+  });
+}

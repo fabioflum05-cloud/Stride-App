@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, Platform, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { useLanguage } from '../constants/LanguageContext';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import {
     DEFAULT_NOTIFICATION_SETTINGS,
     getNotificationSettings,
@@ -31,6 +31,9 @@ function timeToDate(hour: number, minute: number): Date {
 
 export default function NotificationSettingsScreen() {
   const { t, lang } = useLanguage();
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [settings, setSettings] = useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
   const [showHealthPicker, setShowHealthPicker] = useState(false);
   const [showTrainingPicker, setShowTrainingPicker] = useState(false);
@@ -184,23 +187,25 @@ export default function NotificationSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', marginBottom: 20 },
-  card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, ...theme.shadow },
-  rowHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  cardTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: '600', marginBottom: 4 },
-  cardDesc: { color: theme.textSecondary, fontSize: 12, lineHeight: 18 },
-  timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTopWidth: 0.5, borderTopColor: theme.borderLight },
-  timeLabel: { color: theme.textSecondary, fontSize: 13, fontWeight: '500' },
-  timeBtn: { backgroundColor: theme.cardSecondary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
-  timeBtnText: { color: theme.blue, fontSize: 15, fontWeight: '700' },
-  weekdayRow: { flexDirection: 'row', gap: 6, marginBottom: 14 },
-  weekdayChip: { flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: theme.cardSecondary, alignItems: 'center' },
-  weekdayChipActive: { backgroundColor: theme.blue },
-  weekdayChipText: { color: theme.textSecondary, fontSize: 12, fontWeight: '600' },
-  weekdayChipTextActive: { color: '#fff' },
-  saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 8 },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-});
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 60, marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', marginBottom: 20 },
+    card: { backgroundColor: theme.card, borderRadius: 16, padding: 16, marginBottom: 12, ...theme.shadow },
+    rowHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+    cardTitle: { color: theme.textPrimary, fontSize: 15, fontWeight: '600', marginBottom: 4 },
+    cardDesc: { color: theme.textSecondary, fontSize: 12, lineHeight: 18 },
+    timeRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 14, borderTopWidth: 0.5, borderTopColor: theme.borderLight },
+    timeLabel: { color: theme.textSecondary, fontSize: 13, fontWeight: '500' },
+    timeBtn: { backgroundColor: theme.cardSecondary, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
+    timeBtnText: { color: theme.blue, fontSize: 15, fontWeight: '700' },
+    weekdayRow: { flexDirection: 'row', gap: 6, marginBottom: 14 },
+    weekdayChip: { flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: theme.cardSecondary, alignItems: 'center' },
+    weekdayChipActive: { backgroundColor: theme.blue },
+    weekdayChipText: { color: theme.textSecondary, fontSize: 12, fontWeight: '600' },
+    weekdayChipTextActive: { color: '#fff' },
+    saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center', marginTop: 8 },
+    saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  });
+}

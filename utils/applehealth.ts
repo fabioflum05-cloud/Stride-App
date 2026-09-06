@@ -63,6 +63,7 @@ interface StoredWorkout {
   calories?: number;
   distance?: number;
   score?: number;
+  avgHeartRate?: number | null;
 }
 
 function isHealthKitAvailable(): boolean {
@@ -182,6 +183,21 @@ async function fetchLastNightSleepDetails(): Promise<SleepDetails | null> {
   };
 }
 
+/** Durchschnittspuls im angegebenen Zeitfenster aus HealthKit — dieselbe Abfrage wie in
+ * fetchLastNightSleepDetails(), hier auf ein Workout-Zeitfenster statt eine Schlaf-Session
+ * angewendet. `null` wenn Apple Health für dieses Fenster keine Pulsdaten hat. */
+async function fetchAvgHeartRateInWindow(startDate: Date, endDate: Date): Promise<number | null> {
+  try {
+    const hrRes = await queryStatisticsForQuantity('HKQuantityTypeIdentifierHeartRate', ['discreteAverage'], {
+      filter: { date: { startDate, endDate } },
+      unit: 'count/min',
+    });
+    return hrRes.averageQuantity ? Math.round(hrRes.averageQuantity.quantity) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchTodaySteps(): Promise<number | null> {
   const start = new Date();
   start.setHours(0, 0, 0, 0);
@@ -253,6 +269,206 @@ function computeBaselines(history: DayHealth[], excludeDate: string): { hrvBasel
 }
 
 /**
+ * HRV Coefficient of Variation (%) über die letzten `days` Tage — Tag-zu-Tag-Schwankungsbreite
+ * des HRV relativ zum eigenen Mittelwert (Stichproben-Standardabweichung / Mittelwert × 100).
+ * Ein steigender CV gilt unabhängig vom reinen HRV-Durchschnitt als früher Hinweis auf
+ * kumulative Ermüdung/Übertraining. Braucht mindestens 4 Werte im Fenster — bei weniger ist
+ * eine Schwankungsbreite statistisch nicht aussagekräftig, daher dann `null` statt Scheinpräzision.
+ */
+export function calcHRVCoefficientOfVariation(history: DayHealth[], days: number): number | null {
+  const cutoff = Date.now() - days * 24 * 3600000;
+  const vals = history
+    .filter(h => new Date(h.date).getTime() >= cutoff)
+    .map(h => h.hrv)
+    .filter((v): v is number => v !== null && v !== undefined);
+
+  if (vals.length < 4) return null;
+
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  if (mean <= 0) return null;
+  const variance = vals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (vals.length - 1);
+  const stdDev = Math.sqrt(variance);
+  return Math.round((stdDev / mean) * 100 * 10) / 10;
+}
+
+/**
+ * Kombiniertes Frühwarnsignal: HRV heute ≥1 Stichproben-SD unter der 7-Tage-Baseline
+ * UND Ruhepuls heute ≥1 SD über der 7-Tage-Baseline, am selben Tag. Beide Bedingungen
+ * müssen gleichzeitig zutreffen — das unterscheidet das Signal von den bereits einzeln
+ * angezeigten HRV-/Ruhepuls-Zonen. Braucht mindestens 4 Werte im Baseline-Fenster je Metrik,
+ * sonst kein Signal (statistisch nicht aussagekräftig). Rein statistisches Muster, keine Diagnose.
+ */
+export function checkEarlyWarningSignal(
+  history: DayHealth[],
+  today: { hrv: number | null; restingHR: number | null; date: string }
+): { active: boolean; hrvDeltaPct: number | null; rhrDeltaBpm: number | null } {
+  const past = history
+    .filter(h => h.date !== today.date)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 7);
+  const hrvVals = past.map(h => h.hrv).filter((v): v is number => v !== null && v !== undefined);
+  const rhrVals = past.map(h => h.restingHR).filter((v): v is number => v !== null && v !== undefined);
+
+  const sampleStdDev = (vals: number[], mean: number) =>
+    Math.sqrt(vals.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (vals.length - 1));
+
+  const hrvMean = hrvVals.length >= 4 ? hrvVals.reduce((a, b) => a + b, 0) / hrvVals.length : null;
+  const rhrMean = rhrVals.length >= 4 ? rhrVals.reduce((a, b) => a + b, 0) / rhrVals.length : null;
+  const hrvStd = hrvMean !== null ? sampleStdDev(hrvVals, hrvMean) : null;
+  const rhrStd = rhrMean !== null ? sampleStdDev(rhrVals, rhrMean) : null;
+
+  const hrvDeltaPct = today.hrv !== null && hrvMean !== null && hrvMean > 0
+    ? Math.round(((today.hrv - hrvMean) / hrvMean) * 100)
+    : null;
+  const rhrDeltaBpm = today.restingHR !== null && rhrMean !== null
+    ? Math.round(today.restingHR - rhrMean)
+    : null;
+
+  const hrvLow = today.hrv !== null && hrvMean !== null && hrvStd !== null && hrvStd > 0
+    && today.hrv <= hrvMean - hrvStd;
+  const rhrHigh = today.restingHR !== null && rhrMean !== null && rhrStd !== null && rhrStd > 0
+    && today.restingHR >= rhrMean + rhrStd;
+
+  return { active: !!(hrvLow && rhrHigh), hrvDeltaPct, rhrDeltaBpm };
+}
+
+/**
+ * Chronisches Schlafdefizit (h) über die letzten `days` Tage: Summe aus (Zielschlaf − Ist-Schlaf)
+ * pro Tag, wobei einzelne Überschuss-Nächte das laufende Defizit verringern, es aber nicht unter 0
+ * "ansparen" können (kein Schlaf-Guthaben). Zielschlaf = 7h, derselbe Wert, ab dem
+ * `durationScore()` den 100%-Bereich beginnt, damit "Ziel" app-weit konsistent bleibt.
+ * Nimmt bewusst ein generisches {date, hours}-Array statt `DayHealth[]`, da `sleepHours` in
+ * `stride_health_history` nur bei Apple-Health-Sync gefüllt wird — manuell geloggter Schlaf
+ * (sleep.tsx) landet in `sleepHistory` und muss davon unabhängig auswertbar sein.
+ * `null` wenn im Fenster kein einziger Tag Daten hat.
+ */
+export function calcSleepDebt(entries: { date: string; hours: number }[], days: number): number | null {
+  const targetHours = DUR_OPTIMAL_LOW_MIN / 60;
+  const cutoff = Date.now() - days * 24 * 3600000;
+  const dayEntries = entries
+    .filter(h => new Date(h.date).getTime() >= cutoff && h.hours > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (dayEntries.length === 0) return null;
+
+  let debt = 0;
+  for (const h of dayEntries) {
+    debt = Math.max(0, debt + (targetHours - h.hours));
+  }
+  return Math.round(debt * 10) / 10;
+}
+
+export interface MonotonyWorkoutInput {
+  date: string;
+  duration: number;
+  score?: number;
+  avgHeartRate?: number | null;
+}
+
+export interface TrainingMonotonyResult {
+  monotony: number | null;
+  strain: number | null;
+  totalWorkouts: number;
+  countedWorkouts: number;
+  missingHRWorkouts: number;   // avgHeartRate oder RuheHR nicht verfügbar (Apple-Health-Datenlücke)
+  missingAgeWorkouts: number;  // avgHeartRate+RuheHR da, aber Profil-Alter fehlt (nutzerseitig behebbar)
+}
+
+/**
+ * Trainingsmonotonie & -Strain (Foster-Modell) über die letzten `days` Tage.
+ * Tagesbelastung = Summe aus duration(min) × Intensitätsfaktor(0-1) pro Workout des Tages;
+ * Ruhetage zählen bewusst als 0 (nicht ausgeschlossen) — sie sind für die Streuung
+ * entscheidend, ohne sie wäre "jeden Tag gleich hart trainiert" nicht von "hart + genug
+ * Ruhetage" unterscheidbar.
+ *
+ * Intensitätsfaktor-Quelle pro Workout:
+ *  - Gym/Judo: der bereits vorhandene `score`/100 (0-100-Komposit aus Intensität-vs-1RM bzw.
+ *    Kampf-Leistung, Volumen, Dauer, Sätzen).
+ *  - Apple-Health-Cardio/Run ohne `score`: %HRR nach Karvonen =
+ *    (avgHeartRate − RuheHR) / (maxHR − RuheHR), mit maxHR = 220 − Alter (Fox-Formel).
+ *    Fehlt avgHeartRate ODER RuheHR (beides Apple-Health-Datenlücken) → Workout wird aus dem
+ *    Load-Score ausgeschlossen und in `missingHRWorkouts` gezählt. Ist Alter nicht im Profil
+ *    hinterlegt (einzige hier nutzerseitig leicht nachtragbare Lücke) → ausgeschlossen und
+ *    separat in `missingAgeWorkouts` gezählt, damit die UI beide Fälle unterschiedlich
+ *    kommunizieren kann.
+ *
+ * Monotonie = Mittelwert(Tagesbelastung) / Stichproben-SD(Tagesbelastung); Strain = Mittelwert × Monotonie.
+ * `null` wenn die Belastung im Fenster komplett gleichförmig ist (SD = 0) — der Quotient wäre
+ * dann undefiniert/unendlich, keine Scheinpräzision.
+ */
+export function calcTrainingMonotony(
+  workouts: MonotonyWorkoutInput[],
+  history: DayHealth[],
+  ageYears: number | null,
+  days: number
+): TrainingMonotonyResult {
+  const cutoff = Date.now() - days * 24 * 3600000;
+  const inWindow = workouts.filter(w => new Date(w.date).getTime() >= cutoff);
+
+  const restingHRFor = (dateStr: string): number | null => {
+    const day = dateStr.slice(0, 10);
+    const sameDay = history.find(h => h.date === day && h.restingHR !== null && h.restingHR !== undefined);
+    if (sameDay) return sameDay.restingHR as number;
+    const all = history.map(h => h.restingHR).filter((v): v is number => v !== null && v !== undefined);
+    return all.length ? all.reduce((a, b) => a + b, 0) / all.length : null;
+  };
+
+  const maxHR = ageYears !== null && ageYears > 0 ? 220 - ageYears : null;
+
+  let missingHRWorkouts = 0;
+  let missingAgeWorkouts = 0;
+
+  const loadByDay = new Map<string, number>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(Date.now() - i * 24 * 3600000).toISOString().slice(0, 10);
+    loadByDay.set(d, 0);
+  }
+
+  for (const w of inWindow) {
+    const day = w.date.slice(0, 10);
+    let factor: number | null = null;
+
+    if (w.score !== undefined && w.score !== null) {
+      factor = Math.max(0, Math.min(1, w.score / 100));
+    } else if (w.avgHeartRate !== undefined && w.avgHeartRate !== null) {
+      const rhr = restingHRFor(w.date);
+      if (rhr === null) {
+        missingHRWorkouts++;
+      } else if (maxHR === null || maxHR <= rhr) {
+        missingAgeWorkouts++;
+      } else {
+        factor = Math.max(0, Math.min(1, (w.avgHeartRate - rhr) / (maxHR - rhr)));
+      }
+    } else {
+      missingHRWorkouts++;
+    }
+
+    if (factor !== null) {
+      loadByDay.set(day, (loadByDay.get(day) ?? 0) + w.duration * factor);
+    }
+  }
+
+  const loads = Array.from(loadByDay.values());
+  const mean = loads.reduce((a, b) => a + b, 0) / loads.length;
+  const variance = loads.length > 1
+    ? loads.reduce((s, v) => s + (v - mean) ** 2, 0) / (loads.length - 1)
+    : 0;
+  const stdDev = Math.sqrt(variance);
+
+  const monotony = stdDev > 0 ? Math.round((mean / stdDev) * 100) / 100 : null;
+  const strain = monotony !== null ? Math.round(mean * monotony) : null;
+
+  return {
+    monotony,
+    strain,
+    totalWorkouts: inWindow.length,
+    countedWorkouts: inWindow.length - missingHRWorkouts - missingAgeWorkouts,
+    missingHRWorkouts,
+    missingAgeWorkouts,
+  };
+}
+
+/**
  * Stress Score 0-100 (0 = kein Stress, 100 = sehr hoher Stress).
  * Basiert auf der Abweichung von HRV (60%) und Ruhepuls (40%) vom 7-Tage-Baseline.
  */
@@ -298,9 +514,38 @@ function sleepComponentScore(sleepHours: number, sleepQuality: number): number {
   return Math.round(hp * 0.6 + qp * 0.4);
 }
 
+// Absolute Zielwerte für einen gesunden Erwachsenen (statt Anteil an der eigenen Gesamtschlafzeit
+// — sonst kann eine kurze Nacht mit hohem *Prozent*-Anteil Tiefschlaf/REM denselben oder einen
+// höheren Score bekommen als eine lange Nacht mit mehr *absoluten* Tiefschlaf-/REM-Minuten).
+const DEEP_TARGET_MIN = 90;  // ~90min Tiefschlaf/Nacht ist ein gängiger Zielwert für Erwachsene
+const REM_TARGET_MIN = 105;  // ~105min REM/Nacht
+
+// Dauer-Komponente: eigenständige Kurve statt eines flachen 100%-Plateaus von 5h-9h, damit eine
+// 5h-Nacht spürbar schlechter bewertet wird als eine 8h-Nacht. Optimalbereich 7-9h orientiert
+// sich an der NSF-Empfehlung für Erwachsene; unter 4h bzw. ab 10h gibt es 0 Punkte.
+const DUR_FLOOR_MIN = 240;     // 4h → 0%
+const DUR_OPTIMAL_LOW_MIN = 420;  // 7h → Beginn 100%-Bereich
+const DUR_OPTIMAL_HIGH_MIN = 540; // 9h → Ende 100%-Bereich
+const DUR_CEIL_MIN = 600;      // 10h → 0% (Overschlafen)
+
+function durationScore(schlafMin: number): number {
+  if (schlafMin < DUR_FLOOR_MIN) return 0;
+  if (schlafMin < DUR_OPTIMAL_LOW_MIN) {
+    return ((schlafMin - DUR_FLOOR_MIN) / (DUR_OPTIMAL_LOW_MIN - DUR_FLOOR_MIN)) * 100;
+  }
+  if (schlafMin <= DUR_OPTIMAL_HIGH_MIN) return 100;
+  if (schlafMin < DUR_CEIL_MIN) {
+    return (1 - (schlafMin - DUR_OPTIMAL_HIGH_MIN) / (DUR_CEIL_MIN - DUR_OPTIMAL_HIGH_MIN)) * 100;
+  }
+  return 0;
+}
+
 /**
  * Sleep Score 0-100: Tiefschlaf 30% · Dauer 25% · REM 20% · HRV 15% · tiefster Puls 10%.
  * Geteilte Formel zwischen manuellem Sleep Log (app/sleep.tsx) und Apple Health Import.
+ * Tiefschlaf/REM werden gegen absolute Zielminuten bewertet (DEEP_TARGET_MIN/REM_TARGET_MIN),
+ * NICHT als Anteil an der eigenen Gesamtschlafzeit — sonst könnte eine kurze Nacht mit hohem
+ * *Prozent*-Anteil denselben Score wie eine lange Nacht mit mehr *absoluten* Minuten bekommen.
  * hrv/tiefsterPuls sind nullable: fehlt einer der beiden (z.B. weil Apple Health aktuell keine
  * HRV-Samples liefert), fällt NICHT stillschweigend ein erfundener Wert (0) in die Rechnung —
  * das würde HRV als schlechtestmöglichen Messwert werten und den Score künstlich drücken.
@@ -314,11 +559,9 @@ export function calculateSleepScore(data: {
   hrv: number | null; tiefsterPuls: number | null; avgPuls: number;
 }): number {
   const { schlafMin, tiefZeit, remZeit, hrv, tiefsterPuls } = data;
-  const deepPct = Math.min(tiefZeit / (schlafMin * 0.20), 1) * 100;
-  const durPct = schlafMin < 300 ? (schlafMin / 360) * 100 :
-    schlafMin <= 540 ? 100 :
-    schlafMin <= 600 ? (1 - (schlafMin - 540) / 120) * 100 : 0;
-  const remPct = Math.min(remZeit / (schlafMin * 0.22), 1) * 100;
+  const deepPct = Math.min(tiefZeit / DEEP_TARGET_MIN, 1) * 100;
+  const durPct = durationScore(schlafMin);
+  const remPct = Math.min(remZeit / REM_TARGET_MIN, 1) * 100;
 
   let score = 0, w = 0;
   score += deepPct * 0.30; w += 0.30;
@@ -638,21 +881,27 @@ async function syncAppleHealthWorkoutsInternal(): Promise<{ added: number }> {
 
     const freshDistance = metersToKm(w.totalDistance);
     const freshCalories = w.totalEnergyBurned ? Math.round(w.totalEnergyBurned.quantity) : undefined;
+    const startDate = new Date(w.startDate);
+    const endDate = new Date(startDate.getTime() + (w.duration?.quantity ?? 0) * 1000);
 
     // Bereits importiert: Distanz/Kalorien/Dauer mit den aktuell aus HealthKit gelesenen
     // Werten auffrischen — behebt Altbestände, die durch einen früheren Bug (z.B. die
-    // "meters" vs. "m" Einheitenverwechslung) falsch abgespeichert wurden.
+    // "meters" vs. "m" Einheitenverwechslung) falsch abgespeichert wurden. avgHeartRate wird
+    // nur einmalig nachgeholt (undefined = vor diesem Feature importiert, noch nie versucht),
+    // nicht bei jedem Sync erneut abgefragt — null bleibt null (Apple Health hat keine Daten).
     const existingIdx = existing.findIndex(e => e.id === id);
     if (existingIdx !== -1) {
       const e = existing[existingIdx];
-      if (e.distance !== freshDistance || e.calories !== freshCalories || e.duration !== durationMin) {
-        existing[existingIdx] = { ...e, distance: freshDistance, calories: freshCalories, duration: durationMin };
+      const nextAvgHR = e.avgHeartRate === undefined
+        ? await fetchAvgHeartRateInWindow(startDate, endDate)
+        : e.avgHeartRate;
+      if (e.distance !== freshDistance || e.calories !== freshCalories || e.duration !== durationMin || nextAvgHR !== e.avgHeartRate) {
+        existing[existingIdx] = { ...e, distance: freshDistance, calories: freshCalories, duration: durationMin, avgHeartRate: nextAvgHR };
         refreshed = true;
       }
       continue;
     }
 
-    const startDate = new Date(w.startDate);
     const startDay = startDate.toISOString().slice(0, 10);
     const dupManual = existing.some(e =>
       e.source !== 'apple_health' &&
@@ -668,6 +917,7 @@ async function syncAppleHealthWorkoutsInternal(): Promise<{ added: number }> {
     if (dupAppleHealth) continue;
 
     const { name, type } = mapWorkoutActivityType(w.workoutActivityType, lang);
+    const avgHeartRate = await fetchAvgHeartRateInWindow(startDate, endDate);
 
     newOnes.push({
       id,
@@ -681,6 +931,7 @@ async function syncAppleHealthWorkoutsInternal(): Promise<{ added: number }> {
       activityType: w.workoutActivityType,
       calories: freshCalories,
       distance: freshDistance,
+      avgHeartRate,
     });
   }
 
@@ -703,7 +954,12 @@ function isToday(dateStr: string): boolean {
  * Body Battery Level 0-100. Einzige Quelle der Wahrheit für die Berechnung —
  * wird sowohl von recalcBodyBattery() (Hintergrund-Sync) als auch von app/battery.tsx (manuelle Einträge) verwendet.
  * Basis = Sleep Score * 0.85 (Aufladung durch Schlaf).
- * Drain = (manuelle kcal + aktive Kalorien + Grundumsatz) / 100 * 1.5  +  Stress-Anteil (Stress Score 0-100 / 20 * 4).
+ * Drain = (manuelle kcal + aktive Kalorien) / 100 * 1.5  +  Grundumsatz / 100 * 0.4  +  Stress-Anteil (Stress Score 0-100 / 20 * 4).
+ * Grundumsatz (Basal Energy, ~1500-2000 kcal/Tag) bekommt bewusst einen deutlich kleineren Faktor
+ * als aktive Kalorien/manuelle Einträge — sonst dominiert reines Wachsein den Drain (Basal ist
+ * typischerweise 2-4× so hoch wie Active Energy), und ein Ruhetag ohne jede Belastung würde
+ * genauso stark entladen wie ein harter Trainingstag. Analog zu Garmin Body Battery, wo Ruhe kaum
+ * drained und der Hauptanteil aus tatsächlicher Aktivität/Stress kommt.
  */
 export function calcBatteryLevel(params: {
   sleepScore: number;
@@ -716,14 +972,24 @@ export function calcBatteryLevel(params: {
   const manualKcal = params.calorieEntries.reduce((sum, e) => sum + e.kcal, 0);
   const activeEnergy = params.activeEnergy ?? 0;
   const basalEnergy = params.basalEnergy ?? 0;
-  const kcalDrain = Math.round(((manualKcal + activeEnergy + basalEnergy) / 100) * 1.5);
+  const activeDrain = Math.round(((manualKcal + activeEnergy) / 100) * 1.5);
+  const basalDrain = Math.round((basalEnergy / 100) * 0.4);
   const stressVal = params.stressScore != null ? params.stressScore / 20 : 3;
   const stressDrain = Math.round(stressVal * 4);
-  return Math.max(0, Math.min(100, base - kcalDrain - stressDrain));
+  return Math.max(0, Math.min(100, base - activeDrain - basalDrain - stressDrain));
 }
 
-/** Berechnet Body Battery neu basierend auf Schlaf, Stress Score und heutigem Kalorienverbrauch (manuell + Apple Health, aktiv + Grundumsatz). */
-export async function recalcBodyBattery(): Promise<void> {
+// Gemeinsame Sperre für alle Funktionen, die lesend+schreibend auf HEALTH_KEY/SLEEP_KEY/
+// BATTERY_KEY zugreifen (recalcBodyBattery, fetchAndImportHealthData, saveManualHRV,
+// syncAllHealthData) — verhindert Lost Updates, wenn z.B. der automatische Hintergrund-Sync
+// (App-Foreground) gleichzeitig mit einer manuellen Nutzeraktion (Battery-Screen, HRV-Eingabe)
+// läuft. Dieselbe Idee wie workoutSyncInProgress für syncAppleHealthWorkouts(), nur für diese
+// drei Storage-Keys. Die "*Internal"-Varianten führen die eigentliche Arbeit ohne eigene
+// Sperrprüfung aus, damit sich die Funktionen gegenseitig aufrufen können (z.B. saveManualHRV()
+// → recalcBodyBattery()), ohne sich selbst auszusperren.
+let healthDataSyncInProgress = false;
+
+async function recalcBodyBatteryInternal(): Promise<void> {
   const [rawSleep, rawBattery, rawHealth] = await Promise.all([
     AsyncStorage.getItem(SLEEP_KEY),
     AsyncStorage.getItem(BATTERY_KEY),
@@ -761,7 +1027,18 @@ export async function recalcBodyBattery(): Promise<void> {
   await AsyncStorage.setItem(BATTERY_KEY, JSON.stringify(battery));
 }
 
-export async function fetchAndImportHealthData(): Promise<{ success: boolean; message: string }> {
+/** Berechnet Body Battery neu basierend auf Schlaf, Stress Score und heutigem Kalorienverbrauch (manuell + Apple Health, aktiv + Grundumsatz). */
+export async function recalcBodyBattery(): Promise<void> {
+  if (healthDataSyncInProgress) return;
+  healthDataSyncInProgress = true;
+  try {
+    await recalcBodyBatteryInternal();
+  } finally {
+    healthDataSyncInProgress = false;
+  }
+}
+
+async function fetchAndImportHealthDataInternal(): Promise<{ success: boolean; message: string }> {
   if (!isHealthKitAvailable()) {
     return { success: false, message: 'Apple Health ist auf diesem Gerät nicht verfügbar.' };
   }
@@ -857,6 +1134,18 @@ export async function fetchAndImportHealthData(): Promise<{ success: boolean; me
   return { success: true, message: 'Apple Health Daten synchronisiert.' };
 }
 
+export async function fetchAndImportHealthData(): Promise<{ success: boolean; message: string }> {
+  if (healthDataSyncInProgress) {
+    return { success: false, message: 'Synchronisierung läuft bereits — bitte kurz warten.' };
+  }
+  healthDataSyncInProgress = true;
+  try {
+    return await fetchAndImportHealthDataInternal();
+  } finally {
+    healthDataSyncInProgress = false;
+  }
+}
+
 export async function getLastHealthSync(): Promise<string | null> {
   return AsyncStorage.getItem(LAST_SYNC_KEY);
 }
@@ -867,7 +1156,7 @@ export async function getLastHealthSync(): Promise<string | null> {
  * liefen (Recovery Score in der Tages-Historie, Sleep Score im letzten Schlafeintrag, Body
  * Battery), jetzt ausgelöst durch die manuelle Eingabe statt durch einen HealthKit-Fetch.
  */
-export async function saveManualHRV(value: number): Promise<void> {
+async function saveManualHRVInternal(value: number): Promise<void> {
   const todayKey = new Date().toISOString().slice(0, 10);
 
   const raw = await AsyncStorage.getItem(HEALTH_KEY);
@@ -904,7 +1193,17 @@ export async function saveManualHRV(value: number): Promise<void> {
     }
   }
 
-  await recalcBodyBattery();
+  await recalcBodyBatteryInternal();
+}
+
+export async function saveManualHRV(value: number): Promise<void> {
+  if (healthDataSyncInProgress) return;
+  healthDataSyncInProgress = true;
+  try {
+    await saveManualHRVInternal(value);
+  } finally {
+    healthDataSyncInProgress = false;
+  }
 }
 
 const BACKGROUND_TYPES = [
@@ -917,20 +1216,24 @@ const BACKGROUND_TYPES = [
 ] as const;
 
 let activeSubscriptions: { remove: () => boolean }[] = [];
-let syncInProgress = false;
 
 /** Führt einen vollständigen Health-Sync durch: Vitalwerte, Body Battery, Apple Health Workouts. */
 export async function syncAllHealthData(): Promise<void> {
-  if (syncInProgress) return;
-  syncInProgress = true;
+  // Nutzt dieselbe Sperre wie fetchAndImportHealthData()/recalcBodyBattery()/saveManualHRV()
+  // (statt einer eigenen), da alle denselben HEALTH_KEY/SLEEP_KEY/BATTERY_KEY-Datenbestand
+  // lesen+schreiben — zwei getrennte Sperren würden eine Überlappung zwischen Hintergrund-Sync
+  // und einer der drei manuellen Funktionen nicht verhindern. Ruft die "*Internal"-Varianten
+  // direkt auf, da die Sperre hier bereits gehalten wird.
+  if (healthDataSyncInProgress) return;
+  healthDataSyncInProgress = true;
   try {
-    await fetchAndImportHealthData();
+    await fetchAndImportHealthDataInternal();
     await syncAppleHealthWorkouts();
-    await recalcBodyBattery();
+    await recalcBodyBatteryInternal();
   } catch {
     // ignore — best effort background sync
   } finally {
-    syncInProgress = false;
+    healthDataSyncInProgress = false;
   }
 }
 

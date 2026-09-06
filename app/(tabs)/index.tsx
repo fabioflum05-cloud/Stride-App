@@ -34,14 +34,26 @@ function formatTime(raw: string): string {
   } catch { return '—'; }
 }
 function todayKey() { return new Date().toISOString().slice(0, 10); }
+// Renormalisiert die Gewichtung auf die tatsächlich vorhandenen Komponenten, statt einen
+// erfundenen Neutralwert (50) für fehlende Check-in-/Battery-Daten einzusetzen — dasselbe Pattern
+// wie in calculateSleepScore()/calcRecovery() (utils/applehealth.ts). Ein erfundener Neutralwert
+// würde einen z.B. exzellenten Sleep Score künstlich Richtung Mittelmaß ziehen, nur weil an dem
+// Tag noch kein Check-in gemacht wurde.
 function calcScore(checkin: any, sleep: any, battery: any): number {
-  if (!checkin && !sleep) return 0;
-  const s  = sleep?.sleepScore ?? 50;
-  const e  = checkin ? checkin.energie * 20 : 50;
-  const st = checkin ? (6 - checkin.stress) * 20 : 50;
-  const m  = checkin ? checkin.motivation * 20 : 50;
-  const b  = battery?.level ?? 50;
-  return Math.round(s*0.30 + e*0.20 + st*0.20 + m*0.15 + b*0.15);
+  let score = 0, w = 0;
+  if (sleep?.sleepScore != null) {
+    score += sleep.sleepScore * 0.30; w += 0.30;
+  }
+  if (checkin) {
+    const e  = checkin.energie * 20;
+    const st = (6 - checkin.stress) * 20;
+    const m  = checkin.motivation * 20;
+    score += e * 0.20 + st * 0.20 + m * 0.15; w += 0.20 + 0.20 + 0.15;
+  }
+  if (battery?.level != null) {
+    score += battery.level * 0.15; w += 0.15;
+  }
+  return w > 0 ? Math.round(score / w) : 0;
 }
 function scoreColor(s: number, accent: string): string {
   if (s >= 80) return '#4ADE80';

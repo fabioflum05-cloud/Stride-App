@@ -51,7 +51,7 @@ function monthLabel(key: string, lang: string): string {
 export default function ProgressPhotosScreen() {
   const { colors } = useAppTheme();
   const { t, lang } = useLanguage();
-  const isDark     = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
+  const isDark     = colors.isDark;
   const bg         = colors.bg;
   const card       = colors.card;
   const cardAlt    = colors.cardSecondary;

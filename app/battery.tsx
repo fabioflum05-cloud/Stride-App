@@ -4,7 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Svg, { ClipPath, Defs, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg';
-import { theme } from '../constants/theme';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
 import { recalcBodyBattery } from '../utils/applehealth';
 
@@ -20,6 +20,9 @@ function isToday(dateString: string) {
 }
 
 function BatteryVisual({ level, lang }: { level: number; lang: string }) {
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const color = level >= 70 ? theme.green : level >= 40 ? theme.orange : theme.red;
   const translateY = (1 - level / 100) * 154;
   const status = level >= 70
@@ -59,6 +62,9 @@ function BatteryVisual({ level, lang }: { level: number; lang: string }) {
 
 export default function BatteryScreen() {
   const { t, lang } = useLanguage();
+  const { colors } = useAppTheme();
+  const theme = getFullPalette(colors);
+  const styles = getStyles(theme);
   const [batteryData, setBatteryData] = useState<BatteryData | null>(null);
   const [sleepScore, setSleepScore] = useState(0);
   const [stress, setStress] = useState<number | null>(null);
@@ -203,7 +209,7 @@ export default function BatteryScreen() {
               <Text style={styles.eventName}>{lang === 'en' ? 'Resting Energy' : 'Grundumsatz'}</Text>
               <Text style={styles.eventTime}>Apple Health · {basalEnergy} kcal</Text>
             </View>
-            <Text style={[styles.eventDelta, { color: theme.red }]}>-{Math.round(basalEnergy / 100 * 1.5)}</Text>
+            <Text style={[styles.eventDelta, { color: theme.red }]}>-{Math.round(basalEnergy / 100 * 0.4)}</Text>
           </View>
         )}
 
@@ -280,44 +286,46 @@ export default function BatteryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
-  headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
-  title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 20 },
-  batteryWrap: { alignItems: 'center', marginBottom: 20 },
-  statusBadge: { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, marginTop: 8 },
-  statusText: { fontSize: 13, fontWeight: '600' },
-  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  statBox: { flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 12, alignItems: 'center', ...theme.shadow },
-  statVal: { fontSize: 20, fontWeight: '600' },
-  statLbl: { color: theme.textSecondary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3, textAlign: 'center' },
-  infoCard: { backgroundColor: theme.blueLight, borderRadius: 14, padding: 14, marginBottom: 20 },
-  infoTitle: { color: theme.blue, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: '600' },
-  infoText: { color: theme.blue, fontSize: 12, lineHeight: 18, opacity: 0.8 },
-  sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 10 },
-  eventRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
-  eventDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  eventContent: { flex: 1 },
-  eventName: { color: theme.textPrimary, fontSize: 13, fontWeight: '500' },
-  eventTime: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
-  eventDelta: { fontSize: 14, fontWeight: '600' },
-  deleteIcon: { color: theme.textTertiary, fontSize: 20 },
-  emptyState: { padding: 20, alignItems: 'center' },
-  emptyText: { color: theme.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 20 },
-  addBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', marginTop: 16, marginBottom: 12, ...theme.shadow },
-  addBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  tipCard: { backgroundColor: theme.card, borderRadius: 14, padding: 14, marginBottom: 20, ...theme.shadow },
-  tipTitle: { color: theme.textPrimary, fontSize: 13, fontWeight: '600', marginBottom: 4 },
-  tipText: { color: theme.textSecondary, fontSize: 12, lineHeight: 18 },
-  modalCard: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
-  modalTitle: { color: theme.textPrimary, fontSize: 20, fontWeight: '600' },
-  inputLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
-  input: { backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 14, color: theme.textPrimary, fontSize: 15 },
-  quickBtns: { flexDirection: 'row', gap: 8 },
-  quickBtn: { flex: 1, backgroundColor: theme.cardSecondary, borderRadius: 10, padding: 10, alignItems: 'center' },
-  quickBtnText: { color: theme.blue, fontSize: 13, fontWeight: '500' },
-  saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center' },
-  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
-  cancelBtn: { padding: 14, alignItems: 'center' },
-  cancelBtnText: { color: theme.textSecondary, fontSize: 14 },
-});
+function getStyles(theme: ReturnType<typeof getFullPalette>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: theme.bg, paddingHorizontal: 20 },
+    headerLabel: { color: theme.textSecondary, fontSize: 11, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 12 },
+    title: { color: theme.textPrimary, fontSize: 28, fontWeight: '600', lineHeight: 36, marginBottom: 20 },
+    batteryWrap: { alignItems: 'center', marginBottom: 20 },
+    statusBadge: { borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, marginTop: 8 },
+    statusText: { fontSize: 13, fontWeight: '600' },
+    statsRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+    statBox: { flex: 1, backgroundColor: theme.card, borderRadius: 14, padding: 12, alignItems: 'center', ...theme.shadow },
+    statVal: { fontSize: 20, fontWeight: '600' },
+    statLbl: { color: theme.textSecondary, fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 3, textAlign: 'center' },
+    infoCard: { backgroundColor: theme.blueLight, borderRadius: 14, padding: 14, marginBottom: 20 },
+    infoTitle: { color: theme.blue, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontWeight: '600' },
+    infoText: { color: theme.blue, fontSize: 12, lineHeight: 18, opacity: 0.8 },
+    sectionTitle: { color: theme.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 10 },
+    eventRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: theme.borderLight },
+    eventDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+    eventContent: { flex: 1 },
+    eventName: { color: theme.textPrimary, fontSize: 13, fontWeight: '500' },
+    eventTime: { color: theme.textSecondary, fontSize: 11, marginTop: 2 },
+    eventDelta: { fontSize: 14, fontWeight: '600' },
+    deleteIcon: { color: theme.textTertiary, fontSize: 20 },
+    emptyState: { padding: 20, alignItems: 'center' },
+    emptyText: { color: theme.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 20 },
+    addBtn: { backgroundColor: theme.blue, borderRadius: 16, padding: 16, alignItems: 'center', marginTop: 16, marginBottom: 12, ...theme.shadow },
+    addBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    tipCard: { backgroundColor: theme.card, borderRadius: 14, padding: 14, marginBottom: 20, ...theme.shadow },
+    tipTitle: { color: theme.textPrimary, fontSize: 13, fontWeight: '600', marginBottom: 4 },
+    tipText: { color: theme.textSecondary, fontSize: 12, lineHeight: 18 },
+    modalCard: { backgroundColor: theme.card, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 12 },
+    modalTitle: { color: theme.textPrimary, fontSize: 20, fontWeight: '600' },
+    inputLabel: { color: theme.textSecondary, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 },
+    input: { backgroundColor: theme.cardSecondary, borderRadius: 12, padding: 14, color: theme.textPrimary, fontSize: 15 },
+    quickBtns: { flexDirection: 'row', gap: 8 },
+    quickBtn: { flex: 1, backgroundColor: theme.cardSecondary, borderRadius: 10, padding: 10, alignItems: 'center' },
+    quickBtnText: { color: theme.blue, fontSize: 13, fontWeight: '500' },
+    saveBtn: { backgroundColor: theme.blue, borderRadius: 14, padding: 16, alignItems: 'center' },
+    saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+    cancelBtn: { padding: 14, alignItems: 'center' },
+    cancelBtnText: { color: theme.textSecondary, fontSize: 14 },
+  });
+}
