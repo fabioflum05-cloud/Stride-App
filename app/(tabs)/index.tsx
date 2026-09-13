@@ -665,11 +665,11 @@ export default function HomeScreen() {
               { label: t('home_todo_journal'), done: !!journal,     route: null,       icon: '📓', onPress: () => setJournalOpen(true) },
             ].map((item, i) => (
               <TouchableOpacity key={item.label}
-                onPress={() => { if (item.done) return; if (item.onPress) item.onPress(); else if (item.route) router.push(item.route as any); }}
+                onPress={() => { if (item.onPress) item.onPress(); else if (item.route) router.push(item.route as any); }}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12,
                   borderBottomWidth: i < 3 ? 1 : 0,
                   borderBottomColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
-                activeOpacity={item.done ? 1 : 0.7}>
+                activeOpacity={0.7}>
                 <Text style={{ fontSize: 18, opacity: item.done ? 0.4 : 1 }}>{item.icon}</Text>
                 <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: item.done ? textDim : textPrimary,
                   textDecorationLine: item.done ? 'line-through' : 'none' }}>{item.label}</Text>
