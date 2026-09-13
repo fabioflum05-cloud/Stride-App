@@ -14,7 +14,7 @@ import { runOnJS } from 'react-native-reanimated';
 import Svg, { Circle, Line, Polyline, Text as SvgText } from 'react-native-svg';
 import { EditHomeCardsModal } from '../../components/EditHomeCardsModal';
 import { useLanguage } from '../../constants/LanguageContext';
-import { useAppTheme } from '../../constants/ThemeContext';
+import { getFullPalette, useAppTheme } from '../../constants/ThemeContext';
 import { DEFAULT_HISTORY_TILES, getHistoryTilesLayout, HistoryTileConfig, HistoryTileId, saveHistoryTilesLayout } from '../../utils/historyTiles';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -205,7 +205,8 @@ export default function HistoryScreen() {
   const [editTilesOpen, setEditTilesOpen] = useState(false);
   const fade = useRef(new Animated.Value(0)).current;
 
-  const isDark     = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
+  const theme      = getFullPalette(colors);
+  const isDark     = colors.isDark;
   const bg         = colors.bg;
   const card       = colors.card;
   const cardAlt    = colors.cardSecondary;
@@ -332,7 +333,7 @@ export default function HistoryScreen() {
   };
   const visibleTiles = tilesLayout.filter(c => c.visible);
 
-  const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: border, marginBottom: 12 };
+  const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 20, marginBottom: 12, ...theme.shadow };
 
   if (!loaded) return (
     <View style={{ flex: 1, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -371,7 +372,7 @@ export default function HistoryScreen() {
               const tile = tileCatalog[c.id];
               const w = visibleTiles.length <= 4 ? (100 / visibleTiles.length) : 48;
               return (
-                <View key={c.id} style={{ flexBasis: `${w}%` as any, flexGrow: 1, backgroundColor: card, borderRadius: 16, padding: 12, borderWidth: 1, borderColor: border, alignItems: 'center' }}>
+                <View key={c.id} style={{ flexBasis: `${w}%` as any, flexGrow: 1, backgroundColor: card, borderRadius: 16, padding: 12, alignItems: 'center', ...theme.shadow }}>
                   <Text style={{ fontSize: 18, fontWeight: '800', color: tile.color, letterSpacing: -0.5 }}>{tile.value}</Text>
                   <Text style={{ fontSize: 9, color: textDim, textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4, textAlign: 'center', fontWeight: '600' }}>{tile.label}</Text>
                 </View>
@@ -478,8 +479,8 @@ export default function HistoryScreen() {
                   ...(day.recovery ? [{ key: 'recovery' as MetricKey, value: day.recovery }] : []),
                 ];
                 return (
-                  <View key={day.date} style={{ backgroundColor: card, borderRadius: 18, borderWidth: 1, borderColor: border,
-                    borderLeftWidth: 4, borderLeftColor: statusCol, padding: 16, marginBottom: 10 }}>
+                  <View key={day.date} style={{ backgroundColor: card, borderRadius: 18,
+                    borderLeftWidth: 4, borderLeftColor: statusCol, padding: 16, marginBottom: 10, ...theme.shadow }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8 }}>
                         <Text style={{ fontSize: 17, fontWeight: '800', color: text, letterSpacing: -0.3 }}>{weekday}</Text>

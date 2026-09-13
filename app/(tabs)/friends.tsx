@@ -19,7 +19,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { auth, db } from '../../constants/firebase';
 import { useLanguage } from '../../constants/LanguageContext';
-import { useAppTheme } from '../../constants/ThemeContext';
+import { getFullPalette, useAppTheme } from '../../constants/ThemeContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface FriendData {
@@ -91,7 +91,8 @@ function scoreColor(s: number): string {
 export default function FriendsScreen() {
   const { colors } = useAppTheme();
   const { t, lang } = useLanguage();
-  const isDark    = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
+  const theme     = getFullPalette(colors);
+  const isDark    = colors.isDark;
   const bg        = colors.bg;
   const card      = colors.card;
   const cardAlt   = colors.cardSecondary;
@@ -256,7 +257,7 @@ export default function FriendsScreen() {
     ...friends,
   ].sort((a, b) => b.streak - a.streak);
 
-  const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: border, marginBottom: 12 };
+  const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 20, marginBottom: 12, ...theme.shadow };
 
   return (
     <View style={{ flex: 1, backgroundColor: bg }}>
@@ -278,13 +279,13 @@ export default function FriendsScreen() {
           </View>
 
           {/* ── Mein Code ── */}
-          <View style={[cardStyle, { borderColor: colors.accent + '40' }]}>
+          <View style={[cardStyle, { borderWidth: 1.5, borderColor: colors.accent + '40' }]}>
             <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: textDim, marginBottom: 10 }}>
               {t('friends_code')}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 }}>
               {/* Big code display */}
-              <View style={{ flex: 1, backgroundColor: cardAlt, borderRadius: 16, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: border }}>
+              <View style={{ flex: 1, backgroundColor: cardAlt, borderRadius: 16, paddingVertical: 16, alignItems: 'center' }}>
                 <Text style={{ fontSize: 32, fontWeight: '800', color: colors.accent, letterSpacing: 8 }}>{myCode}</Text>
               </View>
               <TouchableOpacity onPress={shareCode}
@@ -380,7 +381,7 @@ export default function FriendsScreen() {
 
           {/* ── Empty State ── */}
           {friends.length === 0 && !loading && (
-            <View style={[cardStyle, { alignItems: 'center', paddingVertical: 40, borderStyle: 'dashed' }]}>
+            <View style={[cardStyle, { alignItems: 'center', paddingVertical: 40, borderWidth: 1.5, borderColor: border, borderStyle: 'dashed' }]}>
               <Text style={{ fontSize: 36, marginBottom: 12 }}>👥</Text>
               <Text style={{ fontSize: 16, fontWeight: '700', color: text, marginBottom: 6 }}>{t('friends_empty')}</Text>
               <Text style={{ fontSize: 13, color: textMuted, textAlign: 'center', marginBottom: 20 }}>
@@ -465,8 +466,9 @@ export default function FriendsScreen() {
 const StatBox: React.FC<{
   label: string; value: string; color: string;
   isDark: boolean; card: string; border: string; text: string; dim: string;
-}> = ({ label, value, color, card, border, text, dim }) => (
-  <View style={{ flex: 1, backgroundColor: card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: border }}>
+}> = ({ label, value, color, card, isDark, dim }) => (
+  <View style={{ flex: 1, backgroundColor: card, borderRadius: 14, padding: 12, alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: isDark ? 0.3 : 0.06, shadowRadius: 8, elevation: 2 }}>
     <Text style={{ fontSize: 20, fontWeight: '800', color, letterSpacing: -0.5 }}>{value}</Text>
     <Text style={{ fontSize: 9, color: dim, textTransform: 'uppercase', letterSpacing: 1, marginTop: 4, fontWeight: '600' }}>{label}</Text>
   </View>

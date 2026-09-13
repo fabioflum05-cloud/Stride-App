@@ -6,7 +6,7 @@ import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, T
 import Svg, { ClipPath, Defs, LinearGradient, Path, Rect, Stop, Text as SvgText } from 'react-native-svg';
 import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
-import { recalcBodyBattery } from '../utils/applehealth';
+import { calcActiveDrain, calcBasalDrain, calcStressDrain, recalcBodyBattery } from '../utils/applehealth';
 
 type CalorieEntry = { id: string; time: string; kcal: number; label: string; };
 type BatteryData = { level: number; calorieEntries: CalorieEntry[]; date: string; };
@@ -132,7 +132,7 @@ export default function BatteryScreen() {
   const level = batteryData?.level ?? 0;
   const entries = batteryData?.calorieEntries ?? [];
   const totalKcal = entries.reduce((sum, e) => sum + e.kcal, 0);
-  const stressDrain = stress != null ? Math.round((stress / 20) * 4) : 0;
+  const stressDrain = calcStressDrain(stress);
 
   return (
     <KeyboardAvoidingView
@@ -198,7 +198,7 @@ export default function BatteryScreen() {
               <Text style={styles.eventName}>{lang === 'en' ? 'Active Energy' : 'Aktive Kalorien'}</Text>
               <Text style={styles.eventTime}>Apple Health · {activeEnergy} kcal</Text>
             </View>
-            <Text style={[styles.eventDelta, { color: theme.red }]}>-{Math.round(activeEnergy / 100 * 1.5)}</Text>
+            <Text style={[styles.eventDelta, { color: theme.red }]}>-{calcActiveDrain(activeEnergy)}</Text>
           </View>
         )}
 
@@ -209,7 +209,7 @@ export default function BatteryScreen() {
               <Text style={styles.eventName}>{lang === 'en' ? 'Resting Energy' : 'Grundumsatz'}</Text>
               <Text style={styles.eventTime}>Apple Health · {basalEnergy} kcal</Text>
             </View>
-            <Text style={[styles.eventDelta, { color: theme.red }]}>-{Math.round(basalEnergy / 100 * 0.4)}</Text>
+            <Text style={[styles.eventDelta, { color: theme.red }]}>-{calcBasalDrain(basalEnergy)}</Text>
           </View>
         )}
 
@@ -221,7 +221,7 @@ export default function BatteryScreen() {
               <Text style={styles.eventTime}>{entry.time} · {entry.kcal} kcal</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={[styles.eventDelta, { color: theme.red }]}>-{Math.round(entry.kcal / 100 * 1.5)}</Text>
+              <Text style={[styles.eventDelta, { color: theme.red }]}>-{calcActiveDrain(entry.kcal)}</Text>
               <TouchableOpacity
                 onPress={() => Alert.alert(lang === 'en' ? 'Delete?' : 'Löschen?', entry.label, [
                   { text: t('cancel'), style: 'cancel' },

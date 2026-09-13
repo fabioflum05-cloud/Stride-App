@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Alert, Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
+import { calc1RM } from '../utils/oneRepMax';
 
 type Profile = {
   name: string; username: string; age: string; weight: string;
@@ -79,7 +80,7 @@ export default function ProfileScreen() {
           ex.sets?.forEach((set: any) => {
             const weight = parseFloat(set.weight || '0'), reps = parseFloat(set.reps || '0');
             if (weight <= 0 || reps <= 0) return;
-            const oneRM = reps === 1 ? weight : Math.round(weight * (1 + reps / 30));
+            const oneRM = calc1RM(weight, reps);
             if (!prMap[ex.name] || oneRM > prMap[ex.name].oneRM) prMap[ex.name] = { exercise: ex.name, oneRM, weight, reps };
           });
         });
@@ -404,7 +405,7 @@ function getStyles(theme: ReturnType<typeof getFullPalette>) {
     statCard: { flex: 1, paddingVertical: 16, alignItems: 'center' },
     statVal: { fontSize: 20, fontWeight: '600', letterSpacing: -0.5, marginBottom: 3 },
     statLbl: { fontSize: 10, fontWeight: '500', color: theme.textTertiary, textTransform: 'uppercase', letterSpacing: 0.6 },
-    card: { backgroundColor: theme.card, marginBottom: 12, padding: 18 },
+    card: { backgroundColor: theme.card, marginHorizontal: 16, marginBottom: 12, padding: 18, borderRadius: 20, ...theme.shadow },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
     cardTitle: { fontSize: 15, fontWeight: '600', color: theme.textPrimary, letterSpacing: -0.3 },
     cardLink: { fontSize: 13, color: theme.blue, fontWeight: '500' },
@@ -434,7 +435,7 @@ function getStyles(theme: ReturnType<typeof getFullPalette>) {
     myCodeSub: { fontSize: 12, color: theme.blue, opacity: 0.7 },
     // proCard bleibt bewusst fest dunkel (Premium-/Feature-Karte, wie seasonHero in
     // achievements.tsx) statt dem Theme zu folgen — kein Dark-Mode-Bug, sondern Design-Entscheidung.
-    proCard: { backgroundColor: '#000', marginBottom: 12, padding: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    proCard: { backgroundColor: '#000', marginHorizontal: 16, marginBottom: 12, padding: 20, borderRadius: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', ...theme.shadow },
     proEyebrow: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.4)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 4 },
     proName: { fontSize: 18, fontWeight: '700', color: '#fff', letterSpacing: -0.3, marginBottom: 2 },
     proSub: { fontSize: 13, color: 'rgba(255,255,255,0.4)' },
@@ -442,7 +443,7 @@ function getStyles(theme: ReturnType<typeof getFullPalette>) {
     proBtnText: { fontSize: 14, fontWeight: '600', color: '#000' },
     form: { padding: 16 },
     formSection: { fontSize: 11, fontWeight: '600', color: theme.textSecondary, letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 8, marginTop: 16 },
-    formCard: { backgroundColor: theme.card, borderRadius: 12, overflow: 'hidden' },
+    formCard: { backgroundColor: theme.card, borderRadius: 12, overflow: 'hidden', ...theme.shadow },
     formField: { paddingHorizontal: 16, paddingVertical: 13 },
     formLabel: { fontSize: 11, color: theme.textSecondary, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 },
     formInput: { fontSize: 16, color: theme.textPrimary },

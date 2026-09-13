@@ -13,9 +13,10 @@ import {
 } from 'react-native';
 import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 import { useLanguage } from '../../constants/LanguageContext';
-import { useAppTheme } from '../../constants/ThemeContext';
+import { getFullPalette, useAppTheme } from '../../constants/ThemeContext';
 import {
   calcHRVCoefficientOfVariation,
+  calcRecovery,
   checkEarlyWarningSignal,
   fetchAndImportHealthData,
   getLastHealthSync, getStressHistory, isHealthKitAvailable,
@@ -40,21 +41,6 @@ interface DayHealth {
 function todayKey(): string { return new Date().toISOString().slice(0, 10); }
 
 // ─── Calculations ─────────────────────────────────────────────────────────────
-function calcRecovery(d: DayHealth, avgHRV: number | null): number {
-  let score = 0; let w = 0;
-  if (d.hrv !== null) {
-    const base = avgHRV ?? 55;
-    score += Math.min(100, Math.max(0, (d.hrv / base) * 80)) * 0.40; w += 0.40;
-  }
-  if (d.restingHR !== null) {
-    score += Math.min(100, Math.max(0, ((80 - d.restingHR) / 30) * 100)) * 0.25; w += 0.25;
-  }
-  const hp = Math.min(100, (d.sleepHours / 8) * 100);
-  const qp = ((d.sleepQuality - 1) / 4) * 100;
-  score += (hp * 0.6 + qp * 0.4) * 0.35; w += 0.35;
-  return w > 0 ? Math.round(score / w) : 0;
-}
-
 function recColor(s: number, colors: any): string {
   if (s >= 75) return '#4ADE80';
   if (s >= 50) return '#818CF8';
@@ -359,8 +345,8 @@ export default function HealthScreen() {
   const [syncing,   setSyncing]   = useState(false);
   const fade = useRef(new Animated.Value(0)).current;
 
-  // Detect dark/light theme
-  const isDark = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
+  const theme = getFullPalette(colors);
+  const isDark = colors.isDark;
   const bg       = isDark ? '#0F0E0D' : colors.bg;
   const card     = isDark ? '#1C1917' : colors.card;
   const cardAlt  = isDark ? '#242120' : colors.cardSecondary;
@@ -453,7 +439,7 @@ export default function HealthScreen() {
   const dateLabel = new Date().toLocaleDateString(lang === 'en' ? 'en-US' : 'de-DE', { weekday:'long', day:'numeric', month:'long' });
 
   // Card style helper
-  const cardStyle = { backgroundColor:card, borderRadius:20, padding:20, borderWidth:1, borderColor:border, marginBottom:12 };
+  const cardStyle = { backgroundColor:card, borderRadius:20, padding:20, marginBottom:12, ...theme.shadow };
 
   if (!loaded) return (
     <View style={{ flex:1, backgroundColor:bg, alignItems:'center', justifyContent:'center' }}>
@@ -529,7 +515,7 @@ export default function HealthScreen() {
 
           {/* Empty state */}
           {!todayData && (
-            <TouchableOpacity onPress={()=>setShowModal(true)} style={[cardStyle,{ alignItems:'center', paddingVertical:32, borderStyle:'dashed' }]}>
+            <TouchableOpacity onPress={()=>setShowModal(true)} style={[cardStyle,{ alignItems:'center', paddingVertical:32, borderWidth:1.5, borderColor:border, borderStyle:'dashed' }]}>
               <Text style={{ fontSize:36, marginBottom:12 }}>🩺</Text>
               <Text style={{ color:text, fontSize:17, fontWeight:'700', marginBottom:6 }}>{lang === 'en' ? 'Log today\'s values' : 'Heutige Werte erfassen'}</Text>
               <Text style={{ color:textMuted, fontSize:13 }}>{lang === 'en' ? 'HRV · Resting HR · Sleep · Weight' : 'HRV · Ruhepuls · Schlaf · Gewicht'}</Text>
@@ -538,7 +524,7 @@ export default function HealthScreen() {
 
           {/* Early Warning Signal */}
           {earlyWarning?.active && (
-            <View style={[cardStyle, { borderWidth:1, borderColor:'#FBBF2440', backgroundColor: isDark ? '#2A230F' : '#FFFBEB' }]}>
+            <View style={[cardStyle, { borderWidth:1.5, borderColor:'#FBBF2440', backgroundColor: isDark ? '#2A230F' : '#FFFBEB' }]}>
               <View style={{ flexDirection:'row', alignItems:'flex-start', gap:10 }}>
                 <Text style={{ fontSize:18 }}>⚠️</Text>
                 <View style={{ flex:1 }}>
@@ -763,7 +749,7 @@ export default function HealthScreen() {
           )}
 
           {/* Apple Health Card */}
-          <View style={[cardStyle,{ alignItems:'center', paddingVertical:28, borderColor:colors.accent+'30' }]}>
+          <View style={[cardStyle,{ alignItems:'center', paddingVertical:28, borderWidth:1.5, borderColor:colors.accent+'30' }]}>
             <Text style={{ fontSize:32, marginBottom:12 }}>🍎</Text>
             <Text style={{ color:text, fontSize:16, fontWeight:'700', marginBottom:6 }}>Apple Health</Text>
             <Text style={{ color:textMuted, fontSize:13, textAlign:'center', lineHeight:20, marginBottom:14 }}>

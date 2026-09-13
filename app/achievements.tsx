@@ -6,6 +6,7 @@ import { Animated, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, V
 import Svg, { Circle, Path } from 'react-native-svg';
 import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
+import { calc1RM } from '../utils/oneRepMax';
 
 const SW = Dimensions.get('window').width;
 
@@ -205,7 +206,7 @@ export default function AchievementsScreen() {
           const weight = parseFloat(set.weight || '0');
           const reps = parseFloat(set.reps || '0');
           if (weight > 0 && reps > 0) {
-            const oneRM = reps === 1 ? weight : Math.round(weight * (1 + reps / 30));
+            const oneRM = calc1RM(weight, reps);
             if (!prMap[ex.name] || oneRM > prMap[ex.name]) prMap[ex.name] = oneRM;
           }
         });

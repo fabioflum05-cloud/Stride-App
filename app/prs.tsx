@@ -8,16 +8,11 @@ import {
 } from 'react-native';
 import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
+import { calc1RM as calculate1RM } from '../utils/oneRepMax';
 
 type PREntry = { date: string; weight: number; reps: number; estimated1RM: number; };
 type PRHistory = Record<string, PREntry[]>;
 type UserMaxes = Record<string, number>;
-
-function calculate1RM(weight: number, reps: number): number {
-  if (reps <= 0 || weight <= 0) return 0;
-  if (reps === 1) return weight;
-  return Math.round(weight * (1 + reps / 30));
-}
 
 // Muskelgruppen-Farben sind bewusst fest (wie MUSCLE_COLORS in training.tsx) — sie
 // identifizieren die Muskelgruppe selbst, nicht die App-Oberfläche.

@@ -1,5 +1,9 @@
 const POLAR_CLIENT_ID = '';
 const POLAR_CLIENT_SECRET = '';
+// Der komplette OAuth-/Token-/Sync-Flow unten ist fertig implementiert — es fehlen nur die
+// echten Credentials aus dem Polar AccessLink Developer Portal. Bis die eingetragen sind,
+// zeigt die UI bewusst "Bald verfügbar" statt einen Connect-Button, der nie funktionieren kann.
+const POLAR_ENABLED = POLAR_CLIENT_ID.length > 0 && POLAR_CLIENT_SECRET.length > 0;
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as AuthSession from 'expo-auth-session';
 import { useFocusEffect } from 'expo-router';
@@ -29,6 +33,7 @@ function AppleHealthCard() {
   const styles = getStyles(theme);
   const [syncing, setSyncing] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem('appleHealthData').then(raw => {
@@ -38,12 +43,14 @@ function AppleHealthCard() {
 
   async function sync() {
     setSyncing(true);
+    setSyncError(null);
     const result = await fetchAndImportHealthData();
     setSyncing(false);
     if (result.success) {
       setLastSync(new Date().toISOString());
       Alert.alert('Sync erfolgreich!', result.message);
     } else {
+      setSyncError(result.message);
       Alert.alert('Fehler', result.message);
     }
   }
@@ -63,6 +70,14 @@ function AppleHealthCard() {
         </TouchableOpacity>
       </View>
       {lastSync && <Text style={styles.lastSync}>{`Zuletzt: ${new Date(lastSync).toLocaleString('de-CH')}`}</Text>}
+      {syncError && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <Text style={{ color: '#F87171', fontSize: 11, flex: 1 }}>Sync fehlgeschlagen: {syncError}</Text>
+          <TouchableOpacity onPress={() => setSyncError(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={{ color: '#F87171', fontSize: 13, fontWeight: '700' }}>×</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       <Text style={styles.deviceDesc}>Importiert Schlaf, HRV, Ruhepuls und Aktivität automatisch.</Text>
     </View>
   );
@@ -297,10 +312,14 @@ export default function DevicesScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.deviceName}>Polar</Text>
             <Text style={styles.deviceStatus}>
-              {polarToken ? '● Verbunden' : '○ Nicht verbunden'}
+              {!POLAR_ENABLED ? '○ Bald verfügbar' : polarToken ? '● Verbunden' : '○ Nicht verbunden'}
             </Text>
           </View>
-          {polarToken ? (
+          {!POLAR_ENABLED ? (
+            <View style={styles.disconnectBtn}>
+              <Text style={styles.disconnectBtnText}>Bald verfügbar</Text>
+            </View>
+          ) : polarToken ? (
             <TouchableOpacity style={styles.disconnectBtn} onPress={disconnect}>
               <Text style={styles.disconnectBtnText}>Trennen</Text>
             </TouchableOpacity>
@@ -392,7 +411,9 @@ export default function DevicesScreen() {
 
         {!polarToken && (
           <Text style={styles.deviceDesc}>
-            Verbinde deine Polar-Uhr um Schlaf, HRV, Aktivität und Nightly Recharge automatisch zu importieren.
+            {POLAR_ENABLED
+              ? 'Verbinde deine Polar-Uhr um Schlaf, HRV, Aktivität und Nightly Recharge automatisch zu importieren.'
+              : 'Polar-Anbindung für Schlaf, HRV, Aktivität und Nightly Recharge ist in Vorbereitung.'}
           </Text>
         )}
       </View>

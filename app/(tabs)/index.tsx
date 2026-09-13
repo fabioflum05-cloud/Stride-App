@@ -11,7 +11,7 @@ import Svg, { Circle, Path } from 'react-native-svg';
 import { EditHomeCardsModal } from '../../components/EditHomeCardsModal';
 import { GradientBar } from '../../components/GradientBar';
 import { translateMuscle, useLanguage } from '../../constants/LanguageContext';
-import { THEMES, useAppTheme } from '../../constants/ThemeContext';
+import { getFullPalette, THEMES, useAppTheme } from '../../constants/ThemeContext';
 import { getTrainingReadiness, recalcBodyBattery, TrainingReadiness } from '../../utils/applehealth';
 import { DEFAULT_HOME_LAYOUT, getHomeLayout, HomeCardConfig, HomeCardId, saveHomeLayout } from '../../utils/homeLayout';
 import { getEffectiveNutritionGoal } from '../../utils/nutritionGoal';
@@ -324,7 +324,8 @@ export default function HomeScreen() {
   const initial    = name.charAt(0).toUpperCase();
   const sleepScore = sleep?.sleepScore ?? 0;
   const battLevel  = battery?.level ?? 0;
-  const isDark     = colors.bg.startsWith('#0') || colors.bg.startsWith('#1') || colors.bg.startsWith('#2') || colors.bg === '#383838';
+  const theme      = getFullPalette(colors);
+  const isDark     = colors.isDark;
   const textPrimary = isDark ? '#F5F0EE' : '#1A1209';
   const textMuted   = isDark ? 'rgba(245,240,238,0.45)' : 'rgba(26,18,9,0.45)';
   const textDim     = isDark ? 'rgba(245,240,238,0.22)' : 'rgba(26,18,9,0.22)';
@@ -421,7 +422,7 @@ export default function HomeScreen() {
 
           /* PERFORMANCE SCORE */
           cards.performance = (
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+          <View style={[s.card, { backgroundColor: colors.card, marginHorizontal: 16, marginBottom: 12, ...theme.shadow }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
               <Ring value={score} size={100} stroke={7} color={sc} track={isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)'}>
                 <View style={{ alignItems: 'center' }}>
@@ -447,7 +448,7 @@ export default function HomeScreen() {
 
           /* SLEEP */
           cards.sleep = (
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+          <View style={[s.card, { backgroundColor: colors.card, marginHorizontal: 16, marginBottom: 12, ...theme.shadow }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View style={{ flex: 1 }}>
                 <SectionLabel label={t('home_sleep_last')} light={isDark} />
@@ -499,7 +500,7 @@ export default function HomeScreen() {
 
           /* ENERGY */
           cards.energy = (
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+          <View style={[s.card, { backgroundColor: colors.card, marginHorizontal: 16, marginBottom: 12, ...theme.shadow }]}>
             <SectionLabel label={t('home_energy')} light={isDark} />
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
               <View style={{ flex: 1 }}>
@@ -534,7 +535,7 @@ export default function HomeScreen() {
 
           /* NUTRITION */
           cards.nutrition = (
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+          <View style={[s.card, { backgroundColor: colors.card, marginHorizontal: 16, marginBottom: 12, ...theme.shadow }]}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <View style={{ flex: 1 }}>
                 <SectionLabel label={t('home_nutrition')} light={isDark} />
@@ -568,7 +569,7 @@ export default function HomeScreen() {
 
           /* TRAINING READINESS */
           cards.readiness = (
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 12 }]}>
+          <View style={[s.card, { backgroundColor: colors.card, marginHorizontal: 16, marginBottom: 12, ...theme.shadow }]}>
             <SectionLabel label={t('home_readiness')} light={isDark} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <View style={{ flex: 1 }}>
@@ -614,8 +615,11 @@ export default function HomeScreen() {
           <TouchableOpacity onPress={() => setJournalOpen(true)}
             style={[s.card, { marginHorizontal: 16, marginBottom: 12,
               backgroundColor: journal ? colors.card : 'transparent',
-              borderColor: journal ? cardBorder : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-              borderStyle: journal ? 'solid' : 'dashed' }]}
+              ...(journal ? theme.shadow : {
+                borderWidth: 1.5,
+                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                borderStyle: 'dashed' as const,
+              }) }]}
             activeOpacity={0.8}>
             {journal ? (
               <View>
@@ -652,7 +656,7 @@ export default function HomeScreen() {
 
           /* TODAY'S TASKS */
           cards.todo = (
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: cardBorder, marginHorizontal: 16, marginBottom: 24 }]}>
+          <View style={[s.card, { backgroundColor: colors.card, marginHorizontal: 16, marginBottom: 24, ...theme.shadow }]}>
             <SectionLabel label={t('home_todo')} light={isDark} />
             {[
               { label: t('home_todo_sleep'),   done: !!sleep,       route: '/sleep',   icon: '🌙' },
@@ -819,7 +823,7 @@ export default function HomeScreen() {
 
 const s = StyleSheet.create({
   header:    { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  card:      { borderRadius: 20, padding: 20, borderWidth: 1 },
+  card:      { borderRadius: 20, padding: 20 },
   cardBtn:   { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, marginTop: 4 },
   iconBtn:   { width: 40, height: 40, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   menuLine:  { width: 16, height: 1.5, borderRadius: 1 },

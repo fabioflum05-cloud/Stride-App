@@ -6,8 +6,9 @@ import React, { useCallback, useRef, useState } from 'react';
 import { Animated, Dimensions, KeyboardAvoidingView, Modal, Platform, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
 import { useLanguage } from '../constants/LanguageContext';
-import { useAppTheme } from '../constants/ThemeContext';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { fetchAndImportHealthData, getLastHealthSync, isHealthKitAvailable } from '../utils/applehealth';
+import { calc1RM } from '../utils/oneRepMax';
 
 const screenWidth = Dimensions.get('window').width - 40;
 const HEALTH_KEY = 'stride_health_history';
@@ -60,6 +61,7 @@ export default function AthleteProfileScreen() {
   const [loaded, setLoaded] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const [showVo2Modal, setShowVo2Modal] = useState(false);
   const [vo2Tab, setVo2Tab] = useState<'manual' | 'cooper'>('manual');
@@ -69,6 +71,7 @@ export default function AthleteProfileScreen() {
   const fade = useRef(new Animated.Value(0)).current;
   const slide = useRef(new Animated.Value(20)).current;
 
+  const theme = getFullPalette(colors);
   const isDark = colors.isDark;
   const bg = isDark ? '#0F0E0D' : colors.bg;
   const card = isDark ? '#1C1917' : colors.card;
@@ -103,7 +106,7 @@ export default function AthleteProfileScreen() {
             ex.sets?.forEach((set: any) => {
               const weight = parseFloat(set.weight || '0'), reps = parseFloat(set.reps || '0');
               if (weight <= 0 || reps <= 0) return;
-              const oneRM = reps === 1 ? weight : Math.round(weight * (1 + reps / 30));
+              const oneRM = calc1RM(weight, reps);
               if (!prMap[ex.name] || oneRM > prMap[ex.name].oneRM) prMap[ex.name] = { exercise: ex.name, oneRM, weight, reps };
             });
           });
@@ -118,9 +121,11 @@ export default function AthleteProfileScreen() {
 
   const syncAppleHealth = useCallback(async () => {
     setSyncing(true);
+    setSyncError(null);
     try {
       const res = await fetchAndImportHealthData();
       if (res.success) await load();
+      else setSyncError(res.message);
     } finally {
       setSyncing(false);
     }
@@ -165,7 +170,7 @@ export default function AthleteProfileScreen() {
   const chartData = last30Weight.length >= 2 ? last30Weight.map(e => e.weight) : null;
   const chartLabels = last30Weight.length >= 2 ? last30Weight.map(e => formatDate(e.date)) : [];
 
-  const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: border, marginBottom: 12 };
+  const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 20, marginBottom: 12, ...theme.shadow };
   const sectionTitleStyle = { color: text, fontSize: 16, fontWeight: '700' as const, marginBottom: 14 };
   const labelStyle = { color: textDim, fontSize: 10, fontWeight: '700' as const, letterSpacing: 1, textTransform: 'uppercase' as const };
   const inputStyle = { backgroundColor: cardAlt, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, color: text, fontSize: 16, borderWidth: 1, borderColor: border, marginTop: 8 };
@@ -224,6 +229,16 @@ export default function AthleteProfileScreen() {
               <Text style={{ color: textDim, fontSize: 10, marginTop: -8, marginBottom: 14 }}>
                 {lang === 'en' ? 'Last Apple Health sync' : 'Letzter Apple-Health-Sync'}: {new Date(lastSync).toLocaleString(lang === 'en' ? 'en-US' : 'de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
               </Text>
+            )}
+            {syncError && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -8, marginBottom: 14 }}>
+                <Text style={{ color: '#F87171', fontSize: 10, flex: 1 }}>
+                  {lang === 'en' ? 'Sync failed' : 'Sync fehlgeschlagen'}: {syncError}
+                </Text>
+                <TouchableOpacity onPress={() => setSyncError(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={{ color: '#F87171', fontSize: 12, fontWeight: '700' }}>×</Text>
+                </TouchableOpacity>
+              </View>
             )}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
               <TouchableOpacity

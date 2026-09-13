@@ -6,7 +6,8 @@ import {
   Text, TextInput, TouchableOpacity, View,
 } from 'react-native';
 import Svg, { Circle, Defs, Line, LinearGradient, Path, Stop, Text as SvgText } from 'react-native-svg';
-import { useAppTheme } from '../../constants/ThemeContext';
+import { getFullPalette, useAppTheme } from '../../constants/ThemeContext';
+import { calc1RM } from '../../utils/oneRepMax';
 
 const SW = Dimensions.get('window').width;
 
@@ -230,11 +231,6 @@ const EXERCISES: LocalExercise[] = [
   { id: 'ol8', name: 'Hang Snatch', category: 'Olympic Lifts' },
   { id: 'ol9', name: 'Power Snatch', category: 'Olympic Lifts' },
 ];
-function calc1RM(weight: number, reps: number): number {
-  if (reps <= 0 || weight <= 0) return 0;
-  if (reps === 1) return weight;
-  return Math.round(weight * (1 + reps / 30));
-}
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -361,7 +357,8 @@ function ExerciseDetailScreen({ exercise, prHistory, setPRHistory, onClose, musc
   muscleColor: string;
 }) {
   const { colors } = useAppTheme();
-  const dark = colors.bg < '#888888';
+  const theme = getFullPalette(colors);
+  const dark = colors.isDark;
   const BG = colors.bg; const CARD = colors.card; const BORDER = dark ? 'rgba(255,255,255,0.08)' : 'rgba(60,30,10,0.08)';
   const TEXT1 = dark ? '#F0F0F0' : '#2A1F14';
   const TEXT2 = dark ? '#B0B0B0' : '#5A4A3A';
@@ -414,7 +411,7 @@ function ExerciseDetailScreen({ exercise, prHistory, setPRHistory, onClose, musc
             </View>
           ) : (
             <>
-              <View style={{ margin: 16, backgroundColor: CARD, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: BORDER, alignItems: 'center' }}>
+              <View style={{ margin: 16, backgroundColor: CARD, borderRadius: 20, padding: 24, alignItems: 'center', ...theme.shadow }}>
                 <Text style={{ fontSize: 11, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: muscleColor, marginBottom: 6 }}>Estimated 1 Rep Max</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
                   <Text style={{ fontSize: 80, fontWeight: '800', color: TEXT1, letterSpacing: -4, lineHeight: 88 }}>{Math.round(latest?.estimated1RM ?? 0)}</Text>
@@ -427,20 +424,20 @@ function ExerciseDetailScreen({ exercise, prHistory, setPRHistory, onClose, musc
                 )}
               </View>
               <View style={{ flexDirection: 'row', gap: 10, marginHorizontal: 16, marginBottom: 16 }}>
-                <View style={{ flex: 1, backgroundColor: CARD, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: BORDER, alignItems: 'center' }}>
+                <View style={{ flex: 1, backgroundColor: CARD, borderRadius: 14, padding: 14, alignItems: 'center', ...theme.shadow }}>
                   <Text style={{ fontSize: 18, fontWeight: '800', color: TEXT1 }}>{latest?.weight} kg</Text>
                   <Text style={{ fontSize: 9, color: TEXT3, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>Gewicht</Text>
                 </View>
-                <View style={{ flex: 1, backgroundColor: CARD, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: BORDER, alignItems: 'center' }}>
+                <View style={{ flex: 1, backgroundColor: CARD, borderRadius: 14, padding: 14, alignItems: 'center', ...theme.shadow }}>
                   <Text style={{ fontSize: 18, fontWeight: '800', color: TEXT1 }}>{latest?.reps} Wdh.</Text>
                   <Text style={{ fontSize: 9, color: TEXT3, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>Reps</Text>
                 </View>
-                <View style={{ flex: 1, backgroundColor: CARD, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: BORDER, alignItems: 'center' }}>
+                <View style={{ flex: 1, backgroundColor: CARD, borderRadius: 14, padding: 14, alignItems: 'center', ...theme.shadow }}>
                   <Text style={{ fontSize: 18, fontWeight: '800', color: muscleColor }}>{latest ? formatDate(latest.date) : '—'}</Text>
                   <Text style={{ fontSize: 9, color: TEXT3, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>Datum</Text>
                 </View>
               </View>
-              <View style={{ marginHorizontal: 16, marginBottom: 16, backgroundColor: CARD, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: BORDER }}>
+              <View style={{ marginHorizontal: 16, marginBottom: 16, backgroundColor: CARD, borderRadius: 18, padding: 16, ...theme.shadow }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                   <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', color: TEXT3 }}>Entwicklung</Text>
                   <View style={{ flexDirection: 'row', gap: 4 }}>
@@ -494,7 +491,7 @@ function ExerciseListScreen({ muscleGroup, prHistory, setPRHistory, onSelect, on
   onClose: () => void;
 }) {
   const { colors } = useAppTheme();
-  const dark = colors.bg < '#888888';
+  const dark = colors.isDark;
   const BG = colors.bg; const CARD = colors.card; const BORDER = dark ? 'rgba(255,255,255,0.08)' : 'rgba(60,30,10,0.08)';
   const TEXT1 = dark ? '#F0F0F0' : '#2A1F14';
   const TEXT2 = dark ? '#B0B0B0' : '#5A4A3A';
@@ -576,8 +573,9 @@ function ExerciseListScreen({ muscleGroup, prHistory, setPRHistory, onSelect, on
 
 export default function PRsScreen() {
   const { colors } = useAppTheme();
-  const dark = colors.bg < '#888888';
-  const BG = colors.bg; const CARD = colors.card; const BORDER = dark ? 'rgba(255,255,255,0.08)' : 'rgba(60,30,10,0.08)';
+  const theme = getFullPalette(colors);
+  const dark = colors.isDark;
+  const BG = colors.bg; const CARD = colors.card;
   const TEXT1 = dark ? '#F0F0F0' : '#2A1F14';
   const TEXT2 = dark ? '#B0B0B0' : '#5A4A3A';
   const TEXT3 = dark ? '#808080' : '#B0A89E';
@@ -698,7 +696,7 @@ export default function PRsScreen() {
             const bestRM = Math.max(0, ...EXERCISES.filter((e: LocalExercise) => mg.categories.includes(e.category)).flatMap((e: LocalExercise) => prHistory[e.name] ?? []).map((e: PREntry) => e.estimated1RM));
             return (
               <TouchableOpacity key={mg.name} onPress={() => { setSelectedMuscleGroup(mg); setShowExerciseList(true); }}
-                style={{ backgroundColor: CARD, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: BORDER, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                style={{ backgroundColor: CARD, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, ...theme.shadow }}>
                 <Image source={mg.image} style={{ width: 48, height: 48 }} resizeMode="contain" />
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 15, fontWeight: '700', color: TEXT1 }}>{mg.name}</Text>

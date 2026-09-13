@@ -12,18 +12,20 @@ import { translateMuscle, useLanguage } from '../../constants/LanguageContext';
 import { calcTrainingMonotony, DayHealth, getTrainingReadiness, syncAppleHealthWorkouts, TrainingMonotonyResult, TrainingReadiness } from '../../utils/applehealth';
 import { calculateMuscleRecovery, MUSCLE_GROUPS, MuscleMap } from '../../utils/muscleRecovery';
 import { scheduleNutritionReminder } from '../../utils/notifications';
+import { calc1RM } from '../../utils/oneRepMax';
 
 function getT(colors: any) {
-  const dark = colors.bg < '#888888';
+  const dark = colors.isDark;
   const text1 = dark ? '#F0F0F0' : '#2A1F14';
   const text2 = dark ? '#B0B0B0' : '#5A4A3A';
   const text3 = dark ? '#808080' : '#7A6E63';
   const text4 = dark ? '#555555' : '#B0A89E';
   const border = dark ? 'rgba(255,255,255,0.08)' : 'rgba(60,30,10,0.08)';
   const borderSoft = dark ? 'rgba(255,255,255,0.05)' : 'rgba(60,30,10,0.05)';
+  const shadow = { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: dark ? 0.3 : 0.06, shadowRadius: 8, elevation: 2 };
   return {
     bg: colors.bg, card: colors.card, cardAlt: colors.cardSecondary,
-    border, borderSoft,
+    border, borderSoft, shadow,
     orange: colors.accent, orangeAlpha: colors.accent + '26', orangeBorder: colors.accent + '48',
     blue: '#3A7AC0', blueAlpha: 'rgba(58,122,192,0.08)', blueBorder: 'rgba(58,122,192,0.14)',
     green: '#4A8C5C', greenAlpha: 'rgba(74,140,92,0.08)', greenBorder: 'rgba(74,140,92,0.14)',
@@ -287,11 +289,6 @@ const COMMUNITY_ROUTINES: Routine[] = [
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────
-function calc1RM(weight: number, reps: number): number {
-  if (reps <= 0 || weight <= 0) return 0;
-  if (reps === 1) return weight;
-  return Math.round(weight * (1 + reps / 30));
-}
 function getBest1RM(sets: WorkoutSet[]): number {
   return Math.max(0, ...sets.map(s => calc1RM(parseFloat(s.weight || '0'), parseFloat(s.reps || '0'))));
 }
@@ -724,7 +721,7 @@ function ExercisePicker({ onSelect, onClose }: {
               <>
                 {searchResults.map(ex => (
                   <TouchableOpacity key={ex.id}
-                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }}
+                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, ...T.shadow }}
                     onPress={() => onSelect(ex.name, ex.category, '')}>
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 14, color: T.text1, fontWeight: '500' }}>{ex.name}</Text>
@@ -744,7 +741,7 @@ function ExercisePicker({ onSelect, onClose }: {
   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
     {PICKER_MUSCLE_GROUPS.map(mg => (
       <TouchableOpacity key={mg.name} onPress={() => setSelectedMG(mg)}
-        style={{ width: (SW - 48) / 3, backgroundColor: T.cardAlt, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border, gap: 6 }}>
+        style={{ width: (SW - 48) / 3, backgroundColor: T.cardAlt, borderRadius: 14, padding: 12, alignItems: 'center', gap: 6, ...T.shadow }}>
         <Image source={mg.image} style={{ width: 48, height: 48 }} resizeMode="contain" />
         <Text style={{ fontSize: 11, fontWeight: '700', color: T.text1, textAlign: 'center' }}>{mg.name}</Text>
         <Text style={{ fontSize: 9, color: T.text4 }}>{ALL_EXERCISES.filter(e => mg.categories.includes(e.category)).length} {t('training_exercises_abbr')}</Text>
@@ -758,7 +755,7 @@ function ExercisePicker({ onSelect, onClose }: {
               <>
                 {mgExercises.map(ex => (
                   <TouchableOpacity key={ex.id}
-                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }}
+                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, ...T.shadow }}
                     onPress={() => onSelect(ex.name, ex.category, '')}>
                     <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: selectedMG.color, marginRight: 10 }} />
                     <Text style={{ flex: 1, fontSize: 14, color: T.text1, fontWeight: '500' }}>{ex.name}</Text>
@@ -818,7 +815,7 @@ function PREntryScreen({ onClose, onSave, editExercise, editWeight, editReps }: 
               <TextInput style={{ flex: 1, fontSize: 14, color: T.text1 }} placeholder={t('training_search_placeholder')} placeholderTextColor={T.text4} value={search} onChangeText={setSearch} />
             </View>
             {filtered.map(ex => (
-              <TouchableOpacity key={ex.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }} onPress={() => { setExercise(ex.name); setStep('entry'); }}>
+              <TouchableOpacity key={ex.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, ...T.shadow }} onPress={() => { setExercise(ex.name); setStep('entry'); }}>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 14, color: T.text1, fontWeight: '500' }}>{ex.name}</Text>
                   <Text style={{ fontSize: 11, color: T.text4, marginTop: 2 }}>{ex.category}</Text>
@@ -928,15 +925,15 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
 
         {/* Stats Row */}
         <View style={{ flexDirection: 'row', gap: 8, padding: 16, paddingBottom: 8 }}>
-          <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+          <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', ...T.shadow }}>
             <Text style={{ fontSize: 20, fontWeight: '800', color: T.text1 }}>{workouts.length + runs.length}</Text>
             <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>{t('training_units')}</Text>
           </View>
-          <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+          <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', ...T.shadow }}>
             <Text style={{ fontSize: 20, fontWeight: '800', color: T.text1 }}>{avgDuration}'</Text>
             <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>{t('training_avg_duration')}</Text>
           </View>
-          <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+          <View style={{ flex: 1, backgroundColor: T.card, borderRadius: 14, padding: 12, alignItems: 'center', ...T.shadow }}>
             <Text style={{ fontSize: 20, fontWeight: '800', color: T.green }}>{avgScore}</Text>
             <Text style={{ fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>{t('training_avg_score')}</Text>
           </View>
@@ -1003,7 +1000,7 @@ function HistoryScreen({ onClose, onDelete }: { onClose: () => void; onDelete: (
                 : `${formatDateLabel(item.data.date, t('today'))} · ${w?.duration} Min${w?.calories ? ` · ${w.calories} kcal` : ''}`;
 
             return (
-              <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setDetailItem(item)} style={{ backgroundColor: T.card, borderRadius: 18, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border }}>
+              <TouchableOpacity key={i} activeOpacity={0.85} onPress={() => setDetailItem(item)} style={{ backgroundColor: T.card, borderRadius: 18, padding: 14, marginBottom: 8, ...T.shadow }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                   <View style={{ width: 36, height: 36, borderRadius: 11, backgroundColor: isRun || hasDistance ? T.greenAlpha : T.orangeAlpha, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     {isRun || hasDistance ? <IconRun size={17} color={T.green} /> : <IconDumbbell size={17} color={T.orange} />}
@@ -1199,9 +1196,9 @@ function RoutineScreen({ routines, onSelectRoutine, onCreateRoutine, onUpdateRou
   const { t } = useLanguage();
   const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, closeBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border }, backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border, marginTop: 4 } };
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
-  const field = { label: { fontSize: 10, fontWeight: '700' as const, textTransform: 'uppercase' as const, letterSpacing: 1.2, color: T.text4, marginBottom: 8, marginTop: 16 }, input: { backgroundColor: T.card, borderRadius: 14, padding: 14, color: T.text1, fontSize: 15, borderWidth: 1, borderColor: T.border }, list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12, borderWidth: 1, borderColor: T.border }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, padding: 14 }, rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft }, rowText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: T.text1 }, dot: { width: 8, height: 8, borderRadius: 4 } };
+  const field = { label: { fontSize: 10, fontWeight: '700' as const, textTransform: 'uppercase' as const, letterSpacing: 1.2, color: T.text4, marginBottom: 8, marginTop: 16 }, input: { backgroundColor: T.card, borderRadius: 14, padding: 14, color: T.text1, fontSize: 15, borderWidth: 1, borderColor: T.border }, list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12, ...T.shadow }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, padding: 14 }, rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft }, rowText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: T.text1 }, dot: { width: 8, height: 8, borderRadius: 4 } };
   const tabSt = { btn: { flex: 1, borderRadius: 12, padding: 8, backgroundColor: 'rgba(255,255,255,0.03)', borderWidth: 1, borderColor: T.border, alignItems: 'center' as const }, btnActive: { backgroundColor: T.orangeAlpha, borderColor: T.orangeBorder }, text: { fontSize: 12, fontWeight: '600' as const, color: T.text4 }, textActive: { color: T.orange } };
-  const rSt = { card: { backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12, borderWidth: 1, borderColor: T.border }, name: { fontSize: 16, fontWeight: '700' as const, color: T.text1, letterSpacing: -0.3, marginBottom: 4 }, meta: { fontSize: 11, color: T.text3, marginBottom: 8 }, chipRow: { flexDirection: 'row' as const, gap: 6 }, chip: { backgroundColor: T.orangeAlpha, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: T.orangeBorder }, chipText: { fontSize: 11, fontWeight: '600' as const, color: T.orange }, createCard: { backgroundColor: T.card, borderRadius: 18, padding: 16, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 14, marginBottom: 12, borderWidth: 1, borderColor: T.orangeBorder }, createIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.orangeAlpha, alignItems: 'center' as const, justifyContent: 'center' as const }, createTitle: { fontSize: 15, fontWeight: '700' as const, color: T.text1, marginBottom: 2 }, createSub: { fontSize: 11, color: T.text3 }, editBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: T.blueAlpha, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.blueBorder }, deleteBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: T.redAlpha, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.redBorder }, communityBadge: { backgroundColor: T.blueAlpha, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: T.blueBorder } };
+  const rSt = { card: { backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 12, ...T.shadow }, name: { fontSize: 16, fontWeight: '700' as const, color: T.text1, letterSpacing: -0.3, marginBottom: 4 }, meta: { fontSize: 11, color: T.text3, marginBottom: 8 }, chipRow: { flexDirection: 'row' as const, gap: 6 }, chip: { backgroundColor: T.orangeAlpha, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: T.orangeBorder }, chipText: { fontSize: 11, fontWeight: '600' as const, color: T.orange }, createCard: { backgroundColor: T.card, borderRadius: 18, padding: 16, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 14, marginBottom: 12, borderWidth: 1.5, borderColor: T.orangeBorder, ...T.shadow }, createIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.orangeAlpha, alignItems: 'center' as const, justifyContent: 'center' as const }, createTitle: { fontSize: 15, fontWeight: '700' as const, color: T.text1, marginBottom: 2 }, createSub: { fontSize: 11, color: T.text3 }, editBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: T.blueAlpha, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.blueBorder }, deleteBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: T.redAlpha, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.redBorder }, communityBadge: { backgroundColor: T.blueAlpha, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: T.blueBorder } };
   const [tab, setTab] = useState<'mine' | 'discover'>('mine');
   const [showForm, setShowForm] = useState(false);
   const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null);
@@ -1305,7 +1302,7 @@ function RoutineDetail({ routine, onStart, onBack }: { routine: Routine; onStart
   const { t, lang } = useLanguage();
   const screen = { header: { flexDirection: 'row' as const, alignItems: 'flex-end' as const, gap: 12, paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, eyebrow: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 2, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, title: { fontSize: 26, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.7 }, backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: T.cardAlt, alignItems: 'center' as const, justifyContent: 'center' as const, borderWidth: 1, borderColor: T.border, marginTop: 4 } };
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
-  const field = { list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12, borderWidth: 1, borderColor: T.border }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, padding: 14 }, rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft }, rowText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: T.text1 }, dot: { width: 8, height: 8, borderRadius: 4 } };
+  const field = { list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden' as const, marginBottom: 12, ...T.shadow }, row: { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, padding: 14 }, rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft }, rowText: { flex: 1, fontSize: 13, fontWeight: '600' as const, color: T.text1 }, dot: { width: 8, height: 8, borderRadius: 4 } };
   const [extras, setExtras] = useState<Routine['exercises']>([]);
   const [showPicker, setShowPicker] = useState(false);
   const all = [...routine.exercises, ...extras];
@@ -1343,7 +1340,7 @@ function ActiveGymWorkout({ workout, userMaxes, prHistory, lastWorkoutData, onUp
   const T = getT(colors);
   const { t, lang } = useLanguage();
   const btn = { primary: { backgroundColor: T.orange, borderRadius: 16, padding: 16, alignItems: 'center' as const, flexDirection: 'row' as const, justifyContent: 'center' as const }, primaryText: { fontSize: 15, fontWeight: '700' as const, color: T.white }, outline: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 8, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 14, borderStyle: 'dashed' as const, padding: 13, marginTop: 10 }, outlineText: { fontSize: 13, fontWeight: '600' as const, color: T.orange } };
-  const activeS = { header: { backgroundColor: T.card, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row' as const, alignItems: 'flex-start' as const, gap: 12, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, workoutTag: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 1.5, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, workoutTitle: { fontSize: 20, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.4 }, timerBadge: { backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border }, timerText: { fontSize: 18, fontWeight: '700' as const, color: T.text1, letterSpacing: 1 }, timerLabel: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, statsRow: { flexDirection: 'row' as const, gap: 8, padding: 12, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, statBox: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center' as const, borderWidth: 1, borderColor: T.border }, statVal: { fontSize: 18, fontWeight: '700' as const }, statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, restCard: { backgroundColor: T.card, borderLeftWidth: 3, padding: 12, marginBottom: 12, marginTop: 12, borderRadius: 0 }, restLabel: { fontSize: 9, fontWeight: '700' as const, letterSpacing: 0.8, textTransform: 'uppercase' as const, marginBottom: 2 }, restTimer: { fontSize: 22, fontWeight: '800' as const, color: T.text1, letterSpacing: 1 }, restBtn: { backgroundColor: T.cardAlt, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: T.border }, restBtnText: { fontSize: 11, fontWeight: '600' as const, color: T.text3 }, exCard: { backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: T.border }, musclePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }, musclePillText: { fontSize: 11, fontWeight: '500' as const }, exName: { flex: 1, fontSize: 15, fontWeight: '700' as const, color: T.text1 }, recRow: { backgroundColor: T.blueAlpha, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: T.blueBorder }, recText: { fontSize: 12, color: T.blue, fontWeight: '500' as const }, lastRow: { flexDirection: 'row' as const, backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, marginBottom: 8 }, lastLabel: { fontSize: 11, color: T.text3 }, lastVal: { fontSize: 11, color: T.orange, fontWeight: '500' as const, flex: 1 }, oneRM: { fontSize: 11, color: T.text3, marginBottom: 10 }, setHdr: { fontSize: 9, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.8, textAlign: 'center' as const }, setRow: { flexDirection: 'row' as const, gap: 8, marginBottom: 8, alignItems: 'center' as const }, setNum: { fontSize: 13, color: T.text3, width: 24, textAlign: 'center' as const }, setInput: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 11, color: T.text1, fontSize: 15, textAlign: 'center' as const, borderWidth: 1, borderColor: T.border }, setInputDone: { borderColor: 'rgba(52,199,89,0.4)', color: T.green }, addSetBtn: { padding: 8, alignItems: 'center' as const }, addSetText: { fontSize: 13, color: T.orange, fontWeight: '500' as const } };
+  const activeS = { header: { backgroundColor: T.card, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row' as const, alignItems: 'flex-start' as const, gap: 12, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, workoutTag: { fontSize: 10, fontWeight: '700' as const, letterSpacing: 1.5, textTransform: 'uppercase' as const, color: T.orange, marginBottom: 4 }, workoutTitle: { fontSize: 20, fontWeight: '800' as const, color: T.text1, letterSpacing: -0.4 }, timerBadge: { backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center' as const, ...T.shadow }, timerText: { fontSize: 18, fontWeight: '700' as const, color: T.text1, letterSpacing: 1 }, timerLabel: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, statsRow: { flexDirection: 'row' as const, gap: 8, padding: 12, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft }, statBox: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center' as const, ...T.shadow }, statVal: { fontSize: 18, fontWeight: '700' as const }, statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.5, marginTop: 2 }, restCard: { backgroundColor: T.card, borderLeftWidth: 3, padding: 12, marginBottom: 12, marginTop: 12, borderRadius: 0 }, restLabel: { fontSize: 9, fontWeight: '700' as const, letterSpacing: 0.8, textTransform: 'uppercase' as const, marginBottom: 2 }, restTimer: { fontSize: 22, fontWeight: '800' as const, color: T.text1, letterSpacing: 1 }, restBtn: { backgroundColor: T.cardAlt, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: T.border }, restBtnText: { fontSize: 11, fontWeight: '600' as const, color: T.text3 }, exCard: { backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 10, ...T.shadow }, musclePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 }, musclePillText: { fontSize: 11, fontWeight: '500' as const }, exName: { flex: 1, fontSize: 15, fontWeight: '700' as const, color: T.text1 }, recRow: { backgroundColor: T.blueAlpha, borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: T.blueBorder }, recText: { fontSize: 12, color: T.blue, fontWeight: '500' as const }, lastRow: { flexDirection: 'row' as const, backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, marginBottom: 8 }, lastLabel: { fontSize: 11, color: T.text3 }, lastVal: { fontSize: 11, color: T.orange, fontWeight: '500' as const, flex: 1 }, oneRM: { fontSize: 11, color: T.text3, marginBottom: 10 }, setHdr: { fontSize: 9, color: T.text4, textTransform: 'uppercase' as const, letterSpacing: 0.8, textAlign: 'center' as const }, setRow: { flexDirection: 'row' as const, gap: 8, marginBottom: 8, alignItems: 'center' as const }, setNum: { fontSize: 13, color: T.text3, width: 24, textAlign: 'center' as const }, setInput: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 11, color: T.text1, fontSize: 15, textAlign: 'center' as const, borderWidth: 1, borderColor: T.border }, setInputDone: { borderColor: 'rgba(52,199,89,0.4)', color: T.green }, addSetBtn: { padding: 8, alignItems: 'center' as const }, addSetText: { fontSize: 13, color: T.orange, fontWeight: '500' as const } };
   const [showPicker, setShowPicker] = useState(false);
   const workoutTimer = useWorkoutTimer('gymWorkoutTimer');
   const restTimer = useRestTimer();
@@ -1498,19 +1495,19 @@ function RunScreen({ onStop }: { onStop: () => void }) {
   return (
     <ScrollView style={{ flex: 1, backgroundColor: T.bg, padding: 20 }}>
       <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.green, marginTop: 60, marginBottom: 20 }}>{t('training_run_active')}</Text>
-      <Animated.View style={{ backgroundColor: T.card, borderRadius: 24, padding: 28, alignItems: 'center', marginBottom: 16, borderWidth: 1, borderColor: T.green + '30', transform: [{ scale: pulse }] }}>
+      <Animated.View style={{ backgroundColor: T.card, borderRadius: 24, padding: 28, alignItems: 'center', marginBottom: 16, borderWidth: 1.5, borderColor: T.green + '30', transform: [{ scale: pulse }], ...T.shadow }}>
         <Text style={{ fontSize: 10, color: T.text3, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 8 }}>{t('training_run_time')}</Text>
         <Text style={{ fontSize: 60, fontWeight: '300', color: T.text1, letterSpacing: -2 }}>{formatTime(runTimer.seconds)}</Text>
       </Animated.View>
       <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
         {[{ v: d.toFixed(2), l: 'km', c: T.green }, { v: formatPace(pace), l: '/km', c: T.blue }, { v: String(kcal), l: 'kcal', c: T.orange }].map(s => (
-          <View key={s.l} style={{ flex: 1, backgroundColor: T.card, borderRadius: 16, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: T.border }}>
+          <View key={s.l} style={{ flex: 1, backgroundColor: T.card, borderRadius: 16, padding: 14, alignItems: 'center', ...T.shadow }}>
             <Text style={{ fontSize: 18, fontWeight: '700', color: s.c }}>{s.v}</Text>
             <Text style={{ fontSize: 10, color: T.text3, marginTop: 4 }}>{s.l}</Text>
           </View>
         ))}
       </View>
-      <View style={{ backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: T.border }}>
+      <View style={{ backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 16, ...T.shadow }}>
         <Text style={{ fontSize: 10, color: T.text3, textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 12 }}>{t('training_data')}</Text>
         <View style={{ flexDirection: 'row', gap: 10 }}>
           {[{ lbl: t('training_run_distance'), val: dist, set: setDist, kb: 'decimal-pad' as const, ph: '0.00' }, { lbl: t('training_heartrate'), val: hr, set: setHr, kb: 'numeric' as const, ph: 'bpm' }, { lbl: t('nutrition_kcal'), val: cal, set: setCal, kb: 'numeric' as const, ph: 'kcal' }].map(f => (
@@ -1556,7 +1553,7 @@ function BodyModal({ muscles, onClose }: { muscles: MuscleMap; onClose: () => vo
             ))}
           </View>
           <View style={{ flexDirection: 'row', gap: 12, justifyContent: 'center', marginBottom: 16 }}>
-            <View style={{ backgroundColor: T.card, borderRadius: 20, padding: 10, borderWidth: 1, borderColor: T.border }}>
+            <View style={{ backgroundColor: T.card, borderRadius: 20, padding: 10, ...T.shadow }}>
               {view === 'front' ? <BodyFront muscles={muscles} /> : <BodyBack muscles={muscles} />}
             </View>
             <View style={{ gap: 8, paddingTop: 12 }}>
@@ -1626,7 +1623,7 @@ function ProgressCard({ prHistory, workouts, T, onPress }: { prHistory: PRHistor
 
   return (
     <View style={{ paddingHorizontal: 16, marginTop: 16 }}>
-      <View style={{ backgroundColor: T.card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: T.border }}>
+      <View style={{ backgroundColor: T.card, borderRadius: 20, padding: 16, ...T.shadow }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
           <View>
             <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 3 }}>{t('training_strength_dev')}</Text>
@@ -1745,7 +1742,7 @@ function ProgressDetailModal({ prHistory, T, onClose }: { prHistory: PRHistory; 
             ))}
           </View>
 
-          <View style={{ backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: T.border }}>
+          <View style={{ backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 12, ...T.shadow }}>
             <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 12 }}>Verlauf nach Muskelgruppe</Text>
             <Svg width={W} height={H}>
               {active.map(mg => {
@@ -1784,7 +1781,7 @@ function ProgressDetailModal({ prHistory, T, onClose }: { prHistory: PRHistory; 
           </View>
 
           {improvements.length > 0 && (
-            <View style={{ backgroundColor: T.card, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: T.border }}>
+            <View style={{ backgroundColor: T.card, borderRadius: 18, padding: 16, ...T.shadow }}>
               <Text style={{ fontSize: 10, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 12 }}>Ranking — Verbesserung</Text>
               {improvements.map(({ mg, pct }) => (
                 <View key={mg} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -2008,7 +2005,7 @@ function WorkoutCompleteModal({ data, T, onClose }: {
               { v: `${(data.volume / 1000).toFixed(1)}t`, l: 'Volumen' },
               { v: String(data.exerciseCount), l: 'Übungen' },
             ].map((s, i) => (
-              <View key={i} style={{ flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 14, alignItems: 'center', borderWidth: 0.5, borderColor: 'rgba(60,30,10,0.08)' }}>
+              <View key={i} style={{ flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 14, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 }}>
                 <Text style={{ fontSize: 22, fontWeight: '800', color: '#2A1F14', letterSpacing: -0.8 }}>{s.v}</Text>
                 <Text style={{ fontSize: 9, color: '#B0A89E', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 3 }}>{s.l}</Text>
               </View>
@@ -2017,7 +2014,7 @@ function WorkoutCompleteModal({ data, T, onClose }: {
 
           {/* PRs */}
           {data.newPRs.length > 0 && (
-            <Animated.View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 16, borderWidth: 1.5, borderColor: 'rgba(139,105,20,0.25)', opacity: contentOpacity, transform: [{ translateY: contentY }] }}>
+            <Animated.View style={{ backgroundColor: '#fff', borderRadius: 18, padding: 16, borderWidth: 1.5, borderColor: 'rgba(139,105,20,0.25)', opacity: contentOpacity, transform: [{ translateY: contentY }], shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 }}>
               <View style={{ height: 3, backgroundColor: '#FFD700', borderRadius: 2, marginBottom: 12, marginHorizontal: -16, marginTop: -16, borderTopLeftRadius: 16, borderTopRightRadius: 16 }} />
               {data.newPRs.slice(0, 2).map((pr, i) => (
                 <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: i < data.newPRs.length - 1 ? 10 : 0 }}>
@@ -2035,7 +2032,7 @@ function WorkoutCompleteModal({ data, T, onClose }: {
           )}
 
           {/* Week */}
-          <Animated.View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, borderWidth: 0.5, borderColor: 'rgba(60,30,10,0.08)', opacity: contentOpacity, transform: [{ translateY: contentY }] }}>
+          <Animated.View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 14, opacity: contentOpacity, transform: [{ translateY: contentY }], shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 }}>
             <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: '#B0A89E', marginBottom: 12 }}>{lang === 'en' ? 'This Week' : 'Diese Woche'}</Text>
             <View style={{ flexDirection: 'row', gap: 3 }}>
               {DAY_LBLS.map((lbl, idx) => {
@@ -2072,34 +2069,7 @@ const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 export default function TrainingScreen() {
   const { colors } = useAppTheme();
   const { lang } = useLanguage();
-const T = {
-  bg:           colors.bg,
-  card:         colors.card,
-  cardAlt:      colors.cardSecondary,
-  border:       'rgba(60,30,10,0.08)',
-  borderSoft:   'rgba(60,30,10,0.05)',
-  orange:       colors.accent,
-  orangeAlpha:  colors.accent + '26',
-  orangeBorder: colors.accent + '48',
-  blue:         '#3A7AC0',
-  blueAlpha:    'rgba(58,122,192,0.08)',
-  blueBorder:   'rgba(58,122,192,0.14)',
-  green:        '#4A8C5C',
-  greenAlpha:   'rgba(74,140,92,0.08)',
-  greenBorder:  'rgba(74,140,92,0.14)',
-  red:          '#C0392B',
-  redAlpha:     'rgba(192,57,43,0.07)',
-  redBorder:    'rgba(192,57,43,0.14)',
-  gold:         '#8B6914',
-  goldAlpha:    'rgba(139,105,20,0.08)',
-  goldBorder:   'rgba(139,105,20,0.18)',
-  yellow:       '#8B6914',
-  white:        '#FFFFFF',
-  text1:        '#2A1F14',
-  text2:        '#5A4A3A',
-  text3:        '#7A6E63',
-  text4:        '#B0A89E',
-};
+  const T = getT(colors);
   const [screen, setScreen] = useState<Screen>('home');
   const [selectedRoutine, setSelectedRoutine] = useState<Routine | null>(null);
   const [activeWorkout, setActiveWorkout] = useState<Workout | null>(null);
@@ -2279,7 +2249,7 @@ await loadAll();
 
   // ─── Styles ───────────────────────────────────────────────────
   const sw = StyleSheet.create({
-    track: { backgroundColor: T.card, borderWidth: 1, borderColor: T.orangeBorder, borderRadius: 50, padding: 6, height: 68, overflow: 'hidden', justifyContent: 'center' },
+    track: { backgroundColor: T.card, borderWidth: 1.5, borderColor: T.orangeBorder, borderRadius: 50, padding: 6, height: 68, overflow: 'hidden', justifyContent: 'center', ...T.shadow },
     thumb: { width: 56, height: 56, borderRadius: 28, backgroundColor: T.orange, alignItems: 'center', justifyContent: 'center', zIndex: 2 },
     label: { position: 'absolute', left: 0, right: 0, textAlign: 'center', fontSize: 13, fontWeight: '600', color: T.text3 },
   });
@@ -2300,7 +2270,7 @@ await loadAll();
     searchBox: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16, borderWidth: 1, borderColor: T.border },
     searchInput: { flex: 1, fontSize: 14, color: T.text1 },
     groupLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 },
-    row: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border },
+    row: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardAlt, borderRadius: 12, padding: 14, marginBottom: 8, ...T.shadow },
     rowText: { flex: 1, fontSize: 14, color: T.text1, fontWeight: '500' },
     cancelBtn: { padding: 14, alignItems: 'center', marginTop: 4 },
     cancelText: { fontSize: 14, color: T.text3 },
@@ -2318,7 +2288,7 @@ await loadAll();
   const field = StyleSheet.create({
     label: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2, color: T.text4, marginBottom: 8, marginTop: 16 },
     input: { backgroundColor: T.card, borderRadius: 14, padding: 14, color: T.text1, fontSize: 15, marginBottom: 0, borderWidth: 1, borderColor: T.border },
-    list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden', marginBottom: 12, borderWidth: 1, borderColor: T.border },
+    list: { backgroundColor: T.card, borderRadius: 16, overflow: 'hidden', marginBottom: 12, ...T.shadow },
     row: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14 },
     rowBorder: { borderBottomWidth: 1, borderBottomColor: T.borderSoft },
     rowText: { flex: 1, fontSize: 13, fontWeight: '600', color: T.text1 },
@@ -2333,13 +2303,13 @@ await loadAll();
   });
 
   const rSt = StyleSheet.create({
-    card: { backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: T.border },
+    card: { backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 12, ...T.shadow },
     name: { fontSize: 16, fontWeight: '700', color: T.text1, letterSpacing: -0.3, marginBottom: 4 },
     meta: { fontSize: 11, color: T.text3, marginBottom: 8 },
     chipRow: { flexDirection: 'row', gap: 6 },
     chip: { backgroundColor: T.orangeAlpha, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: T.orangeBorder },
     chipText: { fontSize: 11, fontWeight: '600', color: T.orange },
-    createCard: { backgroundColor: T.card, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 12, borderWidth: 1, borderColor: T.orangeBorder },
+    createCard: { backgroundColor: T.card, borderRadius: 18, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 12, borderWidth: 1.5, borderColor: T.orangeBorder, ...T.shadow },
     createIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: T.orangeAlpha, alignItems: 'center', justifyContent: 'center' },
     createTitle: { fontSize: 15, fontWeight: '700', color: T.text1, marginBottom: 2 },
     createSub: { fontSize: 11, color: T.text3 },
@@ -2363,22 +2333,22 @@ await loadAll();
   });
 
   const prCard = StyleSheet.create({
-    card: { backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: T.border },
+    card: { backgroundColor: T.card, borderRadius: 18, padding: 16, marginBottom: 10, ...T.shadow },
     rank: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
     rankText: { fontSize: 12, fontWeight: '800' },
     name: { fontSize: 16, fontWeight: '700', color: T.text1, letterSpacing: -0.3 },
     date: { fontSize: 12, color: T.text4, marginTop: 2 },
     rm: { fontSize: 20, fontWeight: '800', color: T.text1, letterSpacing: -0.5 },
     rmLabel: { fontSize: 10, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.5 },
-    stat: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: T.border },
+    stat: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center', ...T.shadow },
     statVal: { fontSize: 15, fontWeight: '700', color: T.text1 },
     statLbl: { fontSize: 9, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.4, marginTop: 2 },
     delta: { borderRadius: 20, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 },
   });
 
   const hist = StyleSheet.create({
-    card: { backgroundColor: T.card, borderRadius: 18, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: T.border },
-    stat: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, alignItems: 'center', borderWidth: 1, borderColor: T.border },
+    card: { backgroundColor: T.card, borderRadius: 18, padding: 14, marginBottom: 8, ...T.shadow },
+    stat: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 8, padding: 8, alignItems: 'center', ...T.shadow },
     statVal: { fontSize: 13, fontWeight: '700' },
     statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.3, marginTop: 2 },
   });
@@ -2387,11 +2357,11 @@ await loadAll();
     header: { backgroundColor: T.card, paddingTop: 56, paddingHorizontal: 16, paddingBottom: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderBottomWidth: 1, borderBottomColor: T.borderSoft },
     workoutTag: { fontSize: 10, fontWeight: '700', letterSpacing: 1.5, textTransform: 'uppercase', color: T.orange, marginBottom: 4 },
     workoutTitle: { fontSize: 20, fontWeight: '800', color: T.text1, letterSpacing: -0.4 },
-    timerBadge: { backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center', borderWidth: 1, borderColor: T.border },
+    timerBadge: { backgroundColor: T.cardAlt, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10, alignItems: 'center', ...T.shadow },
     timerText: { fontSize: 18, fontWeight: '700', color: T.text1, letterSpacing: 1 },
     timerLabel: { fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
     statsRow: { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: T.card, borderBottomWidth: 1, borderBottomColor: T.borderSoft },
-    statBox: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: T.border },
+    statBox: { flex: 1, backgroundColor: T.cardAlt, borderRadius: 10, padding: 10, alignItems: 'center', ...T.shadow },
     statVal: { fontSize: 18, fontWeight: '700' },
     statLbl: { fontSize: 8, color: T.text4, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 2 },
     restCard: { backgroundColor: T.card, borderLeftWidth: 3, padding: 12, marginBottom: 12, marginTop: 12, borderRadius: 0 },
@@ -2399,7 +2369,7 @@ await loadAll();
     restTimer: { fontSize: 22, fontWeight: '800', color: T.text1, letterSpacing: 1 },
     restBtn: { backgroundColor: T.cardAlt, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6, borderWidth: 1, borderColor: T.border },
     restBtnText: { fontSize: 11, fontWeight: '600', color: T.text3 },
-    exCard: { backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: T.border },
+    exCard: { backgroundColor: T.card, borderRadius: 16, padding: 16, marginBottom: 10, ...T.shadow },
     musclePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
     musclePillText: { fontSize: 11, fontWeight: '500' },
     exName: { flex: 1, fontSize: 15, fontWeight: '700', color: T.text1 },
@@ -2486,7 +2456,7 @@ await loadAll();
           {/* TRAININGSBEREITSCHAFT */}
           {readiness && (
             <View style={{ paddingHorizontal: 20, marginTop: 18 }}>
-              <View style={{ backgroundColor: T.cardAlt, borderRadius: 22, padding: 16, borderWidth: 1, borderColor: T.border, flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <View style={{ backgroundColor: T.cardAlt, borderRadius: 22, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14, ...T.shadow }}>
                 <View style={{ width: 76, height: 76, alignItems: 'center', justifyContent: 'center' }}>
                   <Svg width={76} height={76} viewBox="0 0 76 76" style={{ position: 'absolute' }}>
                     <Circle cx={38} cy={38} r={30} fill="none" stroke={T.borderSoft} strokeWidth={9} />
@@ -2515,7 +2485,7 @@ await loadAll();
           {/* TRAININGSMONOTONIE & STRAIN */}
           {monotony7 && monotony7.totalWorkouts > 0 && (
             <View style={{ paddingHorizontal: 20, marginTop: 14 }}>
-              <View style={{ backgroundColor: T.cardAlt, borderRadius: 22, padding: 16, borderWidth: 1, borderColor: T.border }}>
+              <View style={{ backgroundColor: T.cardAlt, borderRadius: 22, padding: 16, ...T.shadow }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                     <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4 }}>
@@ -2592,12 +2562,12 @@ await loadAll();
             })}
           </View>
 
-          <View style={{ height: 0.5, backgroundColor: 'rgba(0,0,0,0.08)', marginHorizontal: 20, marginBottom: 18 }} />
+          <View style={{ height: 0.5, backgroundColor: T.borderSoft, marginHorizontal: 20, marginBottom: 18 }} />
 
           {/* HEUTE EMPFOHLEN */}
           <View style={{ paddingHorizontal: 20, marginBottom: 22 }}>
             <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 10 }}>{lang === 'en' ? 'Today\'s Recommendation' : 'Heute empfohlen'}</Text>
-            <View style={{ backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: 22, padding: 18, borderWidth: 1, borderColor: 'rgba(0,0,0,0.08)' }}>
+            <View style={{ backgroundColor: T.cardAlt, borderRadius: 22, padding: 18, ...T.shadow }}>
               {(() => {
                 const readyMuscles = MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80);
                 const PUSH = ['Brust', 'Schultern', 'Trizeps'];
@@ -2617,19 +2587,19 @@ await loadAll();
                     <Text style={{ fontSize: 26, fontWeight: '800', color: T.text1, letterSpacing: -0.8, marginBottom: 16 }}>{workoutType}</Text>
                     <TouchableOpacity onPress={startFree} style={{ backgroundColor: T.text1, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
-                          <IconPlay size={10} color="#fff" />
+                        <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: colors.isDark ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center' }}>
+                          <IconPlay size={10} color={colors.isDark ? T.bg : '#fff'} />
                         </View>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#fff' }}>{lang === 'en' ? 'Start Now' : 'Jetzt starten'}</Text>
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: colors.isDark ? T.bg : '#fff' }}>{lang === 'en' ? 'Start Now' : 'Jetzt starten'}</Text>
                       </View>
-                      <IconChevronRight color="rgba(255,255,255,0.3)" size={12} />
+                      <IconChevronRight color={colors.isDark ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)'} size={12} />
                     </TouchableOpacity>
                     <View style={{ flexDirection: 'row', gap: 8 }}>
-                      <TouchableOpacity onPress={() => setScreen('routines')} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: 12, padding: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <TouchableOpacity onPress={() => setScreen('routines')} style={{ flex: 1, backgroundColor: colors.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', borderRadius: 12, padding: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         <IconList size={13} color={T.text2} />
                         <Text style={{ fontSize: 12, fontWeight: '700', color: T.text2 }}>{lang === 'en' ? 'Routines' : 'Routinen'}</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={startFree} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.06)', borderRadius: 12, padding: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                      <TouchableOpacity onPress={startFree} style={{ flex: 1, backgroundColor: colors.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', borderRadius: 12, padding: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         <IconPlus size={13} color={T.text2} />
                         <Text style={{ fontSize: 12, fontWeight: '700', color: T.text2 }}>{lang === 'en' ? 'Free' : 'Frei'}</Text>
                       </TouchableOpacity>
@@ -2642,9 +2612,9 @@ await loadAll();
           {/* MUSKELREGENERATION */}
           <View style={{ paddingHorizontal: 20, marginBottom: 22 }}>
             <Text style={{ fontSize: 9, fontWeight: '700', letterSpacing: 2, textTransform: 'uppercase', color: T.text4, marginBottom: 10 }}>{lang === 'en' ? 'Muscle Recovery' : 'Muskelregeneration'}</Text>
-            <View style={{ backgroundColor: 'rgba(0,0,0,0.04)', borderRadius: 22, padding: 18, borderWidth: 1, borderColor: 'rgba(0,0,0,0.08)', flexDirection: 'row', gap: 14, alignItems: 'center' }}>
+            <View style={{ backgroundColor: T.cardAlt, borderRadius: 22, padding: 18, flexDirection: 'row', gap: 14, alignItems: 'center', ...T.shadow }}>
               <Svg width={76} height={76} viewBox="0 0 76 76">
-                <Circle cx={38} cy={38} r={30} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth={9} />
+                <Circle cx={38} cy={38} r={30} fill="none" stroke={T.borderSoft} strokeWidth={9} />
                 <Circle cx={38} cy={38} r={30} fill="none" stroke={T.green} strokeWidth={9}
                   strokeDasharray={`${(MUSCLE_GROUPS.filter(m => (muscles[m]?.level ?? 100) >= 80).length / MUSCLE_GROUPS.length) * 188} 188`}
                   strokeDashoffset={0} strokeLinecap="round" transform="rotate(-90 38 38)" />

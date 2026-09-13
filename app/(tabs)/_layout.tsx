@@ -3,7 +3,7 @@ import { Slot, router, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, KeyboardAvoidingView, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import Svg, { Path, Rect } from 'react-native-svg';
 import { useAppTheme } from '../../constants/ThemeContext';
 import { useLanguage } from '../../constants/LanguageContext';
 
@@ -52,42 +52,6 @@ function NutritionIcon({ color }: { color: string }) {
   );
 }
 
-function StopIcon({ color }: { color: string }) {
-  return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Rect x={4} y={4} width={16} height={16} rx={3} stroke={color} strokeWidth={1.5} />
-    </Svg>
-  );
-}
-
-function BodyIcon({ color }: { color: string }) {
-  return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={5} r={2} stroke={color} strokeWidth={1.5} />
-      <Path d="M12 7V14M9 9H15M9 21L12 14L15 21" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-    </Svg>
-  );
-}
-
-function PRIcon({ color }: { color: string }) {
-  return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 2L15 9H22L16 14L18 21L12 17L6 21L8 14L2 9H9L12 2Z"
-        stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
-}
-
-function TimerIcon({ color }: { color: string }) {
-  return (
-    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={13} r={8} stroke={color} strokeWidth={1.5} />
-      <Path d="M12 9V13L15 15" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-      <Path d="M9 3H15" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
-    </Svg>
-  );
-}
-
 const MAIN_TABS = [
   { route: '/', label: 'Übersicht', Icon: HomeIcon },
   { route: '/training', label: 'Training', Icon: TrainingIcon },
@@ -97,14 +61,6 @@ const MAIN_TABS = [
 
 const MAIN_ROUTES = ['/', '/training', '/nutrition', '/health'];
 
-const TRAINING_TABS = [
-  { route: '/training', label: 'Workout', Icon: TrainingIcon },
-  { route: '/body', label: 'Körper', Icon: BodyIcon },
-  { route: '/workout-timer', label: 'Timer', Icon: TimerIcon },
-  { route: '/prs', label: 'PRs', Icon: PRIcon },
-  { route: '/', label: 'Beenden', Icon: StopIcon, isStop: true },
-];
-
 function MainTabBar({ pathname }: { pathname: string }) {
   const { colors } = useAppTheme();
   const { lang } = useLanguage();
@@ -112,7 +68,6 @@ function MainTabBar({ pathname }: { pathname: string }) {
   function getIndex() {
     if (pathname === '/') return 0;
     if (pathname.includes('/training') || pathname.includes('/body') ||
-        pathname.includes('/ranking') || pathname.includes('/workout-timer') ||
         pathname.includes('/prs')) return 1;
     if (pathname.includes('/nutrition')) return 2;
     if (pathname.includes('/health') || pathname.includes('/sleep') ||
@@ -145,40 +100,6 @@ function MainTabBar({ pathname }: { pathname: string }) {
               <Icon color={active ? colors.accent : '#C7C7CC'} />
               <Text style={[styles.label, active && { color: colors.accent, fontWeight: '500' }]}>
                 {displayLabel}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-function TrainingTabBar({ onStop }: { onStop: () => void }) {
-  const pathname = usePathname();
-  const { colors } = useAppTheme();
-
-  return (
-    <View style={styles.wrapper} pointerEvents="box-none">
-      <View style={[styles.container, {
-        backgroundColor: colors.card,
-        borderColor: 'rgba(0,0,0,0.08)',
-      }]}>
-        {TRAINING_TABS.map(({ route, label, Icon, isStop }: any) => {
-          const active = !isStop && pathname.includes(route);
-          return (
-            <TouchableOpacity
-              key={label}
-              style={styles.tab}
-              onPress={() => { if (isStop) onStop(); else router.push(route as any); }}
-              activeOpacity={0.6}
-            >
-              <View style={styles.dotWrap}>
-                {active && <View style={[styles.dotActive, { backgroundColor: colors.accent }]} />}
-              </View>
-              <Icon color={isStop ? '#FF3B30' : active ? colors.accent : '#C7C7CC'} />
-              <Text style={[styles.label, active && { color: colors.accent }, isStop && { color: '#FF3B30' }]}>
-                {label}
               </Text>
             </TouchableOpacity>
           );
@@ -238,12 +159,6 @@ export default function TabLayout() {
     const interval = setInterval(checkTraining, 1000);
     return () => clearInterval(interval);
   }, [pathname]);
-
-  async function stopTraining() {
-    await AsyncStorage.removeItem('activeWorkout');
-    setIsTraining(false);
-    router.push('/');
-  }
 
   const swipe = Gesture.Pan()
     .runOnJS(true)

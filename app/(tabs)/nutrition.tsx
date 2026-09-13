@@ -12,6 +12,7 @@ import {
 import Svg, { Circle, Line, Path, Polyline, Text as SvgText } from 'react-native-svg';
 import { GradientBar } from '../../components/GradientBar';
 import { useLanguage } from '../../constants/LanguageContext';
+import { useAppTheme } from '../../constants/ThemeContext';
 import {
   CalorieStrategy, CalorieStrategyMode, DEFAULT_STRATEGY,
   getEffectiveNutritionGoal, saveCalorieStrategy,
@@ -20,6 +21,10 @@ const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
 
 const W = Dimensions.get('window').width;
 
+// Modul-Fallback (nur für scoreColor() unten, die ausschließlich die fixen Statusfarben
+// braucht) — Komponenten nutzen stattdessen getNutritionColors(isDark), lokal per
+// useAppTheme() geshadowt, damit sich keiner der ~190 c.xxx-Zugriffe im Rest der Datei
+// ändern muss.
 const c = {
   bg:        '#EEE8E0',
   card:      '#FFFFFF',
@@ -38,6 +43,30 @@ const c = {
   red:       '#C0392B',
   blue:      '#3A7AC0',
 };
+
+// Theme-reaktive Variante von c — Oberflächen-/Textfarben wechseln mit isDark, die
+// Status-/Makro-Farben (protein/carbs/fat/green/orange/red/blue) bleiben bewusst fix,
+// dieselbe Konvention wie überall sonst in der App (z.B. TIER_COLORS in achievements.tsx).
+function getNutritionColors(isDark: boolean) {
+  return {
+    bg:        isDark ? '#0F0E0D' : '#EEE8E0',
+    card:      isDark ? '#1C1917' : '#FFFFFF',
+    cardSec:   isDark ? '#242120' : '#F8F5F1',
+    border:    isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)',
+    borderMed: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+    text:      isDark ? '#F5F0EE' : '#1A1209',
+    textSec:   isDark ? 'rgba(245,240,238,0.45)' : '#B0A89E',
+    textTer:   isDark ? 'rgba(245,240,238,0.22)' : '#D8D0C6',
+    protein:   '#3A7AC0',
+    carbs:     '#D97706',
+    fat:       '#BE185D',
+    green:     '#22C55E',
+    greenDark: '#4A8C5C',
+    orange:    '#F97316',
+    red:       '#C0392B',
+    blue:      '#3A7AC0',
+  };
+}
 
 type Macros = { kcal: number; protein: number; carbs: number; fat: number };
 type Micros = {
@@ -349,6 +378,9 @@ Halte es kurz, direkt und hilfreich. Maximal 200 Wörter.`;
 }
 
 function BarcodeScanner({ onResult, onClose, lang }: { onResult:(f:Partial<FoodEntry>)=>void; onClose:()=>void; lang:string }) {
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
+  const s = getS(c, colors.isDark);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -423,6 +455,8 @@ function BarcodeScanner({ onResult, onClose, lang }: { onResult:(f:Partial<FoodE
 function AddOptionsSheet({ onBarcode, onCamera, onGallery, onManual, onClose, loading, lang }: {
   onBarcode:()=>void; onCamera:()=>void; onGallery:()=>void; onManual:()=>void; onClose:()=>void; loading:boolean; lang:string;
 }) {
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
   const opts = [
     { label: lang==='en'?'Scan barcode':'Barcode scannen', sub: lang==='en'?'Packaged product':'Verpacktes Produkt', onPress:onBarcode },
     { label: lang==='en'?'Manual':'Manuell', sub: lang==='en'?'Enter manually':'Selbst eintragen', onPress:onManual },
@@ -459,6 +493,9 @@ function AddOptionsSheet({ onBarcode, onCamera, onGallery, onManual, onClose, lo
 function AIContextModal({ onSubmit, onClose, lang }: {
   onSubmit: (context: string) => void; onClose: () => void; lang: string;
 }) {
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
+  const s = getS(c, colors.isDark);
   const [context, setContext] = useState('');
 
   return (
@@ -493,6 +530,9 @@ function AIContextModal({ onSubmit, onClose, lang }: {
 }
 
 function AddEntryModal({ prefill, onSave, onClose, lang }: { prefill?:Partial<FoodEntry>; onSave:(e:FoodEntry)=>void; onClose:()=>void; lang:string }) {
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
+  const s = getS(c, colors.isDark);
   const [label, setLabel]     = useState(prefill?.label||'');
   const [amount, setAmount]   = useState(String(prefill?.amount||100));
   const [kcal, setKcal]       = useState(String(Math.round(prefill?.macros?.kcal||0)||''));
@@ -608,6 +648,9 @@ function GoalsModal({ goals, strategy, burned, onSave, onSaveStrategy, onClose, 
   goals:Macros; strategy:CalorieStrategy; burned:number|null;
   onSave:(g:Macros)=>void; onSaveStrategy:(s:CalorieStrategy)=>void; onClose:()=>void; lang:string;
 }) {
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
+  const s = getS(c, colors.isDark);
   const [kcal,setKcal]       = useState(String(goals.kcal));
   const [protein,setProtein] = useState(String(goals.protein));
   const [carbs,setCarbs]     = useState(String(goals.carbs));
@@ -644,8 +687,8 @@ function GoalsModal({ goals, strategy, burned, onSave, onSaveStrategy, onClose, 
         <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>
           {MODES.map(m=>(
             <TouchableOpacity key={m.key} onPress={()=>setMode(m.key)}
-              style={{paddingHorizontal:14,paddingVertical:9,borderRadius:20,backgroundColor:mode===m.key?c.text:'rgba(0,0,0,0.05)'}}>
-              <Text style={{fontSize:13,fontWeight:'700',color:mode===m.key?'#fff':c.textSec}}>{m.label}</Text>
+              style={{paddingHorizontal:14,paddingVertical:9,borderRadius:20,backgroundColor:mode===m.key?c.text:(colors.isDark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.05)')}}>
+              <Text style={{fontSize:13,fontWeight:'700',color:mode===m.key?(colors.isDark?c.bg:'#fff'):c.textSec}}>{m.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -654,7 +697,7 @@ function GoalsModal({ goals, strategy, burned, onSave, onSaveStrategy, onClose, 
           <View style={{flexDirection:'row',gap:8}}>
             {[300,500].map(v=>(
               <TouchableOpacity key={v} onPress={()=>setOffsetMag(v)}
-                style={{flex:1,paddingVertical:10,borderRadius:14,alignItems:'center',backgroundColor:offsetMag===v?(mode==='bulk'?'rgba(34,197,94,0.12)':'rgba(192,57,43,0.1)'):'rgba(0,0,0,0.04)',
+                style={{flex:1,paddingVertical:10,borderRadius:14,alignItems:'center',backgroundColor:offsetMag===v?(mode==='bulk'?'rgba(34,197,94,0.12)':'rgba(192,57,43,0.1)'):(colors.isDark?'rgba(255,255,255,0.05)':'rgba(0,0,0,0.04)'),
                   borderWidth:1,borderColor:offsetMag===v?(mode==='bulk'?c.green:c.red):c.border}}>
                 <Text style={{fontSize:13,fontWeight:'800',color:offsetMag===v?(mode==='bulk'?c.green:c.red):c.textSec}}>
                   {mode==='bulk'?'+':'-'}{v} kcal
@@ -703,6 +746,9 @@ function GoalsModal({ goals, strategy, burned, onSave, onSaveStrategy, onClose, 
 function MealDetailModal({ meal, entries, onDelete, onClose, onAdd, lang }: {
   meal: MealSlot; entries: FoodEntry[]; onDelete:(id:string)=>void; onClose:()=>void; onAdd:()=>void; lang:string;
 }) {
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
+  const s = getS(c, colors.isDark);
   const totals = sumMacros(entries);
   return (
     <Modal visible animationType="slide">
@@ -717,7 +763,7 @@ function MealDetailModal({ meal, entries, onDelete, onClose, onAdd, lang }: {
               <Text style={{fontSize:20,fontWeight:'800',color:c.text,letterSpacing:-0.5}}>{mealLabel(meal,lang)}</Text>
             </View>
             <TouchableOpacity onPress={onAdd} style={{width:34,height:34,borderRadius:17,backgroundColor:c.text,alignItems:'center',justifyContent:'center'}}>
-              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none"><Path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth={2.4} strokeLinecap="round"/></Svg>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none"><Path d="M12 5v14M5 12h14" stroke={colors.isDark?c.bg:'#fff'} strokeWidth={2.4} strokeLinecap="round"/></Svg>
             </TouchableOpacity>
           </View>
           {entries.length > 0 && (
@@ -757,6 +803,9 @@ function MealDetailModal({ meal, entries, onDelete, onClose, onAdd, lang }: {
 }
 
 function MacroDetailModal({ entries, goal, onClose, lang }: { entries:FoodEntry[]; goal:Macros; onClose:()=>void; lang:string }) {
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
+  const s = getS(c, colors.isDark);
   const tot = sumMacros(entries);
   return (
     <Modal visible animationType="slide">
@@ -806,6 +855,9 @@ const MICROS_TABLE_EN = [
 ];
 
 function MicroDetailModal({ entries, onClose, lang }: { entries:FoodEntry[]; onClose:()=>void; lang:string }) {
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
+  const s = getS(c, colors.isDark);
   const micros = sumMicros(entries);
   const table = lang === 'en' ? MICROS_TABLE_EN : MICROS_TABLE_DE;
   return (
@@ -853,6 +905,9 @@ type Range = '1W'|'2W'|'1M'|'2M'|'6M'|'1J'|'2J'|'All';
 const RANGES: Range[] = ['1W','2W','1M','2M','6M','1J','2J','All'];
 
 function NutriVerlaufScreen({ onClose, allLogs, lang }: { onClose:()=>void; allLogs: Record<string,DayLog>; lang:string }) {
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
+  const s = getS(c, colors.isDark);
   const [range, setRange] = useState<Range>('1W');
   function buildData() {
     const today = new Date();
@@ -902,8 +957,8 @@ function NutriVerlaufScreen({ onClose, allLogs, lang }: { onClose:()=>void; allL
       <ScrollView showsVerticalScrollIndicator={false}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap:6,paddingHorizontal:16,paddingVertical:14,flexDirection:'row'}}>
           {RANGES.map(r=>(
-            <TouchableOpacity key={r} style={{backgroundColor:range===r?c.text:'rgba(0,0,0,0.06)',borderRadius:20,paddingHorizontal:14,paddingVertical:6}} onPress={()=>setRange(r)}>
-              <Text style={{fontSize:11,fontWeight:'700',color:range===r?'#fff':c.textSec}}>{r}</Text>
+            <TouchableOpacity key={r} style={{backgroundColor:range===r?c.text:(colors.isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.06)'),borderRadius:20,paddingHorizontal:14,paddingVertical:6}} onPress={()=>setRange(r)}>
+              <Text style={{fontSize:11,fontWeight:'700',color:range===r?(colors.isDark?c.bg:'#fff'):c.textSec}}>{r}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -925,7 +980,7 @@ function NutriVerlaufScreen({ onClose, allLogs, lang }: { onClose:()=>void; allL
         <View style={{paddingHorizontal:20,marginBottom:16}}>
           <Text style={{fontSize:9,fontWeight:'700',letterSpacing:1.5,textTransform:'uppercase',color:c.textSec,marginBottom:12}}>Nutrition Score · {range}</Text>
           <Svg width={chartW} height={chartH}>
-            {[20,40,60,80,100].map(v=>{ const y = padT + plotH - ((v/100)*plotH); return <Line key={v} x1={padL} y1={y} x2={chartW} y2={y} stroke="rgba(0,0,0,0.06)" strokeWidth={0.5}/>; })}
+            {[20,40,60,80,100].map(v=>{ const y = padT + plotH - ((v/100)*plotH); return <Line key={v} x1={padL} y1={y} x2={chartW} y2={y} stroke={colors.isDark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)'} strokeWidth={0.5}/>; })}
             {[20,60,100].map(v=>{ const y = padT + plotH - ((v/100)*plotH); return <SvgText key={v} x={0} y={y+3} fontSize={8} fill={c.textSec}>{v}</SvgText>; })}
             {points.length > 1 && <Path d={`M${points[0].x},${padT+plotH} L${points.map(p=>`${p.x},${p.y}`).join(' L')} L${points[points.length-1].x},${padT+plotH} Z`} fill={`${col}15`}/>}
             {points.length > 1 && <Polyline points={polyline} fill="none" stroke={col} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>}
@@ -966,7 +1021,7 @@ function NutriVerlaufScreen({ onClose, allLogs, lang }: { onClose:()=>void; allL
               <Text style={{fontSize:17,fontWeight:'800',color:c.text,letterSpacing:-0.5,marginBottom:2}}>{data[bestIdx]?.label||'—'}</Text>
               <Text style={{fontSize:13,fontWeight:'700',color:c.green}}>{scores[bestIdx]||0} {lang==='en'?'pts':'Pkt'}</Text>
             </View>
-            <View style={{flex:1,padding:14,backgroundColor:'rgba(0,0,0,0.03)',borderRadius:16,borderWidth:0.5,borderColor:c.border}}>
+            <View style={{flex:1,padding:14,backgroundColor:colors.isDark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)',borderRadius:16,borderWidth:0.5,borderColor:c.border}}>
               <Text style={{fontSize:8,fontWeight:'700',textTransform:'uppercase',letterSpacing:0.8,color:c.textSec,marginBottom:4}}>{lang==='en'?'Weakest':'Schwächster'}</Text>
               <Text style={{fontSize:17,fontWeight:'800',color:c.text,letterSpacing:-0.5,marginBottom:2}}>{data[worstIdx]?.label||'—'}</Text>
               <Text style={{fontSize:13,fontWeight:'700',color:c.textSec}}>{scores[worstIdx]||0} {lang==='en'?'pts':'Pkt'}</Text>
@@ -983,6 +1038,9 @@ const MEAL_SLOTS: MealSlot[] = ['Frühstück','Mittagessen','Abendessen','Snacks
 
 export default function NutritionScreen() {
   const { lang } = useLanguage();
+  const { colors } = useAppTheme();
+  const c = getNutritionColors(colors.isDark);
+  const s = getS(c, colors.isDark);
   const [dayOffset, setDayOffset] = useState(0);
   const [dayLog, setDayLog]       = useState<DayLog>({ date:getDateKey(0), entries:[], goal:DEFAULT_GOAL, burned:0 });
   const [allLogs, setAllLogs]     = useState<Record<string,DayLog>>({});
@@ -996,6 +1054,7 @@ export default function NutritionScreen() {
   const [activeMeal, setActiveMeal]           = useState<MealSlot|null>(null);
   const [prefill, setPrefill]                 = useState<Partial<FoodEntry>|undefined>();
   const [aiLoading, setAiLoading]             = useState(false);
+  const [aiError, setAiError]                 = useState<string|null>(null);
   const [showAIContext, setShowAIContext]     = useState(false);
   const [aiBase64, setAiBase64]               = useState<string|null>(null);
   const [showReport, setShowReport]           = useState(false);
@@ -1119,13 +1178,21 @@ export default function NutritionScreen() {
     setShowAIContext(false);
     if (!aiBase64) return;
     setAiLoading(true);
+    setAiError(null);
     try {
       const food = await analyzeWithAI(aiBase64, context || undefined);
-      if (!food) { Alert.alert(lang==='en'?'Error':'Fehler', lang==='en'?'AI analysis failed.':'KI Analyse fehlgeschlagen.'); return; }
+      if (!food) {
+        const msg = lang==='en'?'AI analysis failed.':'KI Analyse fehlgeschlagen.';
+        setAiError(msg);
+        Alert.alert(lang==='en'?'Error':'Fehler', msg);
+        return;
+      }
       setPrefill(food);
       setShowAddModal(true);
     } catch (e: any) {
-      Alert.alert(lang==='en'?'Error':'Fehler', e?.message || String(e) || (lang==='en'?'Unknown error':'Unbekannter Fehler'));
+      const msg = e?.message || String(e) || (lang==='en'?'Unknown error':'Unbekannter Fehler');
+      setAiError(msg);
+      Alert.alert(lang==='en'?'Error':'Fehler', msg);
     } finally {
       setAiLoading(false);
       setAiBase64(null);
@@ -1162,7 +1229,7 @@ export default function NutritionScreen() {
     const v = (micros as any)[k]||0;
     const ref = MICRO_REFS[k]||1;
     const pct = v/ref;
-    return pct>=1?c.green:pct>=0.5?c.orange:pct>0?c.red:'rgba(0,0,0,0.1)';
+    return pct>=1?c.green:pct>=0.5?c.orange:pct>0?c.red:(colors.isDark?'rgba(255,255,255,0.12)':'rgba(0,0,0,0.1)');
   });
   const microOk = microDots.filter(cl=>cl===c.green).length;
 
@@ -1196,7 +1263,7 @@ export default function NutritionScreen() {
                 <Svg width={14} height={14} viewBox="0 0 24 24" fill="none"><Path d="M12 20h9M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" stroke={c.text} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/></Svg>
               </TouchableOpacity>
               <TouchableOpacity style={{width:36,height:36,borderRadius:18,backgroundColor:c.text,alignItems:'center',justifyContent:'center'}} onPress={()=>setShowAddSheet(true)}>
-                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none"><Path d="M12 5v14M5 12h14" stroke="#fff" strokeWidth={2.5} strokeLinecap="round"/></Svg>
+                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none"><Path d="M12 5v14M5 12h14" stroke={colors.isDark?c.bg:'#fff'} strokeWidth={2.5} strokeLinecap="round"/></Svg>
               </TouchableOpacity>
             </View>
           </View>
@@ -1210,16 +1277,16 @@ export default function NutritionScreen() {
                 <Text style={{fontSize:12,color:c.textSec,marginLeft:4}}>Nutrition Score</Text>
               </View>
               <View style={{flexDirection:'row',gap:6}}>
-                <TouchableOpacity style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:5}} onPress={()=>setShowVerlauf(true)}>
+                <TouchableOpacity style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:colors.isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:5}} onPress={()=>setShowVerlauf(true)}>
                   <Svg width={11} height={11} viewBox="0 0 24 24" fill="none"><Path d="M3 3V21M3 17L9 11L13 15L21 7" stroke={c.text} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/></Svg>
                   <Text style={{fontSize:10,fontWeight:'600',color:c.text}}>{lang==='en'?'History':'Verlauf'}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:5}} onPress={handleDayReport}>
+                <TouchableOpacity style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:colors.isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:5}} onPress={handleDayReport}>
                   <Text style={{fontSize:10,fontWeight:'600',color:c.text}}>{lang==='en'?'📊 Report':'📊 Report'}</Text>
                 </TouchableOpacity>
               </View>
             </View>
-            <View style={{height:4,backgroundColor:'rgba(0,0,0,0.08)',borderRadius:2,overflow:'hidden'}}>
+            <View style={{height:4,backgroundColor:colors.isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.08)',borderRadius:2,overflow:'hidden'}}>
               <View style={{width:`${nutScore}%` as any,height:4,backgroundColor:nutCol,borderRadius:2}}/>
             </View>
           </View>
@@ -1230,7 +1297,7 @@ export default function NutritionScreen() {
           <View style={{alignItems:'center',marginBottom:16}}>
             <View style={{position:'relative',width:210,height:210,marginBottom:14}}>
               <Svg width={210} height={210} viewBox="0 0 210 210">
-                <Circle cx={105} cy={105} r={88} fill="none" stroke="rgba(0,0,0,0.07)" strokeWidth={16}/>
+                <Circle cx={105} cy={105} r={88} fill="none" stroke={colors.isDark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.07)'} strokeWidth={16}/>
                 {totals.kcal > 0 && (
                   <Circle cx={105} cy={105} r={88} fill="none" stroke={c.greenDark} strokeWidth={16}
                     strokeDasharray={`${Math.min(0.98, adjustedGoal > 0 ? totals.kcal/adjustedGoal : 0) * 2 * Math.PI * 88} ${2 * Math.PI * 88}`}
@@ -1242,7 +1309,7 @@ export default function NutritionScreen() {
                 <Text style={{fontSize:44,fontWeight:'800',color:c.text,letterSpacing:-2.5,lineHeight:44}}>{Math.round(totals.kcal)||'—'}</Text>
                 <Text style={{fontSize:10,color:c.textSec,fontWeight:'500'}}>{lang==='en'?`of ${adjustedGoal} kcal`:`von ${adjustedGoal} kcal`}</Text>
                 {dayLog.burned > 0 && (
-                  <View style={{backgroundColor:'rgba(0,0,0,0.06)',borderRadius:20,paddingHorizontal:10,paddingVertical:3,marginTop:2}}>
+                  <View style={{backgroundColor:colors.isDark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)',borderRadius:20,paddingHorizontal:10,paddingVertical:3,marginTop:2}}>
                     <Text style={{fontSize:9,fontWeight:'700',color:c.textSec}}>+{dayLog.burned} {lang==='en'?'burned':'verbrannt'}</Text>
                   </View>
                 )}
@@ -1301,7 +1368,7 @@ export default function NutritionScreen() {
                 <Text style={{fontSize:22,fontWeight:'800',color:macCol,letterSpacing:-1,lineHeight:22}}>{macScore||'—'}</Text>
                 <Text style={{fontSize:8,color:c.textSec}}>/100</Text>
               </View>
-              <View style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:6}}>
+              <View style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:colors.isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:6}}>
                 <Text style={{fontSize:10,fontWeight:'600',color:c.text}}>Details</Text>
                 <Svg width={10} height={10} viewBox="0 0 24 24" fill="none"><Path d="M9 18l6-6-6-6" stroke={c.text} strokeWidth={2.5} strokeLinecap="round"/></Svg>
               </View>
@@ -1324,7 +1391,7 @@ export default function NutritionScreen() {
                 <Text style={{fontSize:22,fontWeight:'800',color:micCol,letterSpacing:-1,lineHeight:22}}>{micScore||'—'}</Text>
                 <Text style={{fontSize:8,color:c.textSec}}>/100</Text>
               </View>
-              <View style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:6}}>
+              <View style={{flexDirection:'row',alignItems:'center',gap:4,backgroundColor:colors.isDark?'rgba(255,255,255,0.07)':'rgba(0,0,0,0.05)',borderRadius:20,paddingHorizontal:10,paddingVertical:6}}>
                 <Text style={{fontSize:10,fontWeight:'600',color:c.text}}>Details</Text>
                 <Svg width={10} height={10} viewBox="0 0 24 24" fill="none"><Path d="M9 18l6-6-6-6" stroke={c.text} strokeWidth={2.5} strokeLinecap="round"/></Svg>
               </View>
@@ -1344,7 +1411,7 @@ export default function NutritionScreen() {
               : `${entries.length} Eintr${entries.length===1?'ag':'äge'}`;
             return (
               <TouchableOpacity key={meal} style={{flexDirection:'row',alignItems:'center',gap:12,paddingVertical:13,borderBottomWidth:i<MEAL_SLOTS.length-1?0.5:0,borderBottomColor:c.border}} onPress={()=>setActiveMeal(meal)} activeOpacity={0.7}>
-                <View style={{width:3,height:40,borderRadius:2,backgroundColor:has?c.greenDark:'rgba(0,0,0,0.08)',flexShrink:0}}/>
+                <View style={{width:3,height:40,borderRadius:2,backgroundColor:has?c.greenDark:(colors.isDark?'rgba(255,255,255,0.1)':'rgba(0,0,0,0.08)'),flexShrink:0}}/>
                 <View style={{flex:1,minWidth:0}}>
                   <Text style={{fontSize:14,fontWeight:'700',color:has?c.text:c.textSec,marginBottom:2}}>{mealLabel(meal,lang)}</Text>
                   <Text style={{fontSize:9,color:c.textTer}}>{has?entryWord:(lang==='en'?'Nothing yet':'Noch nichts')}</Text>
@@ -1356,6 +1423,17 @@ export default function NutritionScreen() {
               </TouchableOpacity>
             );
           })}
+
+          {aiError && (
+            <View style={{flexDirection:'row',alignItems:'center',gap:8,backgroundColor:'#FEF3F3',borderRadius:14,padding:12,marginTop:12}}>
+              <Text style={{fontSize:11,color:c.red,flex:1}}>
+                {lang==='en'?'AI analysis failed':'KI-Analyse fehlgeschlagen'}: {aiError}
+              </Text>
+              <TouchableOpacity onPress={()=>setAiError(null)} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+                <Text style={{color:c.red,fontSize:14,fontWeight:'700'}}>×</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <View style={{height:100}}/>
         </Animated.View>
@@ -1416,7 +1494,7 @@ export default function NutritionScreen() {
             <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
               <Text style={{fontSize:20,fontWeight:'800',color:c.text}}>📊 {lang==='en'?'Day Report':'Tagesreport'}</Text>
               <TouchableOpacity onPress={()=>setShowReport(false)}
-                style={{paddingHorizontal:12,paddingVertical:6,borderRadius:20,backgroundColor:'rgba(0,0,0,0.06)'}}>
+                style={{paddingHorizontal:12,paddingVertical:6,borderRadius:20,backgroundColor:colors.isDark?'rgba(255,255,255,0.08)':'rgba(0,0,0,0.06)'}}>
                 <Text style={{color:c.textSec,fontWeight:'600'}}>{lang==='en'?'Close':'Schliessen'}</Text>
               </TouchableOpacity>
             </View>
@@ -1438,12 +1516,17 @@ export default function NutritionScreen() {
   );
 }
 
-const s = StyleSheet.create({
-  center:     { flex:1, backgroundColor:c.bg, alignItems:'center', justifyContent:'center', padding:24 },
-  ey:         { fontSize:9, fontWeight:'700', letterSpacing:2, textTransform:'uppercase', color:c.textSec },
-  navBtn:     { width:34, height:34, borderRadius:17, backgroundColor:'rgba(0,0,0,0.06)', alignItems:'center', justifyContent:'center' },
-  lbl:        { fontSize:10, fontWeight:'700', color:c.textSec, textTransform:'uppercase', letterSpacing:1.2, marginBottom:6 },
-  inp:        { backgroundColor:'rgba(0,0,0,0.05)', borderRadius:12, padding:14, color:c.text, fontSize:15, borderWidth:0.5, borderColor:c.border },
-  darkBtn:    { backgroundColor:c.text, borderRadius:14, padding:16, alignItems:'center' },
-  darkBtnTxt: { color:'#fff', fontSize:15, fontWeight:'700' },
-});
+// Wie getNutritionColors() — als Funktion statt StyleSheet-Konstante, weil diese Styles von
+// c (surface colors, hell/dunkel) abhängen und pro Komponente lokal mit dem aktuellen c neu
+// berechnet werden, statt einmalig beim Modul-Laden fixiert zu sein.
+function getS(c: ReturnType<typeof getNutritionColors>, isDark: boolean) {
+  return StyleSheet.create({
+    center:     { flex:1, backgroundColor:c.bg, alignItems:'center', justifyContent:'center', padding:24 },
+    ey:         { fontSize:9, fontWeight:'700', letterSpacing:2, textTransform:'uppercase', color:c.textSec },
+    navBtn:     { width:34, height:34, borderRadius:17, backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', alignItems:'center', justifyContent:'center' },
+    lbl:        { fontSize:10, fontWeight:'700', color:c.textSec, textTransform:'uppercase', letterSpacing:1.2, marginBottom:6 },
+    inp:        { backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', borderRadius:12, padding:14, color:c.text, fontSize:15, borderWidth:0.5, borderColor:c.border },
+    darkBtn:    { backgroundColor:c.text, borderRadius:14, padding:16, alignItems:'center' },
+    darkBtnTxt: { color: isDark ? c.bg : '#fff', fontSize:15, fontWeight:'700' },
+  });
+}

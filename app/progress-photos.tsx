@@ -11,7 +11,7 @@ import {
     Text, TouchableOpacity, View
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { useAppTheme } from '../constants/ThemeContext';
+import { getFullPalette, useAppTheme } from '../constants/ThemeContext';
 import { useLanguage } from '../constants/LanguageContext';
 
 const W = Dimensions.get('window').width;
@@ -51,6 +51,7 @@ function monthLabel(key: string, lang: string): string {
 export default function ProgressPhotosScreen() {
   const { colors } = useAppTheme();
   const { t, lang } = useLanguage();
+  const theme      = getFullPalette(colors);
   const isDark     = colors.isDark;
   const bg         = colors.bg;
   const card       = colors.card;
@@ -165,7 +166,7 @@ export default function ProgressPhotosScreen() {
     return { angle: a, latest, older };
   });
 
-  const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: border, marginBottom: 12 };
+  const cardStyle = { backgroundColor: card, borderRadius: 20, padding: 16, marginBottom: 12, ...theme.shadow };
 
   return (
     <View style={{ flex: 1, backgroundColor: bg }}>

@@ -240,7 +240,7 @@ async function fetchTodayBasalEnergy(): Promise<number | null> {
   }
 }
 
-function calcRecovery(d: DayHealth, avgHRV: number | null): number {
+export function calcRecovery(d: DayHealth, avgHRV: number | null): number {
   let score = 0; let w = 0;
   if (d.hrv !== null) {
     const base = avgHRV ?? 55;
@@ -961,6 +961,25 @@ function isToday(dateStr: string): boolean {
  * genauso stark entladen wie ein harter Trainingstag. Analog zu Garmin Body Battery, wo Ruhe kaum
  * drained und der Hauptanteil aus tatsächlicher Aktivität/Stress kommt.
  */
+/** Battery-Drain durch aktive Kalorien (manuell + Apple Health Active Energy). Auch für die
+ * Anzeige einzelner Drain-Posten in battery.tsx genutzt, damit dort nicht dieselbe Formel
+ * nochmal für die reine Darstellung nachgerechnet wird. */
+export function calcActiveDrain(activeKcal: number): number {
+  return Math.round((activeKcal / 100) * 1.5);
+}
+
+/** Battery-Drain durch Grundumsatz (Apple Health Basal Energy). */
+export function calcBasalDrain(basalEnergy: number): number {
+  return Math.round((basalEnergy / 100) * 0.4);
+}
+
+/** Battery-Drain durch Stress-Score. Ohne Stress-Score (null/undefined) greift ein moderater
+ * Default (Skala 3 von 5) statt 0 — kein Datenpunkt heißt nicht "kein Stress". */
+export function calcStressDrain(stressScore: number | null | undefined): number {
+  const stressVal = stressScore != null ? stressScore / 20 : 3;
+  return Math.round(stressVal * 4);
+}
+
 export function calcBatteryLevel(params: {
   sleepScore: number;
   calorieEntries: { kcal: number }[];
@@ -972,10 +991,9 @@ export function calcBatteryLevel(params: {
   const manualKcal = params.calorieEntries.reduce((sum, e) => sum + e.kcal, 0);
   const activeEnergy = params.activeEnergy ?? 0;
   const basalEnergy = params.basalEnergy ?? 0;
-  const activeDrain = Math.round(((manualKcal + activeEnergy) / 100) * 1.5);
-  const basalDrain = Math.round((basalEnergy / 100) * 0.4);
-  const stressVal = params.stressScore != null ? params.stressScore / 20 : 3;
-  const stressDrain = Math.round(stressVal * 4);
+  const activeDrain = calcActiveDrain(manualKcal + activeEnergy);
+  const basalDrain = calcBasalDrain(basalEnergy);
+  const stressDrain = calcStressDrain(params.stressScore);
   return Math.max(0, Math.min(100, base - activeDrain - basalDrain - stressDrain));
 }
 
